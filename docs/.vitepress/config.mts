@@ -31,7 +31,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/your-repo/EntglDb' }
+      { icon: 'github', link: 'https://github.com/lucafabbri/EntglDb' }
     ]
   }
 })
