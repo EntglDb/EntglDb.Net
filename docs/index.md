@@ -22,6 +22,18 @@ features:
     details: Built for .NET 10. Lightweight and embeddable in any C# application.
 ---
 
-## ⚠️ Alpha Release
-EntglDb is currently a **Proof of Concept**. It is **NOT** ready for production use over public internet.
-See [Security Disclaimer](/architecture#security-disclaimer).
+## ⚠️ Important Notice
+
+**EntglDb is designed for Local Area Networks (LAN)**
+
+This database is built for **trusted LAN environments** such as:
+- Office networks
+- Home networks  
+- Private local networks
+- Edge computing deployments
+
+**Cross-Platform**: Runs on Windows, Linux, and macOS (.NET 10+)
+
+**NOT for Public Internet**: EntglDb is **NOT** designed for public internet deployment without additional security measures (TLS, authentication, firewall rules).
+
+See [Security Considerations](/architecture#security-disclaimer) for details.

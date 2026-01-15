@@ -54,6 +54,15 @@ namespace EntglDb.Core
         }
 
         /// <summary>
+        /// Gets a strongly-typed collection. The collection name defaults to the type name in lowercase.
+        /// </summary>
+        public IPeerCollection<T> Collection<T>(string? customName = null)
+        {
+            var collectionName = customName ?? typeof(T).Name.ToLowerInvariant();
+            return new PeerCollection<T>(collectionName, this);
+        }
+
+        /// <summary>
         /// Manually triggers synchronization. Currently a no-op as sync is handled by SyncOrchestrator.
         /// </summary>
         public Task SyncAsync(CancellationToken cancellationToken = default)
@@ -181,5 +190,74 @@ namespace EntglDb.Core
             }
             return list;
         }
+    }
+
+    /// <summary>
+    /// Represents a strongly-typed collection of documents within a <see cref="PeerDatabase"/>.
+    /// </summary>
+    public class PeerCollection<T> : IPeerCollection<T>
+    {
+        private readonly PeerCollection _inner;
+
+        public PeerCollection(string name, PeerDatabase db)
+        {
+            _inner = new PeerCollection(name, db);
+        }
+
+        public string Name => _inner.Name;
+
+        public Task Put(string key, T document, CancellationToken cancellationToken = default)
+            => _inner.Put(key, document, cancellationToken);
+
+        public Task Put(T document, CancellationToken cancellationToken = default)
+        {
+            // Get key from entity metadata
+            var getKey = Metadata.EntityMetadata<T>.GetKey;
+            if (getKey == null)
+                throw new InvalidOperationException(
+                    $"Type {typeof(T).Name} has no primary key defined. " +
+                    $"Add [PrimaryKey] attribute or define an 'Id' property, or use Put(key, document) instead.");
+            
+            var key = getKey(document);
+            
+            // Auto-generate if empty and auto-generation enabled
+            if (string.IsNullOrEmpty(key) && Metadata.EntityMetadata<T>.AutoGenerateKey)
+            {
+                key = Guid.NewGuid().ToString();
+                Metadata.EntityMetadata<T>.SetKey?.Invoke(document, key);
+            }
+            
+            if (string.IsNullOrEmpty(key))
+                throw new InvalidOperationException(
+                    $"Primary key for {typeof(T).Name} is null or empty. " +
+                    $"Ensure the primary key property has a value or enable auto-generation.");
+            
+            return Put(key, document, cancellationToken);
+        }
+
+        public Task<T> Get(string key, CancellationToken cancellationToken = default)
+            => _inner.Get<T>(key, cancellationToken);
+
+        public Task Delete(string key, CancellationToken cancellationToken = default)
+            => _inner.Delete(key, cancellationToken);
+
+        public Task<IEnumerable<T>> Find(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
+            => _inner.Find(predicate, cancellationToken);
+
+        public Task<IEnumerable<T>> Find(Expression<Func<T, bool>> predicate, int? skip, int? take, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+            => _inner.Find(predicate, skip, take, orderBy, ascending, cancellationToken);
+
+        // Explicit interface implementations for non-generic methods
+        Task IPeerCollection.Put(string key, object document, CancellationToken cancellationToken)
+            => _inner.Put(key, document, cancellationToken);
+
+        Task<TResult> IPeerCollection.Get<TResult>(string key, CancellationToken cancellationToken)
+            => _inner.Get<TResult>(key, cancellationToken);
+
+        Task<IEnumerable<TResult>> IPeerCollection.Find<TResult>(Expression<Func<TResult, bool>> predicate, CancellationToken cancellationToken)
+            => _inner.Find(predicate, cancellationToken);
+
+        Task<IEnumerable<TResult>> IPeerCollection.Find<TResult>(Expression<Func<TResult, bool>> predicate, int? skip, int? take, string? orderBy, bool ascending, CancellationToken cancellationToken)
+            => _inner.Find(predicate, skip, take, orderBy, ascending, cancellationToken);
     }
 }

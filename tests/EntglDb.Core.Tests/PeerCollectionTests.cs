@@ -1,0 +1,228 @@
+using EntglDb.Core.Metadata;
+using EntglDb.Core.Storage;
+using FluentAssertions;
+using System.Text.Json;
+using Xunit;
+
+namespace EntglDb.Core.Tests;
+
+public class PeerCollectionTests
+{
+    // Test entity
+    public class TestUser
+    {
+        [PrimaryKey(AutoGenerate = true)]
+        public string Id { get; set; } = "";
+        public string? Name { get; set; }
+        public int Age { get; set; }
+    }
+
+    // In-memory store for testing
+    private class InMemoryPeerStore : IPeerStore
+    {
+        private readonly Dictionary<string, Dictionary<string, Document>> _collections = new();
+        private readonly List<OplogEntry> _oplog = new();
+        private HlcTimestamp _latestTimestamp = new HlcTimestamp(0, 0, "test");
+
+        public Task SaveDocumentAsync(Document document, CancellationToken cancellationToken = default)
+        {
+            if (!_collections.ContainsKey(document.Collection))
+                _collections[document.Collection] = new Dictionary<string, Document>();
+
+            _collections[document.Collection][document.Key] = document;
+            return Task.CompletedTask;
+        }
+
+        public Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
+        {
+            if (_collections.TryGetValue(collection, out var docs) && docs.TryGetValue(key, out var doc))
+                return Task.FromResult<Document?>(doc);
+            return Task.FromResult<Document?>(null);
+        }
+
+        public Task AppendOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)
+        {
+            _oplog.Add(entry);
+            if (entry.Timestamp.CompareTo(_latestTimestamp) > 0)
+                _latestTimestamp = entry.Timestamp;
+            return Task.CompletedTask;
+        }
+
+        public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp since, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_oplog.Where(e => e.Timestamp.CompareTo(since) > 0));
+        }
+
+        public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_latestTimestamp);
+        }
+
+        public Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
+        {
+            foreach (var doc in documents)
+            {
+                if (!_collections.ContainsKey(doc.Collection))
+                    _collections[doc.Collection] = new Dictionary<string, Document>();
+                _collections[doc.Collection][doc.Key] = doc;
+            }
+
+            foreach (var entry in oplogEntries)
+            {
+                _oplog.Add(entry);
+                if (entry.Timestamp.CompareTo(_latestTimestamp) > 0)
+                    _latestTimestamp = entry.Timestamp;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+        {
+            if (!_collections.TryGetValue(collection, out var docs))
+                return Task.FromResult(Enumerable.Empty<Document>());
+
+            var results = docs.Values.AsEnumerable();
+            
+            if (skip.HasValue)
+                results = results.Skip(skip.Value);
+            if (take.HasValue)
+                results = results.Take(take.Value);
+
+            return Task.FromResult(results);
+        }
+    }
+
+    [Fact]
+    public async Task Put_WithExplicitKey_ShouldStoreDocument()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+        await db.InitializeAsync();
+        var users = db.Collection<TestUser>();
+
+        var user = new TestUser { Name = "Alice", Age = 30 };
+
+        // Act
+        await users.Put("user-1", user);
+
+        // Assert
+        var retrieved = await users.Get("user-1");
+        retrieved.Should().NotBeNull();
+        retrieved!.Name.Should().Be("Alice");
+        retrieved.Age.Should().Be(30);
+    }
+
+    [Fact]
+    public async Task Put_WithoutKey_ShouldAutoGenerateId()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+        await db.InitializeAsync();
+        var users = db.Collection<TestUser>();
+
+        var user = new TestUser { Name = "Bob", Age = 25 };
+
+        // Act
+        await users.Put(user);
+
+        // Assert
+        user.Id.Should().NotBeNullOrEmpty();
+        user.Id.Should().MatchRegex(@"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"); // GUID format
+    }
+
+    [Fact]
+    public async Task Put_WithoutKey_ShouldBeRetrievableById()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+        await db.InitializeAsync();
+        var users = db.Collection<TestUser>();
+
+        var user = new TestUser { Name = "Charlie", Age = 35 };
+
+        // Act
+        await users.Put(user);
+        var retrieved = await users.Get(user.Id);
+
+        // Assert
+        retrieved.Should().NotBeNull();
+        retrieved!.Name.Should().Be("Charlie");
+        retrieved.Age.Should().Be(35);
+    }
+
+    [Fact]
+    public async Task Get_NonExistingKey_ShouldReturnNull()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+        await db.InitializeAsync();
+        var users = db.Collection<TestUser>();
+
+        // Act
+        var result = await users.Get("non-existing");
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Delete_ShouldRemoveDocument()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+        await db.InitializeAsync();
+        var users = db.Collection<TestUser>();
+
+        await users.Put("user-1", new TestUser { Name = "Alice", Age = 30 });
+
+        // Act
+        await users.Delete("user-1");
+
+        // Assert
+        var retrieved = await users.Get("user-1");
+        retrieved.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Find_ShouldReturnMatchingDocuments()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+        await db.InitializeAsync();
+        var users = db.Collection<TestUser>();
+
+        await users.Put(new TestUser { Name = "Alice", Age = 30 });
+        await users.Put(new TestUser { Name = "Bob", Age = 25 });
+        await users.Put(new TestUser { Name = "Charlie", Age = 35 });
+
+        // Act
+        var results = await users.Find(u => u.Age > 28);
+
+        // Assert
+        results.Should().HaveCountGreaterThanOrEqualTo(2);
+        results.Should().Contain(u => u.Name == "Alice");
+        results.Should().Contain(u => u.Name == "Charlie");
+    }
+
+    [Fact]
+    public async Task Collection_ShouldBeCached()
+    {
+        // Arrange
+        var store = new InMemoryPeerStore();
+        var db = new PeerDatabase(store, "test-node");
+
+        // Act
+        var users1 = db.Collection<TestUser>();
+        var users2 = db.Collection<TestUser>();
+
+        // Assert
+        users1.Name.Should().Be(users2.Name);
+    }
+}

@@ -14,7 +14,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.2.0-alpha</Version>
     <Authors>Luca Fabbri</Authors>
     <Description>SQLite persistence provider for EntglDb.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

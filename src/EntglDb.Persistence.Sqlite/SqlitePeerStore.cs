@@ -7,8 +7,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using EntglDb.Core;
 using EntglDb.Core.Storage;
+using EntglDb.Core.Exceptions;
 
 namespace EntglDb.Persistence.Sqlite
 {
@@ -18,48 +21,134 @@ namespace EntglDb.Persistence.Sqlite
     public class SqlitePeerStore : IPeerStore
     {
         private readonly string _connectionString;
+        private readonly ILogger<SqlitePeerStore> _logger;
 
-        public SqlitePeerStore(string connectionString)
+        public SqlitePeerStore(string connectionString, ILogger<SqlitePeerStore>? logger = null)
         {
             _connectionString = connectionString;
-            Initialize(); // Ensure DB is ready
+            _logger = logger ?? NullLogger<SqlitePeerStore>.Instance;
+            Initialize();
         }
 
         private void Initialize()
         {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                connection.Open();
 
-            // Enable WAL mode
-            connection.Execute("PRAGMA journal_mode=WAL;");
+                // Enable WAL mode for better concurrency
+                EnsureWalMode(connection);
 
-            // Create Tables
-            connection.Execute(@"
-                CREATE TABLE IF NOT EXISTS Documents (
-                    Collection TEXT NOT NULL,
-                    Key TEXT NOT NULL,
-                    JsonData TEXT,
-                    IsDeleted INTEGER NOT NULL,
-                    HlcWall INTEGER NOT NULL,
-                    HlcLogic INTEGER NOT NULL,
-                    HlcNode TEXT NOT NULL,
-                    PRIMARY KEY (Collection, Key)
-                );
+                // Set busy timeout
+                connection.Execute("PRAGMA busy_timeout = 5000");
 
-                CREATE TABLE IF NOT EXISTS Oplog (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    Collection TEXT NOT NULL,
-                    Key TEXT NOT NULL,
-                    Operation INTEGER NOT NULL,
-                    JsonData TEXT,
-                    IsDeleted INTEGER NOT NULL,
-                    HlcWall INTEGER NOT NULL,
-                    HlcLogic INTEGER NOT NULL,
-                    HlcNode TEXT NOT NULL
-                );
+                _logger.LogInformation("Initializing SQLite database with WAL mode");
 
-                CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
-            ");
+                // Create Tables
+                connection.Execute(@"
+                    CREATE TABLE IF NOT EXISTS Documents (
+                        Collection TEXT NOT NULL,
+                        Key TEXT NOT NULL,
+                        JsonData TEXT,
+                        IsDeleted INTEGER NOT NULL,
+                        HlcWall INTEGER NOT NULL,
+                        HlcLogic INTEGER NOT NULL,
+                        HlcNode TEXT NOT NULL,
+                        PRIMARY KEY (Collection, Key)
+                    );
+
+                    CREATE TABLE IF NOT EXISTS Oplog (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Collection TEXT NOT NULL,
+                        Key TEXT NOT NULL,
+                        Operation INTEGER NOT NULL,
+                        JsonData TEXT,
+                        IsDeleted INTEGER NOT NULL,
+                        HlcWall INTEGER NOT NULL,
+                        HlcLogic INTEGER NOT NULL,
+                        HlcNode TEXT NOT NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
+                ");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "Failed to initialize SQLite database");
+                throw new PersistenceException("Database initialization failed", ex);
+            }
+        }
+
+        private void EnsureWalMode(SqliteConnection connection)
+        {
+            var mode = connection.QuerySingle<string>("PRAGMA journal_mode");
+            if (mode?.ToLower() != "wal")
+            {
+                connection.Execute("PRAGMA journal_mode=WAL");
+                _logger.LogInformation("Enabled WAL mode for database");
+            }
+        }
+
+        /// <summary>
+        /// Checks database integrity.
+        /// </summary>
+        public async Task<bool> CheckIntegrityAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var connection = new SqliteConnection(_connectionString);
+                await connection.OpenAsync(cancellationToken);
+                
+                var result = await connection.QuerySingleAsync<string>("PRAGMA integrity_check");
+                var isHealthy = result == "ok";
+                
+                if (!isHealthy)
+                {
+                    _logger.LogError("Database corruption detected: {Result}", result);
+                    throw new DatabaseCorruptionException($"Database integrity check failed: {result}");
+                }
+                
+                _logger.LogDebug("Database integrity check passed");
+                return true;
+            }
+            catch (Exception ex) when (ex is not DatabaseCorruptionException)
+            {
+                _logger.LogError(ex, "Failed to check database integrity");
+                throw new PersistenceException("Integrity check failed", ex);
+            }
+        }
+
+        /// <summary>
+        /// Creates a backup of the database.
+        /// </summary>
+        public async Task BackupAsync(string backupPath, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                _logger.LogInformation("Creating database backup at {Path}", backupPath);
+                
+                var directory = Path.GetDirectoryName(backupPath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                using var source = new SqliteConnection(_connectionString);
+                using var destination = new SqliteConnection($"Data Source={backupPath}");
+                
+                await source.OpenAsync(cancellationToken);
+                await destination.OpenAsync(cancellationToken);
+                
+                source.BackupDatabase(destination);
+                
+                _logger.LogInformation("Database backup completed successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create database backup");
+                throw new PersistenceException($"Backup failed: {ex.Message}", ex);
+            }
         }
 
         /// <summary>
