@@ -38,11 +38,12 @@
               <Button Content="Ensure Index (Age)" Click="OnEnsureIndexClicked"/>
           </StackPanel>
           
-          <DataGrid Name="GridData" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="All" BorderThickness="1" BorderBrush="Gray"
-                    x:DataType="local:DocumentViewModel">
+          <DataGrid Name="GridData" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="All" BorderThickness="1" BorderBrush="Gray">
               <DataGrid.Columns>
-                  <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="150"/>
-                  <DataGridTextColumn Header="JSON Content" Binding="{Binding Content}" Width="*"/>
+                  <DataGridTextColumn
+                    x:DataType="local:DocumentViewModel" Header="Key" Binding="{Binding Key}" Width="150"/>
+                  <DataGridTextColumn
+                    x:DataType="local:DocumentViewModel" Header="JSON Content" Binding="{Binding Content}" Width="*"/>
               </DataGrid.Columns>
           </DataGrid>
       </DockPanel>

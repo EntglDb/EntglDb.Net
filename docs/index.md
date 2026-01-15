@@ -8,7 +8,8 @@ Welcome to the EntglDb documentation.
 
 ## Active Versions
 
-*   [**v0.2.0 (Latest)**](v0.2/getting-started.html) - Current stable release.
+*   [**v0.4.0 (Latest)**](v0.4/getting-started.html) - Current stable release.
+*   [v0.2.0](v0.2/getting-started.html) - Previous release.
 
 ## Downloads
 
