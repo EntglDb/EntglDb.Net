@@ -10,8 +10,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -19,10 +19,12 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <LangVersion Condition="'$(TargetFramework)' == 'net6.0'">10.0</LangVersion>
+    <LangVersion Condition="'$(TargetFramework)' == 'netstandard2.0'">9.0</LangVersion>
+    <ImplicitUsings Condition="'$(TargetFramework)' == 'net6.0'">enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <Authors>Luca Fabbri</Authors>
     <Description>Networking layer (TCP/UDP/Gossip) for EntglDb.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

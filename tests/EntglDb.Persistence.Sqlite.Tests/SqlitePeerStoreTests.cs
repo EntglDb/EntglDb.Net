@@ -132,4 +132,34 @@ public class SqlitePeerStoreTests : IDisposable
         // Assert
         results.Should().HaveCount(5);
     }
+
+    [Fact]
+    public async Task GetCollectionsAsync_ShouldReturnDistinctCollectionNames()
+    {
+        // Arrange
+        await _store.SaveDocumentAsync(CreateDocument("users", "u1", new { }, new HlcTimestamp(100, 0, "n1")));
+        await _store.SaveDocumentAsync(CreateDocument("products", "p1", new { }, new HlcTimestamp(100, 0, "n1")));
+        await _store.SaveDocumentAsync(CreateDocument("users", "u2", new { }, new HlcTimestamp(100, 0, "n1"))); // Duplicate collection
+
+        // Act
+        var collections = await _store.GetCollectionsAsync();
+
+        // Assert
+        collections.Should().HaveCount(2);
+        collections.Should().Contain(new[] { "users", "products" });
+    }
+
+    [Fact]
+    public async Task EnsureIndexAsync_ShouldCreateIndexWithoutError()
+    {
+        // Arrange
+        await _store.SaveDocumentAsync(CreateDocument("users", "u1", new { Age = 30 }, new HlcTimestamp(100, 0, "n1")));
+
+        // Act & Assert
+        // SQLite silently ignores if index exists (IF NOT EXISTS), so running twice should be fine
+        await _store.EnsureIndexAsync("users", "Age");
+        await _store.EnsureIndexAsync("users", "Age");
+        
+        // No exception means pass
+    }
 }

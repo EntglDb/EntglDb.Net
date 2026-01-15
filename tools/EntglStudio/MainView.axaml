@@ -1,0 +1,52 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:EntglStudio"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="768"
+             x:Class="EntglStudio.MainView">
+  
+  <Grid RowDefinitions="Auto, *">
+    
+    <!-- Top Bar: Connection -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10" Spacing="10">
+      <TextBlock Text="DB Path:" VerticalAlignment="Center"/>
+      <TextBox Name="TxtDbPath" Width="300" Text="entgldb-avalonia-test.db"/>
+      <TextBlock Text="Cluster Key:" VerticalAlignment="Center"/>
+      <TextBox Name="TxtAuthToken" Width="150" Text="demo-secret-key" PasswordChar="*"/>
+      <Button Content="Connect" Click="OnConnectClicked"/>
+      <TextBlock Name="LblStatus" Text="Not Connected" VerticalAlignment="Center" Foreground="Gray"/>
+    </StackPanel>
+
+    <!-- Main Content -->
+    <Grid Grid.Row="1" ColumnDefinitions="250, *">
+      
+      <!-- Left: Collections -->
+      <Border Grid.Column="0" BorderBrush="Gray" BorderThickness="0,0,1,0" Padding="5">
+          <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Collections" FontWeight="Bold" Margin="0,0,0,5"/>
+              <Button DockPanel.Dock="Bottom" Content="Refresh Lists" Click="OnRefreshCollectionsClicked" HorizontalAlignment="Stretch" Margin="0,5,0,0"/>
+              <ListBox Name="LstCollections" SelectionChanged="OnCollectionChanged"/>
+          </DockPanel>
+      </Border>
+      
+      <!-- Right: Data -->
+      <DockPanel Grid.Column="1" LastChildFill="True" Margin="10">
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
+              <TextBlock Name="LblCurrentCollection" Text="No Collection Selected" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>
+              <Button Content="Refresh Data" Click="OnRefreshDataClicked"/>
+              <Button Content="Ensure Index (Age)" Click="OnEnsureIndexClicked"/>
+          </StackPanel>
+          
+          <DataGrid Name="GridData" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="All" BorderThickness="1" BorderBrush="Gray"
+                    x:DataType="local:DocumentViewModel">
+              <DataGrid.Columns>
+                  <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="150"/>
+                  <DataGridTextColumn Header="JSON Content" Binding="{Binding Content}" Width="*"/>
+              </DataGrid.Columns>
+          </DataGrid>
+      </DockPanel>
+      
+    </Grid>
+  </Grid>
+</UserControl>

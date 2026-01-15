@@ -34,6 +34,11 @@ namespace EntglDb.Core
         }
 
         /// <summary>
+        /// Gets the unique identifier for this node.
+        /// </summary>
+        public string NodeId => _nodeId;
+
+        /// <summary>
         /// Initializes the database by restoring the latest HLC timestamp from the store.
         /// </summary>
         public async Task InitializeAsync(CancellationToken cancellationToken = default) 
@@ -59,6 +64,24 @@ namespace EntglDb.Core
         public IPeerCollection<T> Collection<T>(string? customName = null)
         {
             var collectionName = customName ?? typeof(T).Name.ToLowerInvariant();
+            
+            // Auto-Index Check (Fire and forget safe)
+            var props = Metadata.EntityMetadata<T>.IndexedProperties;
+            if (props.Length > 0)
+            {
+                Task.Run(async () => 
+                {
+                    foreach(var p in props)
+                    {
+                        try 
+                        {
+                            await _store.EnsureIndexAsync(collectionName, p.Name);
+                        }
+                        catch { /* Ignore index creation errors to prevent crashing app */ }
+                    }
+                });
+            }
+
             return new PeerCollection<T>(collectionName, this);
         }
 
@@ -68,6 +91,11 @@ namespace EntglDb.Core
         public Task SyncAsync(CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
+        }
+
+        public Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
+        {
+            return _store.GetCollectionsAsync(cancellationToken);
         }
 
         internal IPeerStore Store => _store;

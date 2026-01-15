@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
-    <Nullable>enable</Nullable>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
     <LangVersion>9.0</LangVersion>
-    <Version>0.3.1</Version>
+    <Nullable>enable</Nullable>
+    <Version>0.4.0</Version>
     <Authors>Luca Fabbri</Authors>
     <Description>Core abstractions and logic for EntglDb, a lightweight P2P mesh database.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -22,9 +22,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="6.0.0" />
+    <PackageReference Include="System.Text.Json" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
   </ItemGroup>
 
 </Project>

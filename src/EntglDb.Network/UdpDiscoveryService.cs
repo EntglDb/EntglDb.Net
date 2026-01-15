@@ -25,14 +25,15 @@ namespace EntglDb.Network
         private readonly bool _useLocalhost;
 
         private readonly string _nodeId;
-        private readonly int _tcpPort;
+
+        public int TcpPort { get; set; }
         private CancellationTokenSource? _cts;
         private readonly ConcurrentDictionary<string, PeerNode> _activePeers = new();
 
         public UdpDiscoveryService(string nodeId, int tcpPort, ILogger<UdpDiscoveryService> logger, bool useLocalhost = false)
         {
             _nodeId = nodeId;
-            _tcpPort = tcpPort;
+            TcpPort = tcpPort;
             _logger = logger;
             _useLocalhost = useLocalhost;
         }
@@ -167,7 +168,7 @@ namespace EntglDb.Network
             using var udp = new UdpClient();
             udp.EnableBroadcast = true;
             
-            var beacon = new DiscoveryBeacon { NodeId = _nodeId, TcpPort = _tcpPort };
+            var beacon = new DiscoveryBeacon { NodeId = _nodeId, TcpPort = TcpPort };
             var json = JsonSerializer.Serialize(beacon);
             var bytes = Encoding.UTF8.GetBytes(json);
             var endpoint = new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);

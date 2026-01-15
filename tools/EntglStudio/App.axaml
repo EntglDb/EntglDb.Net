@@ -1,0 +1,8 @@
+<avalonia:HostedApplication xmlns="https://github.com/avaloniaui"
+                             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                             xmlns:avalonia="using:Lifter.Avalonia"
+                             x:Class="EntglStudio.App">
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</avalonia:HostedApplication>

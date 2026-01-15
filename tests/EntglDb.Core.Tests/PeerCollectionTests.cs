@@ -77,7 +77,7 @@ public class PeerCollectionTests
             return Task.CompletedTask;
         }
 
-        public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+        public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
         {
             if (!_collections.TryGetValue(collection, out var docs))
                 return Task.FromResult(Enumerable.Empty<Document>());
@@ -90,6 +90,17 @@ public class PeerCollectionTests
                 results = results.Take(take.Value);
 
             return Task.FromResult(results);
+        }
+
+        public Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IEnumerable<string>>(_collections.Keys);
+        }
+
+        public Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
+        {
+            // No-op for in-memory store
+            return Task.CompletedTask;
         }
     }
 

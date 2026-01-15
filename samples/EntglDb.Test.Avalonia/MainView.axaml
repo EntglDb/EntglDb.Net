@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="EntglDb.Test.Avalonia.MainView">
+    
+    <Grid RowDefinitions="Auto, *">
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#f0f0f0" Padding="15">
+            <StackPanel Orientation="Horizontal" Spacing="20">
+                <TextBlock Text="EntglDb Dashboard" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock x:Name="NodeIdLabel" Text="Node: Loading..." VerticalAlignment="Center"/>
+                <TextBlock x:Name="PortLabel" Text="Port: ..." VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1" ColumnDefinitions="250, *" Margin="10">
+            <!-- Left Side: Actions -->
+            <StackPanel Grid.Column="0" Spacing="10" Margin="0,0,10,0">
+                <TextBlock Text="Actions" FontWeight="Bold" Margin="0,0,0,5"/>
+                
+                <Border BorderBrush="#e0e0e0" BorderThickness="1" Padding="10" CornerRadius="4">
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="Manual Entry" FontWeight="SemiBold"/>
+                        <TextBox x:Name="KeyEntry" Watermark="Key"/>
+                        <TextBox x:Name="ValueEntry" Watermark="Value"/>
+                        <Grid ColumnDefinitions="*,*">
+                            <Button Content="Put" Click="OnSaveClicked" HorizontalAlignment="Stretch" Margin="0,0,2,0"/>
+                            <Button Grid.Column="1" Content="Get" Click="OnLoadClicked" HorizontalAlignment="Stretch" Margin="2,0,0,0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Button Content="Generate Auto Data" Click="OnAutoDataClicked" HorizontalAlignment="Stretch"/>
+                <Button Content="Spam 5 Records" Click="OnSpamClicked" HorizontalAlignment="Stretch"/>
+                <Button Content="Count Documents" Click="OnCountClicked" HorizontalAlignment="Stretch"/>
+                
+                <TextBlock Text="Status" FontWeight="Bold" Margin="0,10,0,5"/>
+                <TextBlock x:Name="StatusLabel" Text="Ready" TextWrapping="Wrap" Foreground="Green"/>
+            </StackPanel>
+
+            <!-- Right Side: Peers & Results -->
+            <Grid Grid.Column="1" RowDefinitions="*, Auto, *">
+                
+                <!-- Peers List -->
+                <Border Grid.Row="0" BorderBrush="#e0e0e0" BorderThickness="1" CornerRadius="4" Padding="5">
+                    <Grid RowDefinitions="Auto, *">
+                        <TextBlock Text="Active Peers (Discovery)" FontWeight="Bold" Margin="5"/>
+                        <ListBox x:Name="PeersList" Grid.Row="1" Background="Transparent"/>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"/>
+
+                <!-- Results Log -->
+                <Border Grid.Row="2" BorderBrush="#e0e0e0" BorderThickness="1" CornerRadius="4" Padding="5">
+                    <Grid RowDefinitions="Auto, *">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="Logs &amp; Results" FontWeight="Bold" Margin="5"/>
+                            <Button Content="Clear" Click="OnClearLogsClicked" Padding="5,2" FontSize="10"/>
+                        </StackPanel>
+                        <TextBox x:Name="ResultLog" Grid.Row="1" IsReadOnly="True" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

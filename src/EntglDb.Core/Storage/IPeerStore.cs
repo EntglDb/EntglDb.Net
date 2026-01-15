@@ -32,7 +32,16 @@ namespace EntglDb.Core.Storage
         /// <summary>
         /// Queries documents in a collection.
         /// </summary>
-        Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default);
+        Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default);
 
+        /// <summary>
+        /// Retrieves a list of all active collections in the store.
+        /// </summary>
+        Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ensures an index exists on a specific JSON property within a collection.
+        /// </summary>
+        Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default);
     }
 }

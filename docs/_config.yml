@@ -1,0 +1,5 @@
+title: "EntglDb Documentation"
+description: A decentralized, offline-first peer-to-peer database.
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-seo-tag

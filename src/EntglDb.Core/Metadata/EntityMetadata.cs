@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.ComponentModel.DataAnnotations;
 
 namespace EntglDb.Core.Metadata
 {
@@ -20,9 +21,10 @@ namespace EntglDb.Core.Metadata
         {
             _primaryKeyProperty = new Lazy<PropertyInfo?>(() => 
             {
-                // 1. Look for [PrimaryKey] attribute
+                // 1. Look for [PrimaryKey] attribute or standard [Key]
                 var prop = typeof(T).GetProperties()
-                    .FirstOrDefault(p => p.GetCustomAttribute<PrimaryKeyAttribute>() != null);
+                    .FirstOrDefault(p => p.GetCustomAttribute<PrimaryKeyAttribute>() != null 
+                                      || p.GetCustomAttribute<KeyAttribute>() != null);
                 
                 // 2. Convention: "Id" or "{TypeName}Id"
                 if (prop == null)

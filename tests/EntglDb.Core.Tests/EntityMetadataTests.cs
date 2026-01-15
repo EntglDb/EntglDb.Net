@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using EntglDb.Core.Metadata;
 using FluentAssertions;
 using Xunit;
@@ -7,6 +8,13 @@ namespace EntglDb.Core.Tests;
 public class EntityMetadataTests
 {
     // Test entities
+    public class UserWithKeyAttribute
+    {
+        [Key]
+        public string Email { get; set; } = "";
+        public string? Name { get; set; }
+    }
+
     public class UserWithAttribute
     {
         [PrimaryKey(AutoGenerate = true)]
@@ -39,6 +47,17 @@ public class EntityMetadataTests
     {
         [PrimaryKey(AutoGenerate = false)]
         public string Id { get; set; } = "";
+    }
+
+    [Fact]
+    public void PrimaryKey_ShouldBeDetected_ViaKeyAttribute()
+    {
+        // Act
+        var prop = EntityMetadata<UserWithKeyAttribute>.PrimaryKeyProperty;
+
+        // Assert
+        prop.Should().NotBeNull();
+        prop!.Name.Should().Be("Email");
     }
 
     [Fact]

@@ -28,6 +28,11 @@ namespace EntglDb.Core
         /// Manually triggers synchronization.
         /// </summary>
         Task SyncAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Retrieves a list of all active collections in the database.
+        /// </summary>
+        Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default);
     }
 
     /// <summary>

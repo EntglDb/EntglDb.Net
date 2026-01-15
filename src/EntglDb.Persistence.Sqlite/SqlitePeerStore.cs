@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -349,7 +350,7 @@ namespace EntglDb.Persistence.Sqlite
             }
         }
 
-        public async Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+        public async Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
         {
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
@@ -411,6 +412,36 @@ namespace EntglDb.Persistence.Sqlite
                     : default;
                  return new Document(collection, r.Key, content, hlc, r.IsDeleted);
             });
+        }
+
+        public async Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            return await connection.QueryAsync<string>(@"
+                SELECT DISTINCT Collection 
+                FROM Documents 
+                ORDER BY Collection");
+        }
+
+        public async Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            // Sanitize names to prevent injection (though internal use makes this less risky)
+            var safeColl = new string(collection.Where(char.IsLetterOrDigit).ToArray());
+            var safeProp = new string(propertyPath.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '.').ToArray());
+            var indexName = $"IDX_{safeColl}_{safeProp.Replace(".", "_")}";
+
+            // SQLite JSON index syntax
+            var sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
+                         ON Documents(json_extract(JsonData, '$.{safeProp}')) 
+                         WHERE Collection = '{collection}'";
+
+            await connection.ExecuteAsync(sql);
+            _logger.LogInformation("Ensured index {IndexName} on {Collection}.{Property}", indexName, collection, propertyPath);
         }
 
         // Inner classes for Dapper mapping

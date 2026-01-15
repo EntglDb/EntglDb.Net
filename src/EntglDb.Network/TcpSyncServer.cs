@@ -59,6 +59,16 @@ namespace EntglDb.Network
             _cts = null;
         }
 
+        /// <summary>
+        /// Gets the full local endpoint on which the server is listening.
+        /// </summary>
+        public IPEndPoint? ListeningEndpoint => _listener?.LocalEndpoint as IPEndPoint;
+
+        /// <summary>
+        /// Gets the port on which the server is listening.
+        /// </summary>
+        public int ListeningPort => ListeningEndpoint?.Port ?? _port;
+
         private async Task ListenAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
