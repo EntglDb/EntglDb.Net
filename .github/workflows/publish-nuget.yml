@@ -30,15 +30,15 @@ jobs:
 
       # 3. Ripristina le dipendenze NuGet del progetto
       - name: Restore dependencies
-        run: dotnet restore EntglDb.sln
+        run: dotnet restore EntglDb.Libs.sln
 
       # 4. Compila la soluzione in configurazione Release
       - name: Build
-        run: dotnet build EntglDb.sln --no-restore --configuration Release
+        run: dotnet build EntglDb.Libs.sln --no-restore --configuration Release
 
       # 5. Esegue i test della soluzione
       - name: Run tests
-        run: dotnet test EntglDb.sln --no-build --configuration Release
+        run: dotnet test EntglDb.Libs.sln --no-build --configuration Release
 
       # --- Pubblicazione ---
       # I seguenti passaggi vengono eseguiti SOLO se il workflow
@@ -50,7 +50,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          dotnet pack EntglDb.sln --no-build --configuration Release --output ./packages /p:Version=$VERSION
+          dotnet pack EntglDb.Libs.sln --no-build --configuration Release --output ./packages /p:Version=$VERSION
 
       # 7. Pubblica tutti i pacchetti .nupkg creati nel passo precedente
       - name: Publish to NuGet
