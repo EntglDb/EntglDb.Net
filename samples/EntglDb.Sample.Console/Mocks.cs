@@ -6,7 +6,7 @@ using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using EntglDb.Core;
-using EntglDb.Core.Network;
+
 using EntglDb.Core.Storage;
 
 namespace EntglDb.Sample.Console.Mocks
@@ -77,30 +77,5 @@ namespace EntglDb.Sample.Console.Mocks
         }
     }
 
-    public class MockNetwork : IMeshNetwork
-    {
-        public string LocalNodeId => "node-1";
 
-#pragma warning disable CS0067
-        public event EventHandler<PeerNode>? PeerJoined;
-        public event EventHandler<PeerNode>? PeerLeft;
-        public event EventHandler<(string FromNodeId, object Message)>? MessageReceived;
-#pragma warning restore CS0067
-
-        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public IEnumerable<PeerNode> GetActivePeers() => Enumerable.Empty<PeerNode>();
-
-        public Task BroadcastAsync<T>(T message, CancellationToken cancellationToken = default)
-        {
-            System.Console.WriteLine($"[Network] Broadcast: {message}");
-            return Task.CompletedTask;
-        }
-
-        public Task SendToPeerAsync<T>(string nodeId, T message, CancellationToken cancellationToken = default)
-        {
-            System.Console.WriteLine($"[Network] Send to {nodeId}: {message}");
-            return Task.CompletedTask;
-        }
-    }
 }

@@ -28,6 +28,15 @@ namespace EntglDb.Network
                     sp.GetRequiredService<ILoggerFactory>()
                 ));
 
+            // Facade for single-point control
+            services.AddSingleton<EntglDbNode>(sp => 
+                new EntglDbNode(
+                    sp.GetRequiredService<TcpSyncServer>(),
+                    sp.GetRequiredService<UdpDiscoveryService>(),
+                    sp.GetRequiredService<SyncOrchestrator>(),
+                    sp.GetRequiredService<ILogger<EntglDbNode>>()
+                ));
+
             return services;
         }
     }

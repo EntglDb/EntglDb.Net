@@ -7,7 +7,7 @@ The entry point for interacting with the database.
 ```csharp
 public class PeerDatabase : IPeerDatabase
 {
-    public PeerDatabase(IPeerStore store, IMeshNetwork network);
+    public PeerDatabase(IPeerStore store, string nodeId = "local");
     public IPeerCollection Collection(string name);
 }
 ```

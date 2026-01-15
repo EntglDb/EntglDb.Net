@@ -60,9 +60,6 @@ StyleCopReport.xml
 # Files meant for clicking...
 *.launch
 
-# Native Properties
-*.json
-
 # PeerDb / EntglDb specific
 # NuGet packages created by pack.bat
 nupkgs/
@@ -77,3 +74,8 @@ stress_errors_node-*.log
 *.db-shm
 *.db-wal
 EntglDb-*.db
+
+# VitePress documentation
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

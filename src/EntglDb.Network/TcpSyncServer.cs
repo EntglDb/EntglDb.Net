@@ -16,6 +16,9 @@ using EntglDb.Network.Security;
 
 namespace EntglDb.Network
 {
+    /// <summary>
+    /// TCP server that handles incoming synchronization requests from remote peers.
+    /// </summary>
     public class TcpSyncServer
     {
         private readonly int _port;
@@ -100,9 +103,7 @@ namespace EntglDb.Network
                                 {
                                     _logger.LogWarning("Authentication failed for Node {NodeId}", hReq.NodeId);
                                     await SendMessageAsync(stream, MessageType.HandshakeRes, new HandshakeResponse { NodeId = _nodeId, Accepted = false });
-                                    // Close connection?
-                                    // Yes, break loop
-                                    return; // Or break to close
+                                    return; // Close connection on auth failure
                                 }
                                 
                                 response = new HandshakeResponse { NodeId = _nodeId, Accepted = true };
@@ -150,17 +151,11 @@ namespace EntglDb.Network
                                     string.IsNullOrEmpty(e.JsonData) ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
                                     new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode)
                                 ));
-                                // We don't have Documents here, just Oplog. 
-                                // ApplyBatchAsync expects Documents and Oplog.
-                                // In a strict "Sync" sense, receiving Oplog is enough to reconstruct, 
-                                // but our IPeerStore ApplyBatchAsync logic might rely on both.
-                                // However, checking SqlitePeerStore logic:
-                                // "foreach entry in oplogEntries... INSERT OR REPLACE INTO Documents...".
-                                // It derives Document state from Oplog content logic. 
-                                // So passing empty documents list is fine if Oplog has the data.
-                                // Wait, SqlitePeerStore `ApplyBatchAsync` iterates `oplogEntries` and applies them to Documents too.
-                                // So we pass Enumerable.Empty<Document>() and the Oplog entries.
+
+                                // Apply changes to the store. 
+                                // We pass an empty document list because the store implementation derives document state directly from the Oplog entries.
                                 await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), entries, token);
+                                
                                 response = new AckResponse { Success = true };
                                 resType = MessageType.AckRes;
                                 break;

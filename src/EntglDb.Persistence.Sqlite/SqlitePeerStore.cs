@@ -12,6 +12,9 @@ using EntglDb.Core.Storage;
 
 namespace EntglDb.Persistence.Sqlite
 {
+    /// <summary>
+    /// SQLite-based implementation of <see cref="IPeerStore"/> with WAL mode enabled.
+    /// </summary>
     public class SqlitePeerStore : IPeerStore
     {
         private readonly string _connectionString;
@@ -59,36 +62,18 @@ namespace EntglDb.Persistence.Sqlite
             ");
         }
 
+        /// <summary>
+        /// Saves or updates a document in the Documents table.
+        /// </summary>
+        /// <remarks>
+        /// This method updates only the Documents table. The caller is responsible for
+        /// maintaining the Oplog separately via <see cref="AppendOplogEntryAsync"/>.
+        /// </remarks>
         public async Task SaveDocumentAsync(Document document, CancellationToken cancellationToken = default)
         {
-            // Note: In strict requirement, Put/Delete generates an Oplog entry.
-            // PeerDatabase implementation calls SaveDocumentAsync AND AppendOplogEntryAsync separately.
-            // However, typical 'Database' pattern implies atomic commit.
-            // But since IPeerStore splits them, we implement them separately here.
-            // Wait, the Requirement "Transactional: Updates to Documents and inserts into Oplog must happen in a single transaction."
-            // This suggests the generic 'PeerCollection' logic which calls them separately might be flawed for this specific requirement,
-            // OR IPeerStore should support a batch or transaction scope.
-            // Given the interface IPeerStore defined earlier doesn't have explicit transaction support for single ops,
-            // we will implement SaveDocumentAsync as just the Document update.
-            // The user prompt Requirement 3 says "Put(key, jsonObject): Inserts/Updates... and internally generates an Oplog entry."
-            // But PeerDatabase logic (Already implemented in Step 13) calls Store.SaveDocumentAsync then Store.AppendOplogEntryAsync.
-            // To ensure atomicity without changing Core too much, we could rely on ApplyBatchAsync or wrap calls in a TransactionScope if Sqlite supported it well async?
-            // Actually, SqliteTransaction is robust. 
-            // BUT, strictly speaking, if `PeerCollection` logic is fixed, `SqlitePeerStore` methods `SaveDocumentAsync` and `AppendOplogEntryAsync` are independent.
-            // Unless we change `IPeerStore` to have `PutAsync(Doc, Oplog)`?
-            // User prompt 3: "These methods must interact with the persistence layer but abstract the complexity...".
-            // Implementation Step 3: "It must allow storing 'Raw Documents' and 'Oplog Entries'".
-            // So `SaveDocumentAsync` + `AppendOplogEntryAsync` is correct for the SPI.
-            // The Atomicity requirement likely applies to the `ApplyBatch` (for sync) OR the higher level `Put`.
-            // Since Core `PeerCollection` is generic, it might need `IPeerStore` to expose `ExecuteTransaction`?
-            // For now, I will implement them as individual independent operations as per interface.
-            // If the user *really* wants atomic Put in the store, the Store interface should probably have been `Put(Document doc, OplogEntry log)`.
-            // I'll stick to the interface.
-
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
 
-            // Use transaction if we want, but this method only does one thing.
             await connection.ExecuteAsync(@"
                 INSERT OR REPLACE INTO Documents (Collection, Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
                 VALUES (@Collection, @Key, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
@@ -122,7 +107,6 @@ namespace EntglDb.Persistence.Sqlite
                 ? JsonSerializer.Deserialize<JsonElement>(row.JsonData) 
                 : default;
 
-            // Assuming I add Collection to Document
             return new Document(collection, row.Key, content, hlc, row.IsDeleted); 
         }
 
@@ -147,17 +131,17 @@ namespace EntglDb.Persistence.Sqlite
                 });
         }
 
+        /// <summary>
+        /// Retrieves all oplog entries with timestamps greater than the specified timestamp.
+        /// </summary>
+        /// <remarks>
+        /// Uses HLC comparison: entries are returned if (Wall > timestamp.Wall) OR (Wall == timestamp.Wall AND Logic > timestamp.Logic).
+        /// </remarks>
         public async Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, CancellationToken cancellationToken = default)
         {
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
 
-            // "Give me all changes since timestamp X"
-            // Simple comparison on HlcWall generally suffices for "since", 
-            // but for exact HLC causality it's complex (Wall, then Logic, then Node).
-            // Usually for "Sync" we just want everything strictly greater than the vector provided?
-            // Or typically just "Wall > X OR (Wall = X AND Logic > Y)".
-            // For simplicity in SQL:
             var rows = await connection.QueryAsync<OplogRow>(@"
                 SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode
                 FROM Oplog
@@ -197,9 +181,15 @@ namespace EntglDb.Persistence.Sqlite
             public string? HlcNode { get; set; }
         }
 
+        /// <summary>
+        /// Applies a batch of oplog entries using Last-Write-Wins conflict resolution.
+        /// </summary>
+        /// <remarks>
+        /// For each entry, compares the incoming HLC timestamp with the local document's timestamp.
+        /// Only applies changes if the incoming timestamp is newer. All entries are appended to the Oplog.
+        /// </remarks>
         public async Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
         {
-            // Last-Write-Wins Merge Logic
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
             using var transaction = connection.BeginTransaction();
@@ -208,7 +198,6 @@ namespace EntglDb.Persistence.Sqlite
             {
                 foreach (var entry in oplogEntries)
                 {
-                    // Check local state
                     var local = await connection.QuerySingleOrDefaultAsync<DocumentRow>(@"
                         SELECT HlcWall, HlcLogic, HlcNode
                         FROM Documents
@@ -231,7 +220,6 @@ namespace EntglDb.Persistence.Sqlite
 
                     if (shouldApply)
                     {
-                        // Apply to Documents
                          await connection.ExecuteAsync(@"
                             INSERT OR REPLACE INTO Documents (Collection, Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
                             VALUES (@Collection, @Key, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
@@ -247,12 +235,6 @@ namespace EntglDb.Persistence.Sqlite
                             }, transaction);
                     }
                     
-                    // Always append to Oplog? Or only if new?
-                    // "If the incoming entry is older, ignore it (but you might still choose to store it... for this MVP, ignoring is acceptable)"
-                    // "Node B sends Oplog entries newer than Node A's knowledge."
-                    // If we receive it, we usually assume we don't have it. 
-                    // To be safe we can insert into Oplog if not exists (using Id/Timestamp dedupe?)
-                    // For now, let's insert to keep history.
                     await connection.ExecuteAsync(@"
                         INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
                         VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
@@ -305,27 +287,16 @@ namespace EntglDb.Persistence.Sqlite
             sqlBuilder.Append(whereClause);
             sqlBuilder.Append(")");
 
-            // Order By
             if (!string.IsNullOrEmpty(orderBy))
             {
-                // Safety check for orderBy to prevent injection if it comes from untrusted source?
-                // For now, we assume caller acts responsibly, but ideally we should sanitize or parameterize if possible.
-                // SQLite allows 'ORDER BY ?' but it treats it as constant string, not column.
-                // We must inject it. To be safe, let's restrict chars.
                 if (orderBy.All(c => char.IsLetterOrDigit(c) || c == '.' || c == '_'))
                 {
-                    // If it matches a column map directly, good. Else extract from JSON.
-                    // Assuming fields are inside JsonData.
                     string sortField = $"json_extract(JsonData, '$.{orderBy}')";
-                    
-                    // Special optimization: If we had generated columns for indexed fields, we'd use them.
-                    // For now, raw json_extract.
                     sqlBuilder.Append($" ORDER BY {sortField} {(ascending ? "ASC" : "DESC")}");
                 }
             }
             else
             {
-                 // Default order to ensure deterministic paging
                  sqlBuilder.Append(" ORDER BY Key ASC");
             }
 

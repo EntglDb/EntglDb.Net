@@ -13,6 +13,10 @@ using EntglDb.Core;
 
 namespace EntglDb.Network
 {
+    /// <summary>
+    /// Provides UDP-based peer discovery for the EntglDb network.
+    /// Broadcasts presence beacons and listens for other nodes on the local network.
+    /// </summary>
     public class UdpDiscoveryService
     {
         private const int DiscoveryPort = 5000;
@@ -33,18 +37,16 @@ namespace EntglDb.Network
             _useLocalhost = useLocalhost;
         }
 
+        /// <summary>
+        /// Starts the discovery service, initiating listener, broadcaster, and cleanup tasks.
+        /// </summary>
         public void Start()
         {
             if (_cts != null) return;
             _cts = new CancellationTokenSource();
             
-            // Start Listener
             Task.Run(() => ListenAsync(_cts.Token));
-            
-            // Start Broadcaster
             Task.Run(() => BroadcastAsync(_cts.Token));
-
-            // Start Cleanup Loop
             Task.Run(() => CleanupAsync(_cts.Token));
         }
 

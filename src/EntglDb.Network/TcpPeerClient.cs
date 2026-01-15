@@ -11,6 +11,9 @@ using EntglDb.Network.Proto;
 
 namespace EntglDb.Network
 {
+    /// <summary>
+    /// Represents a TCP client connection to a remote peer for synchronization.
+    /// </summary>
     public class TcpPeerClient : IDisposable
     {
         private readonly TcpClient _client;
@@ -31,17 +34,6 @@ namespace EntglDb.Network
         public async Task ConnectAsync(CancellationToken token)
         {
             if (IsConnected) return;
-
-            // Re-create client if it was disposed or disconnected
-            if (_client.Client == null || !_client.Connected)
-            {
-                // TcpClient cannot be reused once closed, so we might need a factory or just re-instantiate if we were disposed? 
-                // Actually TcpClient is disposable. If we want persistence, we keep it alive. 
-                // But if it disconnects, we must `new TcpClient()`. 
-                // The current constructor creates it. If we disconnect, we need to create a new one.
-                // It is better to rely on SyncOrchestrator to dispose and recreate the *TcpPeerClient* object if it fails.
-                // So here we just ensure we connect if fresh.
-            }
             
             var parts = _peerAddress.Split(':');
             if (parts.Length != 2) throw new ArgumentException("Invalid address format");
@@ -50,6 +42,13 @@ namespace EntglDb.Network
             _stream = _client.GetStream();
         }
 
+        /// <summary>
+        /// Performs authentication handshake with the remote peer.
+        /// </summary>
+        /// <param name="myNodeId">The local node identifier.</param>
+        /// <param name="authToken">The authentication token.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if handshake was accepted, false otherwise.</returns>
         public async Task<bool> HandshakeAsync(string myNodeId, string authToken, CancellationToken token)
         {
             if (HasHandshaked) return true;
@@ -65,6 +64,9 @@ namespace EntglDb.Network
             return res.Accepted;
         }
 
+        /// <summary>
+        /// Retrieves the remote peer's latest HLC timestamp.
+        /// </summary>
         public async Task<HlcTimestamp> GetClockAsync(CancellationToken token)
         {
             await SendMessageAsync(MessageType.GetClockReq, new GetClockRequest());
@@ -76,6 +78,9 @@ namespace EntglDb.Network
             return new HlcTimestamp(res.HlcWall, res.HlcLogic, res.HlcNode);
         }
 
+        /// <summary>
+        /// Pulls oplog changes from the remote peer since the specified timestamp.
+        /// </summary>
         public async Task<List<OplogEntry>> PullChangesAsync(HlcTimestamp since, CancellationToken token)
         {
             var req = new PullChangesRequest 
@@ -100,6 +105,9 @@ namespace EntglDb.Network
             )).ToList();
         }
 
+        /// <summary>
+        /// Pushes local oplog changes to the remote peer.
+        /// </summary>
         public async Task PushChangesAsync(IEnumerable<OplogEntry> entries, CancellationToken token)
         {
             var req = new PushChangesRequest();

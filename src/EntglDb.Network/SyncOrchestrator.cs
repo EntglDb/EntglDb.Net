@@ -9,6 +9,10 @@ using EntglDb.Core.Network;
 
 namespace EntglDb.Network
 {
+    /// <summary>
+    /// Orchestrates the synchronization process between the local node and discovered peers.
+    /// Manages anti-entropy sessions and data exchange.
+    /// </summary>
     public class SyncOrchestrator
     {
         private readonly UdpDiscoveryService _discovery;
@@ -55,6 +59,9 @@ namespace EntglDb.Network
             _clients.Clear();
         }
 
+        /// <summary>
+        /// Main synchronization loop. Periodically selects random peers to gossip with.
+        /// </summary>
         private async Task SyncLoopAsync(CancellationToken token)
         {
             _logger.LogInformation("Sync Orchestrator Started (Parallel P2P)");
@@ -67,7 +74,7 @@ namespace EntglDb.Network
                     // Gossip Fanout: Pick 3 random peers
                     var targets = peers.OrderBy(x => _random.Next()).Take(3).ToList();
 
-                    // Parallel Sync to reduce latency
+                    // Execute sync in parallel with a max degree of parallelism
                     await Parallel.ForEachAsync(targets, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = token }, async (peer, ct) => 
                     {
                         await TrySyncWithPeer(peer, ct);
@@ -79,13 +86,16 @@ namespace EntglDb.Network
                     _logger.LogError(ex, "Sync Loop Error");
                 }
 
-                await Task.Delay(2000, token); // Sync every 2s for demo
+                await Task.Delay(2000, token); 
             }
         }
 
+        /// <summary>
+        /// Attempts to synchronize with a specific peer.
+        /// Performs handshake, clock comparison, and data exchange (Push/Pull).
+        /// </summary>
         private async Task TrySyncWithPeer(PeerNode peer, CancellationToken token)
         {
-            // _logger.LogDebug("Initiating Sync with {NodeId} at {Address}", peer.NodeId, peer.Address);
             TcpPeerClient client = null;
 
             try
@@ -95,10 +105,9 @@ namespace EntglDb.Network
 
                 await client.ConnectAsync(token);
 
-                // Handshake (idempotent due to client change)
+                // Handshake (idempotent)
                 if (!await client.HandshakeAsync(_nodeId, _authToken, token))
                 {
-                     // If rejected, maybe credentials changed? For now, just warn.
                     _logger.LogWarning("Handshake rejected by {NodeId}", peer.NodeId);
                     return;
                 }
@@ -107,9 +116,10 @@ namespace EntglDb.Network
                 var remoteClock = await client.GetClockAsync(token);
                 var localClock = await _store.GetLatestTimestampAsync(token); 
 
+                // 2. Determine Sync Direction
                 if (remoteClock.CompareTo(localClock) > 0)
                 {
-                     // Remote is ahead (wall or logic)
+                    // Remote is ahead -> Pull
                     _logger.LogInformation("Pulling changes from {NodeId} (Remote: {Remote}, Local: {Local})", peer.NodeId, remoteClock, localClock);
                     var changes = await client.PullChangesAsync(localClock, token);
                     if (changes.Count > 0)
@@ -120,8 +130,7 @@ namespace EntglDb.Network
                 }
                 else if (localClock.CompareTo(remoteClock) > 0)
                 {
-                     // Local is ahead (Push)
-                     // Note: Optimistic push. Ideally we check if they need our data.
+                    // Local is ahead -> Push (Optimistic)
                      _logger.LogInformation("Pushing changes to {NodeId}", peer.NodeId);
                      var changes = await _store.GetOplogAfterAsync(remoteClock, token);
                      await client.PushChangesAsync(changes, token);
@@ -131,7 +140,7 @@ namespace EntglDb.Network
             {
                 _logger.LogWarning("Sync failed with {NodeId}: {Message}. Resetting connection.", peer.NodeId, ex.Message);
                 
-                // If connection failed, remove from pool and dispose so we retry fresh next time
+                // On failure, remove from pool to force reconnection next time
                 if (client != null)
                 {
                     _clients.TryRemove(peer.NodeId, out _);

@@ -6,8 +6,15 @@ using System.Reflection;
 
 namespace EntglDb.Core
 {
+    /// <summary>
+    /// Translates LINQ Expression trees to <see cref="QueryNode"/> for database querying.
+    /// </summary>
     public static class ExpressionToQueryNodeTranslator
     {
+        /// <summary>
+        /// Translates a LINQ predicate expression to a QueryNode.
+        /// </summary>
+        /// <returns>A QueryNode representing the query, or null if the predicate is always true.</returns>
         public static QueryNode Translate<T>(Expression<Func<T, bool>> predicate)
         {
             if (predicate == null) return null;
@@ -16,9 +23,6 @@ namespace EntglDb.Core
 
         private static QueryNode Visit(Expression node)
         {
-            // Verbose logging for debug
-            System.Console.WriteLine($"[Translator] Visiting {node.NodeType}: {node}");
-
             switch (node.NodeType)
             {
                 case ExpressionType.Constant:
@@ -63,24 +67,14 @@ namespace EntglDb.Core
                      var call = (MethodCallExpression)node;
                      if (call.Method.Name == "Contains")
                      {
-                         // Handle string.Contains
                          if (call.Object != null && call.Object.Type == typeof(string))
                          {
                              return new Contains(GetFieldName(call.Object), (string)GetValue(call.Arguments[0]));
                          }
-                         // Handle List.Contains or Enumerable.Contains
-                         // If it's List.Contains(value), then we want "value IN list_field" ?? 
-                         // Or "list_field contains value"?
-                         // Core QueryNode 'In' is "Field IN (Values)". 
-                         // QueryNode 'Contains' is "Field LIKE %Value%".
-                         // Usually NoSQL 'Contains' means array contains item.
-                         // But our SQL implementation of Contains maps to LIKE.
-                         // So let's stick to String.Contains maps to Contains (LIKE).
                      }
                      break;
             }
 
-            System.Console.WriteLine($"[Translator] Error: Unsupported type {node.NodeType}");
             throw new NotSupportedException($"Expression type {node.NodeType} is not supported");
         }
 

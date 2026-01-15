@@ -59,17 +59,13 @@ namespace EntglDb.Sample.Console
             var provider = services.BuildServiceProvider();
 
             // Start Components
-            var discovery = provider.GetRequiredService<UdpDiscoveryService>();
-            var server = provider.GetRequiredService<TcpSyncServer>();
-            var orchestrator = provider.GetRequiredService<SyncOrchestrator>();
-
-            server.Start();
-            discovery.Start();
-            orchestrator.Start();
+            // Start Components
+            var node = provider.GetRequiredService<EntglDbNode>();
+            node.Start();
 
             // Setup DB
             var store = provider.GetRequiredService<IPeerStore>();
-            var db = new PeerDatabase(store, new MockNetwork()); 
+            var db = new PeerDatabase(store, nodeId); 
             await db.InitializeAsync();
 
             var users = db.Collection("users");
@@ -127,7 +123,7 @@ namespace EntglDb.Sample.Console
                 }
                 else if (input.StartsWith("l"))
                 {
-                    var peers = discovery.GetActivePeers();
+                    var peers = node.Discovery.GetActivePeers();
                     System.Console.WriteLine("Active Peers:");
                     foreach(var p in peers)
                     {
@@ -171,9 +167,7 @@ namespace EntglDb.Sample.Console
                 }
             }
 
-            discovery.Stop();
-            server.Stop();
-            orchestrator.Stop();
+            node.Stop();
         }
     }
 
@@ -197,7 +191,7 @@ namespace EntglDb.Sample.Console
             _path = path;
         }
 
-        public IDisposable BeginScope<TState>(TState state) => null!;
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => null!;
         public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)

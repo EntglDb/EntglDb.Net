@@ -36,24 +36,20 @@ services.AddSingleton<IPeerStore>(store);
 services.AddEntglDbNetwork(myNodeId, port, authToken);
 ```
 
-### 3. Start the Orchestrator
+### 3. Start the Node
 
 ```csharp
 var provider = services.BuildServiceProvider();
-var orchestrator = provider.GetRequiredService<SyncOrchestrator>();
-var server = provider.GetRequiredService<TcpSyncServer>();
-var discovery = provider.GetRequiredService<UdpDiscoveryService>();
+var node = provider.GetRequiredService<EntglDbNode>();
 
-server.Start();
-discovery.Start();
-orchestrator.Start();
+node.Start();
 ```
 
 ### 4. CRUD Operations
 Interact with data using `PeerDatabase`.
 
 ```csharp
-var db = new PeerDatabase(store, new MockNetwork()); // Use real network in prod
+var db = new PeerDatabase(store, "my-node-id"); // Node ID used for HLC clock
 await db.InitializeAsync();
 
 var users = db.Collection("users");
