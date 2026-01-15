@@ -6,7 +6,7 @@
 
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-green)](https://github.com/lucafabbri/EntglDb/releases)
+[![Version](https://img.shields.io/badge/version-0.3.1-green)](https://github.com/lucafabbri/EntglDb/releases)
 
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Contributing](#contributing)
 
