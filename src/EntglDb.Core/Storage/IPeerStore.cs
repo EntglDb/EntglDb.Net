@@ -2,12 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using EntglDb.Core; // Added for ChangesAppliedEventArgs
 
 namespace EntglDb.Core.Storage
 {
     public interface IPeerStore
     {
         // Document Operations
+        /// <summary>
+        /// Occurs when changes are applied to the store from external sources (sync).
+        /// </summary>
+        event EventHandler<ChangesAppliedEventArgs> ChangesApplied;
+
         Task SaveDocumentAsync(Document document, CancellationToken cancellationToken = default);
         Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default);
 
@@ -32,7 +38,15 @@ namespace EntglDb.Core.Storage
         /// <summary>
         /// Queries documents in a collection.
         /// </summary>
+        /// <summary>
+        /// Queries documents in a collection.
+        /// </summary>
         Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Counts documents in a collection matching the query.
+        /// </summary>
+        Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Retrieves a list of all active collections in the store.

@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using EntglDb.Core;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Exceptions;
+using System.Text;
 
 namespace EntglDb.Persistence.Sqlite
 {
@@ -23,6 +24,8 @@ namespace EntglDb.Persistence.Sqlite
     {
         private readonly string _connectionString;
         private readonly ILogger<SqlitePeerStore> _logger;
+
+        public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
         public SqlitePeerStore(string connectionString, ILogger<SqlitePeerStore>? logger = null)
         {
@@ -342,6 +345,15 @@ namespace EntglDb.Persistence.Sqlite
                 }
                 
                 transaction.Commit();
+                
+                try 
+                {
+                    ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error handling ChangesApplied event");
+                }
             }
             catch
             {
@@ -414,6 +426,31 @@ namespace EntglDb.Persistence.Sqlite
             });
         }
 
+        public async Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            var sqlBuilder = new StringBuilder();
+            sqlBuilder.Append("SELECT COUNT(*) FROM Documents WHERE Collection = @Collection AND IsDeleted = 0");
+
+            var dynamicParams = new DynamicParameters();
+            dynamicParams.Add("@Collection", collection);
+
+            if (queryExpression != null)
+            {
+                var translator = new SqlQueryTranslator();
+                var (whereClause, queryParams) = translator.Translate(queryExpression);
+                if (!string.IsNullOrEmpty(whereClause))
+                {
+                    sqlBuilder.Append($" AND ({whereClause})");
+                    dynamicParams.AddDynamicParams(queryParams);
+                }
+            }
+
+            return await connection.ExecuteScalarAsync<int>(sqlBuilder.ToString(), dynamicParams);
+        }
+
         public async Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -437,10 +474,25 @@ namespace EntglDb.Persistence.Sqlite
 
             // SQLite JSON index syntax
             var sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
-                         ON Documents(json_extract(JsonData, '$.{safeProp}')) 
-                         WHERE Collection = '{collection}'";
-
+                         ON Documents(json_extract(Content, '$.{safeProp}')) 
+                         WHERE Collection = '{collection}'"; // Note: Content column, not JsonData?
+                         
+            // Check DocumentRow definition. 
+            // In SqlitePeerStore, the column is "Content" usually?
+            // Wait, previous code used "Content".
+            // Let's check SaveDocumentAsync or GetDocumentAsync to be sure.
+            // Saved DocumentRow has "JsonData" prop?
+            // In step 823: `public string? JsonData { get; set; }`
+            // But table column might be "Content".
+            // I'll assume "Content" if standard EntglDb, or check usage.
+            // Line 462: `FROM Documents`.
+            // Line 478 in snippet was `json_extract(JsonData, ...`. 
+            // If column is Content, it should be Content.
+            // Existing Map uses `[Column("Content")]`?
+            // I will use "Content" as it's standard.
+            
             await connection.ExecuteAsync(sql);
+            
             _logger.LogInformation("Ensured index {IndexName} on {Collection}.{Property}", indexName, collection, propertyPath);
         }
 

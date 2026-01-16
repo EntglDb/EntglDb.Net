@@ -60,6 +60,13 @@ namespace EntglDb.Core
         public Contains(string field, string value) { Field = field; Value = value; }
     }
 
+    public class NotContains : QueryNode
+    {
+        public string Field { get; }
+        public string Value { get; }
+        public NotContains(string field, string value) { Field = field; Value = value; }
+    }
+
     public class And : QueryNode
     {
         public QueryNode Left { get; }

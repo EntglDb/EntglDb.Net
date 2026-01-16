@@ -55,6 +55,9 @@ namespace EntglDb.Persistence.Sqlite
                 case Contains contains:
                     VisitContains(contains.Field, contains.Value);
                     break;
+                case NotContains notContains:
+                    VisitNotContains(notContains.Field, notContains.Value);
+                    break;
                 case And and:
                     _sql.Append("(");
                     Visit(and.Left);
@@ -101,6 +104,12 @@ namespace EntglDb.Persistence.Sqlite
         {
             string paramName = AddParameter($"%{value}%");
             _sql.Append($"json_extract(JsonData, '$.{field}') LIKE {paramName}");
+        }
+
+        private void VisitNotContains(string field, string value)
+        {
+            string paramName = AddParameter($"%{value}%");
+            _sql.Append($"json_extract(JsonData, '$.{field}') NOT LIKE {paramName}");
         }
 
         private string AddParameter(object value)

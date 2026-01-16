@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="0.5.0"></a>
+## [0.5.0] - 2026-01-16
+
+### Added
+- **Batch Operations**: `PutMany` and `DeleteMany` for efficient bulk processing
+- **Filtered Count**: `Count(predicate)` support leveraging database-side counting
+- **Global Configuration**: `EntglDbMapper` for code-based entity and index configuration
+- **Typed Exceptions**: `DocumentNotFoundException` and `EntglDbConcurrencyException` for robust error handling
+- **Delta Sync**: `FetchUpdatedSince` support using HLC Oplog for efficient incremental updates
+
+---
+
 <a name="0.3.1"></a>
 ## [0.3.1] - 2026-01-15
 

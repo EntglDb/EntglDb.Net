@@ -63,19 +63,26 @@ namespace EntglDb.Core
         /// </summary>
         public IPeerCollection<T> Collection<T>(string? customName = null)
         {
-            var collectionName = customName ?? typeof(T).Name.ToLowerInvariant();
+            var mapper = EntglDbMapper.Global.Entity<T>();
+            var collectionName = customName ?? mapper.CollectionName ?? typeof(T).Name.ToLowerInvariant();
             
             // Auto-Index Check (Fire and forget safe)
-            var props = Metadata.EntityMetadata<T>.IndexedProperties;
-            if (props.Length > 0)
+            // Merge attribute-based metadata with Global Mapper
+            // Currently using Metadata.EntityMetadata<T> which reads attributes.
+            // We should ideally merge.
+            var attrProps = Metadata.EntityMetadata<T>.IndexedProperties.Select(p => p.Name).ToList();
+            var mappedProps = mapper.IndexedProperties;
+            var allProps = attrProps.Union(mappedProps).Distinct();
+
+            if (allProps.Any())
             {
                 Task.Run(async () => 
                 {
-                    foreach(var p in props)
+                    foreach(var p in allProps)
                     {
                         try 
                         {
-                            await _store.EnsureIndexAsync(collectionName, p.Name);
+                            await _store.EnsureIndexAsync(collectionName, p);
                         }
                         catch { /* Ignore index creation errors to prevent crashing app */ }
                     }
@@ -149,6 +156,31 @@ namespace EntglDb.Core
             await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
         }
 
+        public async Task PutMany(IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken = default)
+        {
+            var docList = new List<Document>();
+            var oplogList = new List<OplogEntry>();
+
+            foreach (var kvp in documents)
+            {
+                var key = kvp.Key;
+                var document = kvp.Value;
+                var json = JsonSerializer.SerializeToElement(document);
+                var timestamp = _db.Tick();
+
+                var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp);
+                var paramsContainer = new Document(_name, key, json, timestamp, false);
+
+                docList.Add(paramsContainer);
+                oplogList.Add(oplog);
+            }
+
+            if (docList.Count > 0)
+            {
+                await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+            }
+        }
+
         public async Task<T> Get<T>(string key, CancellationToken cancellationToken = default)
         {
             var doc = await _db.Store.GetDocumentAsync(_name, key, cancellationToken);
@@ -166,6 +198,28 @@ namespace EntglDb.Core
 
             await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
             await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
+        }
+
+        public async Task DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken = default)
+        {
+            var docList = new List<Document>();
+            var oplogList = new List<OplogEntry>();
+            var empty = default(JsonElement);
+
+            foreach (var key in keys)
+            {
+                var timestamp = _db.Tick();
+                var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp);
+                var paramsContainer = new Document(_name, key, empty, timestamp, true);
+
+                docList.Add(paramsContainer);
+                oplogList.Add(oplog);
+            }
+
+            if (docList.Count > 0)
+            {
+                await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+            }
         }
 
         public async Task<IEnumerable<T>> Find<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
@@ -218,6 +272,31 @@ namespace EntglDb.Core
             }
             return list;
         }
+
+        public async Task<int> Count<T>(Expression<Func<T, bool>>? predicate, CancellationToken cancellationToken = default)
+        {
+             QueryNode? queryNode = null;
+             if (predicate != null)
+             {
+                 try
+                 {
+                     queryNode = ExpressionToQueryNodeTranslator.Translate(predicate);
+                 }
+                 catch (Exception ex)
+                 {
+                     System.Console.WriteLine($"[Warning] Query translation failed for Count: {ex.Message}. Falling back to counting in memory (inefficient).");
+                     var all = await Find(predicate, cancellationToken);
+                     return all.Count();
+                 }
+             }
+
+             return await _db.Store.CountDocumentsAsync(_name, queryNode, cancellationToken);
+        }
+
+        public Task<int> Count(Expression<Func<object, bool>>? predicate = null, CancellationToken cancellationToken = default)
+        {
+            return Count<object>(predicate, cancellationToken);
+        }
     }
 
     /// <summary>
@@ -263,11 +342,44 @@ namespace EntglDb.Core
             return Put(key, document, cancellationToken);
         }
 
+        public Task PutMany(IEnumerable<T> documents, CancellationToken cancellationToken = default)
+        {
+            // Use metadata to extract keys and create KeyValuePair list for inner PutMany
+            var list = new List<KeyValuePair<string, object>>();
+            var getKey = Metadata.EntityMetadata<T>.GetKey;
+            
+            foreach (var document in documents)
+            {
+                if (document == null) throw new ArgumentNullException(nameof(documents), "Document cannot be null");
+                
+                if (getKey == null)
+                    throw new InvalidOperationException($"Type {typeof(T).Name} has no primary key defined.");
+
+                var key = getKey(document);
+
+                if (string.IsNullOrEmpty(key) && Metadata.EntityMetadata<T>.AutoGenerateKey)
+                {
+                    key = Guid.NewGuid().ToString();
+                    Metadata.EntityMetadata<T>.SetKey?.Invoke(document, key);
+                }
+
+                if (string.IsNullOrEmpty(key))
+                    throw new InvalidOperationException($"Primary key for {typeof(T).Name} is null or empty.");
+
+                list.Add(new KeyValuePair<string, object>(key, document));
+            }
+
+            return _inner.PutMany(list, cancellationToken);
+        }
+
         public Task<T> Get(string key, CancellationToken cancellationToken = default)
             => _inner.Get<T>(key, cancellationToken);
 
         public Task Delete(string key, CancellationToken cancellationToken = default)
             => _inner.Delete(key, cancellationToken);
+
+        public Task DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken = default)
+            => _inner.DeleteMany(keys, cancellationToken);
 
         public Task<IEnumerable<T>> Find(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
             => _inner.Find(predicate, cancellationToken);
@@ -275,17 +387,33 @@ namespace EntglDb.Core
         public Task<IEnumerable<T>> Find(Expression<Func<T, bool>> predicate, int? skip, int? take, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
             => _inner.Find(predicate, skip, take, orderBy, ascending, cancellationToken);
 
+        public Task<int> Count(Expression<Func<T, bool>>? predicate = null, CancellationToken cancellationToken = default)
+            => _inner.Count(predicate, cancellationToken);
+
         // Explicit interface implementations for non-generic methods
         Task IPeerCollection.Put(string key, object document, CancellationToken cancellationToken)
             => _inner.Put(key, document, cancellationToken);
 
+        Task IPeerCollection.PutMany(IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken)
+            => _inner.PutMany(documents, cancellationToken);
+
         Task<TResult> IPeerCollection.Get<TResult>(string key, CancellationToken cancellationToken)
             => _inner.Get<TResult>(key, cancellationToken);
+        
+        Task IPeerCollection.Delete(string key, CancellationToken cancellationToken)
+             => _inner.Delete(key, cancellationToken);
+
+        Task IPeerCollection.DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken)
+             => _inner.DeleteMany(keys, cancellationToken);
 
         Task<IEnumerable<TResult>> IPeerCollection.Find<TResult>(Expression<Func<TResult, bool>> predicate, CancellationToken cancellationToken)
             => _inner.Find(predicate, cancellationToken);
 
         Task<IEnumerable<TResult>> IPeerCollection.Find<TResult>(Expression<Func<TResult, bool>> predicate, int? skip, int? take, string? orderBy, bool ascending, CancellationToken cancellationToken)
             => _inner.Find(predicate, skip, take, orderBy, ascending, cancellationToken);
+        
+        Task<int> IPeerCollection.Count(Expression<Func<object, bool>>? predicate, CancellationToken cancellationToken)
+            => _inner.Count(predicate, cancellationToken);
     }
+
 }

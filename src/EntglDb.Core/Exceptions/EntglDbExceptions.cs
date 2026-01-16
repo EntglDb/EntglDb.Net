@@ -90,4 +90,23 @@ namespace EntglDb.Core.Exceptions
         public TimeoutException(string operation, int timeoutMs) 
             : base("TIMEOUT_ERROR", $"Operation '{operation}' timed out after {timeoutMs}ms") { }
     }
+
+
+    public class DocumentNotFoundException : PersistenceException
+    {
+        public string Key { get; }
+        public string Collection { get; }
+
+        public DocumentNotFoundException(string collection, string key) 
+            : base($"Document with key '{key}' not found in collection '{collection}'.")
+        {
+            Collection = collection;
+            Key = key;
+        }
+    }
+
+    public class EntglDbConcurrencyException : PersistenceException
+    {
+         public EntglDbConcurrencyException(string message) : base(message) { }
+    }
 }

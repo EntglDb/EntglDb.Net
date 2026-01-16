@@ -64,7 +64,7 @@
 - **Indexed properties** for optimized queries
 - **Expression-based filtering** `await users.Find(u => u.Age > 30)`
 
-### 🛡️ Production Ready (v0.2.0+)
+### 🛡️ Production Ready (v0.5.0+)
 - **Configuration System** (appsettings.json support)
 - **Resilience**: Retry policies, offline queue, error handling
 - **Performance**: LRU cache, batch operations, WAL mode
@@ -348,6 +348,29 @@ if (!isOnline)
 
 // Flush when back online
 var (success, failed) = await queue.FlushAsync(executor);
+```
+
+### Batch Operations
+Added `PutMany` and `DeleteMany` for efficient bulk processing.
+
+```csharp
+var users = db.Collection<User>();
+var list = new List<User> { new User("A"), new User("B") };
+
+// Efficient batch insert
+await users.PutMany(list);
+
+// Efficient batch delete
+await users.DeleteMany(new[] { "id-1", "id-2" });
+```
+
+### Global Configuration (EntglDbMapper)
+
+```csharp
+EntglDbMapper.Global.Entity<Product>()
+    .Collection("products_v2")
+    .Index(p => p.Price)
+    .Index(p => p.Category);
 ```
 
 ---
