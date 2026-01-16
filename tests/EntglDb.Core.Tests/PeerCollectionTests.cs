@@ -97,10 +97,39 @@ public class PeerCollectionTests
             return Task.FromResult<IEnumerable<string>>(_collections.Keys);
         }
 
+        public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
+
         public Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
         {
             // No-op for in-memory store
             return Task.CompletedTask;
+        }
+
+        public Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
+        {
+             if (!_collections.TryGetValue(collection, out var docs))
+                return Task.FromResult(0);
+
+            // In-memory simplistic count (filtering ignored for mock unless needed)
+            // If queryExpression is null, count all.
+            if (queryExpression == null)
+            {
+                return Task.FromResult(docs.Count);
+            }
+            
+            // For now return hardcoded 0 or implement rudimentary filter if tests rely on it.
+            // Tests use Find(), not Count(). So implementation here might not be exercised fully.
+            return Task.FromResult(docs.Count);
+        }
+
+        public Task BackupAsync(string destinationPath, CancellationToken cancellationToken = default)
+        {
+             return Task.CompletedTask;
+        }
+
+        public Task<bool> CheckIntegrityAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
         }
     }
 

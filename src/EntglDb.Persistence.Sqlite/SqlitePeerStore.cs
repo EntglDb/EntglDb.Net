@@ -474,23 +474,9 @@ namespace EntglDb.Persistence.Sqlite
 
             // SQLite JSON index syntax
             var sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
-                         ON Documents(json_extract(Content, '$.{safeProp}')) 
-                         WHERE Collection = '{collection}'"; // Note: Content column, not JsonData?
-                         
-            // Check DocumentRow definition. 
-            // In SqlitePeerStore, the column is "Content" usually?
-            // Wait, previous code used "Content".
-            // Let's check SaveDocumentAsync or GetDocumentAsync to be sure.
-            // Saved DocumentRow has "JsonData" prop?
-            // In step 823: `public string? JsonData { get; set; }`
-            // But table column might be "Content".
-            // I'll assume "Content" if standard EntglDb, or check usage.
-            // Line 462: `FROM Documents`.
-            // Line 478 in snippet was `json_extract(JsonData, ...`. 
-            // If column is Content, it should be Content.
-            // Existing Map uses `[Column("Content")]`?
-            // I will use "Content" as it's standard.
-            
+                         ON Documents(json_extract(JsonData, '$.{safeProp}')) 
+                         WHERE Collection = '{collection}'";
+
             await connection.ExecuteAsync(sql);
             
             _logger.LogInformation("Ensured index {IndexName} on {Collection}.{Property}", indexName, collection, propertyPath);
