@@ -4,8 +4,10 @@ using System.Reflection;
 using Lifter.Maui; 
 using EntglDb.Core;
 using EntglDb.Core.Storage;
+using EntglDb.Core.Sync;
 using EntglDb.Persistence.Sqlite;
 using EntglDb.Network;
+using EntglDb.Network.Security;
 
 namespace EntglDb.Test.Maui;
 
@@ -23,6 +25,10 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
 			});
 
+		// Security - Always enabled for UI samples
+		builder.Services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
+		
+		// Network Configuration
 		// Configuration
 		var assembly = typeof(App).Assembly;
 		using var stream = assembly.GetManifestResourceStream("EntglDb.Test.Maui.appsettings.json");
@@ -39,6 +45,14 @@ public static class MauiProgram
 		builder.Services.AddTransient<MainPage>();
 
 		// EntglDb Services
+		// Conflict Resolution - Read from preferences
+		var resolverType = Preferences.Default.Get("ConflictResolver", "Merge");
+		IConflictResolver resolver = resolverType == "Merge"
+			? new RecursiveNodeMergeConflictResolver()
+			: new LastWriteWinsConflictResolver();
+		
+		builder.Services.AddSingleton<IConflictResolver>(resolver);
+		
 		builder.Services.AddSingleton<IPeerStore>(sp => 
 		{
 			var config = sp.GetRequiredService<IConfiguration>();
@@ -52,7 +66,8 @@ public static class MauiProgram
 			if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
 
 			var dbPath = Path.Combine(dataDir, "entgldb-maui.db");
-			return new SqlitePeerStore($"Data Source={dbPath}", sp.GetRequiredService<ILogger<SqlitePeerStore>>());
+			var conflictResolver = sp.GetRequiredService<IConflictResolver>();
+			return new SqlitePeerStore($"Data Source={dbPath}", sp.GetRequiredService<ILogger<SqlitePeerStore>>(), conflictResolver);
 		});
 
 		

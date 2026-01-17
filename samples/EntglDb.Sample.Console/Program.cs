@@ -9,6 +9,7 @@ using EntglDb.Core.Sync;
 using EntglDb.Core.Diagnostics;
 using EntglDb.Core.Resilience;
 using EntglDb.Network;
+using EntglDb.Network.Security;
 using EntglDb.Persistence.Sqlite;
 using Microsoft.Extensions.Hosting;
 
@@ -40,6 +41,7 @@ namespace EntglDb.Sample.Console
             string nodeId = args.Length > 0 ? args[0] : (builder.Configuration["Node:Id"] ?? "node-" + new Random().Next(1000, 9999));
             int tcpPort = args.Length > 1 ? int.Parse(args[1]) : options.Network.TcpPort;
             bool useLocalhost = args.Contains("--localhost");
+            bool useSecure = args.Contains("--secure");
 
             // Persistence
             string dbPath = options.Persistence.DatabasePath.Replace("data/", $"data-{nodeId}/");
@@ -47,8 +49,20 @@ namespace EntglDb.Sample.Console
             if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
 
             // Register Services
+            
+            // Conflict Resolution Strategy (can be switched at runtime via service replacement)
+            var useRecursiveMerge = args.Contains("--merge");
+            IConflictResolver resolver = useRecursiveMerge 
+                ? new RecursiveNodeMergeConflictResolver() 
+                : new LastWriteWinsConflictResolver();
+            
+            builder.Services.AddSingleton<IConflictResolver>(resolver);
+            
             builder.Services.AddSingleton<IPeerStore>(sp => 
-                new SqlitePeerStore($"Data Source={dbPath}", sp.GetRequiredService<ILogger<SqlitePeerStore>>()));
+                new SqlitePeerStore(
+                    $"Data Source={dbPath}", 
+                    sp.GetRequiredService<ILogger<SqlitePeerStore>>(),
+                    sp.GetRequiredService<IConflictResolver>()));
 
             builder.Services.AddSingleton(sp => new DocumentCache(
                 options.Persistence.CacheSizeMb, sp.GetRequiredService<ILogger<DocumentCache>>()));
@@ -64,6 +78,13 @@ namespace EntglDb.Sample.Console
                 options.Network.RetryAttempts, options.Network.RetryDelayMs));
             
             builder.Services.AddSingleton<EntglDbHealthCheck>();
+
+            // Security (optional)
+            if (useSecure)
+            {
+                builder.Services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
+                System.Console.WriteLine("🔒 Secure mode enabled (ECDH + AES-256)");
+            }
 
             // Network
             string authToken = "demo-secret-key"; 

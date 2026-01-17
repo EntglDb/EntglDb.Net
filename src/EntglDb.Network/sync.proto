@@ -62,4 +62,11 @@ enum MessageType {
   ChangeSetRes = 6;
   PushChangesReq = 7;
   AckRes = 8;
+  SecureEnv = 9;
+}
+
+message SecureEnvelope {
+  bytes ciphertext = 1; // Encrypted payload
+  bytes nonce = 2;      // IV or Nonce
+  bytes auth_tag = 3;   // HMAC or Auth Tag if using AEAD (optional if concatenated)
 }

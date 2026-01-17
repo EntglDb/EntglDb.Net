@@ -38,6 +38,10 @@
                 
                 <TextBlock Text="Status" FontWeight="Bold" Margin="0,10,0,5"/>
                 <TextBlock x:Name="StatusLabel" Text="Ready" TextWrapping="Wrap" Foreground="Green"/>
+                
+                <Separator Margin="0,15"/>
+                <TextBlock Text="TodoLists" FontWeight="Bold" Margin="0,0,0,5"/>
+                <Button Content="📋 Manage TodoLists" Click="OnShowTodoListsClicked" HorizontalAlignment="Stretch"/>
             </StackPanel>
 
             <!-- Right Side: Peers & Results -->
@@ -65,5 +69,17 @@
                 </Border>
             </Grid>
         </Grid>
+        
+        <!-- Footer: Resolver Selection & Demo -->
+        <Border Background="#fafafa" Padding="10" BorderBrush="#e0e0e0" BorderThickness="0,1,0,0" Margin="10,5,10,0">
+            <StackPanel Orientation="Horizontal" Spacing="20" HorizontalAlignment="Center">
+                <TextBlock Text="Conflict Resolver:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                <RadioButton x:Name="LwwRadio" Content="Last Write Wins" GroupName="Resolver"/>
+                <RadioButton x:Name="MergeRadio" Content="Recursive Merge" GroupName="Resolver" IsChecked="True"/>
+                <Button Content="💾 Save &amp; Restart" Click="OnSaveResolverClicked" Padding="8,4"/>
+                <Separator Width="2" Height="20"/>
+                <Button Content="🔬 Run Conflict Demo" Click="OnRunConflictDemoClicked" Padding="8,4"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

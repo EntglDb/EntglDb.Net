@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using EntglDb.Core;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Network;
+using EntglDb.Network.Security;
 
 namespace EntglDb.Network
 {
@@ -29,13 +30,15 @@ namespace EntglDb.Network
         private readonly ConcurrentDictionary<string, TcpPeerClient> _clients = new();
 
         private readonly string _authToken;
+        private readonly IPeerHandshakeService? _handshakeService;
 
         public SyncOrchestrator(
             UdpDiscoveryService discovery, 
             IPeerStore store, 
             string nodeId, 
             string authToken,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            IPeerHandshakeService? handshakeService = null)
         {
             _discovery = discovery;
             _store = store;
@@ -43,6 +46,7 @@ namespace EntglDb.Network
             _authToken = authToken;
             _loggerFactory = loggerFactory;
             _logger = loggerFactory.CreateLogger<SyncOrchestrator>();
+            _handshakeService = handshakeService;
         }
 
         public void Start()
@@ -104,12 +108,15 @@ namespace EntglDb.Network
         /// </summary>
         private async Task TrySyncWithPeer(PeerNode peer, CancellationToken token)
         {
-            TcpPeerClient client = null;
+            TcpPeerClient? client = null;
 
             try
             {
                 // Get or create persistent client
-                client = _clients.GetOrAdd(peer.NodeId, id => new TcpPeerClient(peer.Address, _loggerFactory.CreateLogger<TcpPeerClient>()));
+                client = _clients.GetOrAdd(peer.NodeId, id => new TcpPeerClient(
+                    peer.Address, 
+                    _loggerFactory.CreateLogger<TcpPeerClient>(), 
+                    _handshakeService));
 
                 await client.ConnectAsync(token);
 

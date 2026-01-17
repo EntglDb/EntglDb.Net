@@ -1,17 +1,17 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage
     x:Class="EntglDb.Test.Maui.MainPage"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
 
-    <Grid RowDefinitions="Auto, *">
+    <Grid RowDefinitions="Auto,*,Auto">
         <!--  Header  -->
-        <Frame
+        <Border
             Grid.Row="0"
             Padding="15"
             BackgroundColor="#f0f0f0"
-            CornerRadius="0"
-            HasShadow="False">
+            Stroke="Transparent"
+            StrokeThickness="0">
             <HorizontalStackLayout Spacing="20">
                 <Label
                     FontAttributes="Bold"
@@ -27,7 +27,7 @@
                     Text="Port: ..."
                     VerticalOptions="Center" />
             </HorizontalStackLayout>
-        </Frame>
+        </Border>
 
         <Grid
             Grid.Row="1"
@@ -43,10 +43,11 @@
                     FontAttributes="Bold"
                     Text="Actions" />
 
-                <Frame
+                <Border
                     Padding="10"
-                    BorderColor="#e0e0e0"
-                    CornerRadius="4">
+                    Stroke="#e0e0e0"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 4">
                     <VerticalStackLayout Spacing="5">
                         <Label
                             FontAttributes="Bold"
@@ -68,7 +69,7 @@
                                 Text="Get" />
                         </Grid>
                     </VerticalStackLayout>
-                </Frame>
+                </Border>
 
                 <Button
                     Clicked="OnAutoDataClicked"
@@ -98,12 +99,13 @@
             <Grid Grid.Column="1" RowDefinitions="*, 5, *">
 
                 <!--  Peers List  -->
-                <Frame
+                <Border
                     Grid.Row="0"
                     Padding="5"
-                    BorderColor="#e0e0e0"
-                    CornerRadius="4">
-                    <Grid RowDefinitions="Auto, *">
+                    Stroke="#e0e0e0"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 4">
+                    <Grid RowDefinitions="Auto,*,Auto">
                         <Label
                             Margin="5"
                             FontAttributes="Bold"
@@ -116,18 +118,19 @@
                             </CollectionView.ItemTemplate>
                         </CollectionView>
                     </Grid>
-                </Frame>
+                </Border>
 
                 <!--  Splitter Simulation  -->
                 <BoxView Grid.Row="1" Color="#e0e0e0" />
 
                 <!--  Results Log  -->
-                <Frame
+                <Border
                     Grid.Row="2"
                     Padding="5"
-                    BorderColor="#e0e0e0"
-                    CornerRadius="4">
-                    <Grid RowDefinitions="Auto, *">
+                    Stroke="#e0e0e0"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 4">
+                    <Grid RowDefinitions="Auto,*,Auto">
                         <HorizontalStackLayout Spacing="10">
                             <Label
                                 Margin="5"
@@ -145,9 +148,25 @@
                             Grid.Row="1"
                             IsReadOnly="True" />
                     </Grid>
-                </Frame>
+                </Border>
+            </Grid>
+
+            <!-- Footer: Compact Grid with Fixed Heights -->
+            <Grid Grid.Row="2" Padding="8" BackgroundColor="#fafafa" RowDefinitions="30,32" ColumnSpacing="8">
+                <HorizontalStackLayout Grid.Row="0" Spacing="8" HorizontalOptions="Center">
+                    <Label Text="??" FontAttributes="Bold" TextColor="Green" VerticalOptions="Center" HeightRequest="30"/>
+                    <Label Text="Resolver:" FontSize="12" VerticalOptions="Center" HeightRequest="30"/>
+                    <RadioButton x:Name="LwwRadio" Content="LWW" GroupName="Resolver" FontSize="12" HeightRequest="30"/>
+                    <RadioButton x:Name="MergeRadio" Content="Merge" GroupName="Resolver" IsChecked="True" FontSize="12" HeightRequest="30"/>
+                </HorizontalStackLayout>
+                <HorizontalStackLayout Grid.Row="1" Spacing="8" HorizontalOptions="Center">
+                    <Button Text="?? Save" Clicked="OnSaveResolverClicked" Padding="6,2" FontSize="12" HeightRequest="32" WidthRequest="70"/>
+                    <Button Text="?? Lists" Clicked="OnShowTodoListsClicked" Padding="6,2" FontSize="12" HeightRequest="32" WidthRequest="70"/>
+                    <Button Text="?? Demo" Clicked="OnRunConflictDemoClicked" Padding="6,2" FontSize="12" HeightRequest="32" WidthRequest="70"/>
+                </HorizontalStackLayout>
             </Grid>
         </Grid>
     </Grid>
 
 </ContentPage>
+

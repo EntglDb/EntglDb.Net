@@ -101,7 +101,7 @@ namespace EntglDb.Network
                         var (type, payload) = await ReadMessageAsync(stream, token);
                         if (type == MessageType.Unknown) break; // EOF or Error
 
-                        IMessage response = null;
+                        IMessage? response = null;
                         MessageType resType = MessageType.Unknown;
 
                         switch (type)

@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
 using EntglDb.Network;
+using EntglDb.Network.Security;
+using EntglDb.Core.Sync;
 using Microsoft.Extensions.Hosting;
 
 namespace EntglDb.Test.Avalonia;
@@ -48,10 +50,20 @@ public class App : HostedApplication<MainView>
         var nodeId = configuration["Database:NodeId"] ?? "test-node-avalonia";
 
         // Register EntglDb services
+        
+        // Conflict Resolution - Read from preferences (stored as "LWW" or "Merge")
+        var resolverType = configuration["ConflictResolver"] ?? "Merge"; // Default to Merge for demo
+        IConflictResolver resolver = resolverType == "Merge"
+            ? new RecursiveNodeMergeConflictResolver()
+            : new LastWriteWinsConflictResolver();
+        
+        services.AddSingleton<IConflictResolver>(resolver);
+        
         services.AddSingleton<IPeerStore>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<SqlitePeerStore>>();
-            return new SqlitePeerStore($"Data Source={dbPath}", logger);
+            var conflictResolver = sp.GetRequiredService<IConflictResolver>();
+            return new SqlitePeerStore($"Data Source={dbPath}", logger, conflictResolver);
         });
 
         services.AddSingleton(sp =>
@@ -63,6 +75,9 @@ public class App : HostedApplication<MainView>
             return new PeerDatabase(store, nodeId);
         });
 
+        // Security - Always enabled for UI samples
+        services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
+        
         // Network Configuration
         var tcpPort = configuration.GetValue<int>("EntglDb:Network:TcpPort", 0); // 0 = Random port
         var authToken = configuration["EntglDb:Node:AuthToken"] ?? "demo-secret-key";

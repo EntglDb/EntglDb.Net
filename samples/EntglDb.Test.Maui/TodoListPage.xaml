@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="EntglDb.Test.Maui.TodoListPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="TodoLists Manager">
+
+    <Grid Padding="10" ColumnDefinitions="Auto,*">
+        <!--  Left: Lists  -->
+        <Border
+            Grid.Column="0"
+            Margin="0,0,5,0"
+            Padding="10"
+            Stroke="#e0e0e0"
+            StrokeThickness="1"
+            WidthRequest="200">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Label
+                    Margin="0,0,0,10"
+                    FontAttributes="Bold"
+                    Text="📋 My Lists" />
+
+                <CollectionView
+                    x:Name="ListsCollection"
+                    Grid.Row="1"
+                    SelectionChanged="OnListSelected"
+                    SelectionMode="Single" />
+
+                <VerticalStackLayout
+                    Grid.Row="2"
+                    Margin="0,10,0,0"
+                    Spacing="5">
+                    <Entry x:Name="NewListNameEntry" Placeholder="New list name..." />
+                    <Button Clicked="OnCreateListClicked" Text="+ Create List" />
+                </VerticalStackLayout>
+            </Grid>
+        </Border>
+
+        <!--  Right: Items  -->
+        <Border
+            Grid.Column="1"
+            Margin="5,0,0,0"
+            Padding="10"
+            Stroke="#e0e0e0"
+            StrokeThickness="1">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <HorizontalStackLayout Spacing="10">
+                    <Label
+                        x:Name="SelectedListTitle"
+                        FontAttributes="Bold"
+                        FontSize="16"
+                        Text="Select a list" />
+                    <Button
+                        x:Name="DeleteListButton"
+                        Clicked="OnDeleteListClicked"
+                        IsVisible="False"
+                        Text="🗑 Delete" />
+                </HorizontalStackLayout>
+
+                <ScrollView Grid.Row="1" Margin="0,10,0,0">
+                    <VerticalStackLayout x:Name="ItemsPanel" Spacing="5" />
+                </ScrollView>
+
+                <Border
+                    x:Name="AddItemPanel"
+                    Grid.Row="2"
+                    Margin="0,10,0,0"
+                    Padding="10"
+                    IsVisible="False"
+                    Stroke="#ddd"
+                    StrokeThickness="1">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Entry
+                            x:Name="NewItemTaskEntry"
+                            Grid.Column="0"
+                            Margin="0,0,10,0"
+                            Placeholder="New task..." />
+                        <Button
+                            Grid.Column="1"
+                            Clicked="OnAddItemClicked"
+                            Text="+ Add" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</ContentPage>

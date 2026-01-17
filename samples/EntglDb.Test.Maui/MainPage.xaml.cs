@@ -27,6 +27,14 @@ public partial class MainPage : ContentPage
         PeersList.ItemsSource = Peers;
 
         AppendLog($"Initialized Node: {_database.NodeId}");
+        AppendLog("🔒 Secure mode enabled (ECDH + AES-256)");
+        
+        // Initialize resolver radio from preferences
+        var resolverType = Preferences.Default.Get("ConflictResolver", "Merge");
+        if (resolverType == "LWW")
+            LwwRadio.IsChecked = true;
+        else
+            MergeRadio.IsChecked = true;
 
         // Timer for refreshing peers
         _timer = Dispatcher.CreateTimer();
@@ -163,5 +171,23 @@ public partial class MainPage : ContentPage
     private void OnClearLogsClicked(object sender, EventArgs e)
     {
         ResultLog.Text = string.Empty;
+    }
+
+    private async void OnShowTodoListsClicked(object sender, EventArgs e)
+    {
+        await Navigation.PushAsync(new TodoListPage(_database));
+    }
+
+    private void OnSaveResolverClicked(object sender, EventArgs e)
+    {
+        var newResolver = MergeRadio.IsChecked == true ? "Merge" : "LWW";
+        Preferences.Default.Set("ConflictResolver", newResolver);
+        AppendLog($"✓ Resolver set to {newResolver}. Restart required.");
+        DisplayAlert("Saved", $"Resolver changed to {newResolver}.\nRestart the app to apply.", "OK");
+    }
+
+    private async void OnRunConflictDemoClicked(object sender, EventArgs e)
+    {
+        await Navigation.PushAsync(new ConflictDemoPage(_database));
     }
 }

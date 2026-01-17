@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="EntglDb.Test.Avalonia.TodoListView">
+    
+    <Grid ColumnDefinitions="250, *">
+        <!-- Left: TodoLists -->
+        <Border Grid.Column="0" BorderBrush="#e0e0e0" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,5,0">
+            <Grid RowDefinitions="Auto, *, Auto">
+                <TextBlock Text="📋 My Lists" FontWeight="Bold" Margin="0,0,0,10"/>
+                
+                <ListBox x:Name="ListsBox" Grid.Row="1" SelectionChanged="OnListSelected"/>
+                
+                <StackPanel Grid.Row="2" Spacing="5" Margin="0,10,0,0">
+                    <TextBox x:Name="NewListNameEntry" Watermark="New list name..."/>
+                    <Button Content="+ Create List" Click="OnCreateListClicked" HorizontalAlignment="Stretch"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Right: Selected List Items -->
+        <Border Grid.Column="1" BorderBrush="#e0e0e0" BorderThickness="1" CornerRadius="4" Padding="10" Margin="5,0,0,0">
+            <Grid RowDefinitions="Auto, *, Auto">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock x:Name="SelectedListTitle" Text="Select a list" FontWeight="Bold" FontSize="16"/>
+                    <Button Content="🗑 Delete List" Click="OnDeleteListClicked" IsVisible="False" x:Name="DeleteListButton"/>
+                </StackPanel>
+
+                <!-- Items -->
+                <ScrollViewer Grid.Row="1" Margin="0,10,0,0">
+                    <StackPanel x:Name="ItemsPanel" Spacing="5"/>
+                </ScrollViewer>
+
+                <!-- Add Item -->
+                <Border Grid.Row="2" BorderBrush="#ddd" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,10,0,0" x:Name="AddItemPanel" IsVisible="False">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <TextBox x:Name="NewItemTaskEntry" Watermark="New task..." Grid.Column="0" Margin="0,0,10,0"/>
+                        <Button Content="+ Add" Click="OnAddItemClicked" Grid.Column="1"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

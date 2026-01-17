@@ -1,0 +1,4 @@
+{
+    "RecursiveMerge_Simple_10k_Ops_MaxMs": 500,
+    "RecursiveMerge_Array_1k_Ops_MaxMs": 1500
+}

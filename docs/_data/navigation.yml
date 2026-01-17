@@ -1,3 +1,19 @@
+v0.6:
+  - title: Getting Started
+    url: /v0.6/getting-started.html
+  - title: Architecture
+    url: /v0.6/architecture.html
+  - title: Security
+    url: /v0.6/security.html
+  - title: Conflict Resolution
+    url: /v0.6/conflict-resolution.html
+  - title: Deployment (LAN)
+    url: /v0.6/deployment-lan.html
+  - title: API Reference
+    url: /v0.6/api-reference.html
+  - title: Production Hardening
+    url: /v0.6/production-hardening.html
+
 v0.5:
   - title: Getting Started
     url: /v0.5/getting-started.html

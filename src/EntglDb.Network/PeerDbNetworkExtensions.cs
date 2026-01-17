@@ -25,7 +25,8 @@ namespace EntglDb.Network
                     sp.GetRequiredService<IPeerStore>(),
                     nodeId,
                     authToken,
-                    sp.GetRequiredService<ILoggerFactory>()
+                    sp.GetRequiredService<ILoggerFactory>(),
+                    sp.GetService<EntglDb.Network.Security.IPeerHandshakeService>()
                 ));
 
             // Facade for single-point control

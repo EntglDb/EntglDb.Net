@@ -6,7 +6,7 @@
 
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.1-green)](https://github.com/lucafabbri/EntglDb/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-green)](https://github.com/lucafabbri/EntglDb/releases)
 
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Contributing](#contributing)
 
@@ -56,7 +56,19 @@
 - **Local SQLite Database** on every node
 - **Read/Write operations work offline**
 - **Automatic sync** when peers reconnect
-- **Conflict resolution** using Hybrid Logical Clocks (HLC)
+- **Conflict resolution** strategies (Last Write Wins, Recursive Merge)
+
+### 🔐 Secure Networking (v0.6.0)
+- **ECDH Key Exchange** for session keys
+- **AES-256-CBC Encryption** for data in transit
+- **HMAC-SHA256 Authentication** to prevent tampering
+- **Optional secure mode** for sensitive deployments
+
+### 🔀 Advanced Conflict Resolution (v0.6.0)
+- **Last Write Wins (LWW)** - Simple timestamp-based resolution
+- **Recursive Merge** - Intelligent JSON merging with array ID detection
+- **Runtime switchable** via configuration
+- **Visual demo** in UI samples
 
 ### 🎯 Type-Safe API
 - **Generic Collection API** with LINQ support
@@ -67,7 +79,7 @@
 ### 🛡️ Production Ready (v0.5.0+)
 - **Configuration System** (appsettings.json support)
 - **Resilience**: Retry policies, offline queue, error handling
-- **Performance**: LRU cache, batch operations, WAL mode
+- **Performance**: LRU cache, batch operations, WAL mode, net8.0 optimizations
 - **Monitoring**: Health checks, sync status, diagnostics
 - **Reliability**: Database backup, integrity checks, corruption detection
 
@@ -382,9 +394,12 @@ EntglDbMapper.Global.Entity<Product>()
 - [x] Unit tests (33 passing)
 - [x] Production hardening (v0.2.0)
 - [x] LAN deployment documentation
+- [x] **Secure networking** with ECDH + AES-256 (v0.6.0)
+- [x] **Conflict resolution strategies** - LWW & Recursive Merge (v0.6.0)
+- [x] **Multi-target framework** support (netstandard2.0, net6.0, net8.0)
+- [x] **Performance benchmarks** and regression tests
 - [ ] Merkle Trees for efficient sync
-- [ ] TLS/SSL support for secure networks
-- [ ] Query optimization & indexing
+- [ ] Query optimization & advanced indexing
 - [ ] Compressed sync protocol
 - [ ] Admin UI / monitoring dashboard
 

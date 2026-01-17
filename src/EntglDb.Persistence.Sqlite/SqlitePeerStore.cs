@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using EntglDb.Core;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Exceptions;
+using EntglDb.Core.Sync;
 using System.Text;
 
 namespace EntglDb.Persistence.Sqlite
@@ -24,13 +25,15 @@ namespace EntglDb.Persistence.Sqlite
     {
         private readonly string _connectionString;
         private readonly ILogger<SqlitePeerStore> _logger;
+        private readonly IConflictResolver _conflictResolver;
 
         public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
-        public SqlitePeerStore(string connectionString, ILogger<SqlitePeerStore>? logger = null)
+        public SqlitePeerStore(string connectionString, ILogger<SqlitePeerStore>? logger = null, IConflictResolver? conflictResolver = null)
         {
             _connectionString = connectionString;
             _logger = logger ?? NullLogger<SqlitePeerStore>.Instance;
+            _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
             Initialize();
         }
 
@@ -292,39 +295,38 @@ namespace EntglDb.Persistence.Sqlite
                 foreach (var entry in oplogEntries)
                 {
                     var local = await connection.QuerySingleOrDefaultAsync<DocumentRow>(@"
-                        SELECT HlcWall, HlcLogic, HlcNode
+                        SELECT Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode
                         FROM Documents
                         WHERE Collection = @Collection AND Key = @Key",
                         new { entry.Collection, entry.Key }, transaction);
 
-                    bool shouldApply = false;
-                    if (local == null)
-                    {
-                        shouldApply = true;
-                    }
-                    else
+                    Document? localDoc = null;
+                    if (local != null)
                     {
                         var localHlc = new HlcTimestamp(local.HlcWall, local.HlcLogic, local.HlcNode);
-                        if (entry.Timestamp.CompareTo(localHlc) > 0)
-                        {
-                            shouldApply = true;
-                        }
+                        var content = local.JsonData != null 
+                            ? JsonSerializer.Deserialize<JsonElement>(local.JsonData) 
+                            : default;
+                        localDoc = new Document(entry.Collection, local.Key, content, localHlc, local.IsDeleted);
                     }
 
-                    if (shouldApply)
+                    var resolution = _conflictResolver.Resolve(localDoc, entry);
+
+                    if (resolution.ShouldApply && resolution.MergedDocument != null)
                     {
+                         var doc = resolution.MergedDocument;
                          await connection.ExecuteAsync(@"
                             INSERT OR REPLACE INTO Documents (Collection, Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
                             VALUES (@Collection, @Key, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
                             new
                             {
-                                entry.Collection,
-                                entry.Key,
-                                JsonData = entry.Payload?.GetRawText(),
-                                IsDeleted = entry.Operation == OperationType.Delete ? 1 : 0,
-                                HlcWall = entry.Timestamp.PhysicalTime,
-                                HlcLogic = entry.Timestamp.LogicalCounter,
-                                HlcNode = entry.Timestamp.NodeId
+                                doc.Collection,
+                                doc.Key,
+                                JsonData = doc.Content.ValueKind == JsonValueKind.Undefined ? null : doc.Content.GetRawText(),
+                                IsDeleted = doc.IsDeleted ? 1 : 0,
+                                HlcWall = doc.UpdatedAt.PhysicalTime,
+                                HlcLogic = doc.UpdatedAt.LogicalCounter,
+                                HlcNode = doc.UpdatedAt.NodeId
                             }, transaction);
                     }
                     
