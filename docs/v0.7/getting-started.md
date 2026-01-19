@@ -113,4 +113,5 @@ Choose your strategy:
 - [Security Configuration](security.html)
 - [Conflict Resolution Strategies](conflict-resolution.html)
 - [Production Hardening](production-hardening.html)
+- [Querying](querying.html)
 - [API Reference](api-reference.html)
