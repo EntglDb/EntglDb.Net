@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
 
   </ItemGroup>
 
@@ -15,7 +16,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings Condition="'$(TargetFramework)' == 'net6.0'">enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.7.2</Version>
+    <Version>0.7.3</Version>
     <Authors>MrDevRobot</Authors>
     <Description>SQLite persistence provider for EntglDb.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

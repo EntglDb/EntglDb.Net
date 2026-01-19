@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using EntglDb.Core;
-using EntglDb.Core.Configuration;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Cache;
 using EntglDb.Core.Sync;
@@ -12,102 +11,93 @@ using EntglDb.Network;
 using EntglDb.Network.Security;
 using EntglDb.Persistence.Sqlite;
 using Microsoft.Extensions.Hosting;
+using EntglDb.Core.Network;
 
-namespace EntglDb.Sample.Console
+namespace EntglDb.Sample.Console;
+
+// Local User/Address classes removed in favor of Shared project
+
+class Program
 {
-    // Local User/Address classes removed in favor of Shared project
-
-    class Program
+    static async Task Main(string[] args)
     {
-        static async Task Main(string[] args)
+        var builder = Host.CreateApplicationBuilder(args);
+
+        // Configuration
+        builder.Configuration.SetBasePath(Directory.GetCurrentDirectory())
+                           .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+
+        // Logging
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
+
+        var randomPort = new Random().Next(1000, 9999);
+        // Node ID
+        string nodeId = args.Length > 0 ? args[0] : ("node-" + randomPort);
+        int tcpPort = args.Length > 1 ? int.Parse(args[1]) : randomPort;
+
+        bool useSecure = args.Contains("--secure");
+
+
+        // Conflict Resolution Strategy (can be switched at runtime via service replacement)
+        var useRecursiveMerge = args.Contains("--merge");
+        if (useRecursiveMerge)
         {
-            var builder = Host.CreateApplicationBuilder(args);
+            builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
+        }
 
-            // Configuration
-            builder.Configuration.SetBasePath(Directory.GetCurrentDirectory())
-                               .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
-
-            // Logging
-            builder.Logging.ClearProviders();
-            builder.Logging.AddConsole();
-            builder.Logging.SetMinimumLevel(LogLevel.Information);
-
-            // Options
-            builder.Services.Configure<EntglDbOptions>(builder.Configuration.GetSection("EntglDb"));
-            var options = new EntglDbOptions();
-            builder.Configuration.GetSection("EntglDb").Bind(options);
-
-            // Node ID
-            string nodeId = args.Length > 0 ? args[0] : (builder.Configuration["Node:Id"] ?? "node-" + new Random().Next(1000, 9999));
-            int tcpPort = args.Length > 1 ? int.Parse(args[1]) : options.Network.TcpPort;
-            bool useLocalhost = args.Contains("--localhost");
-            bool useSecure = args.Contains("--secure");
-
-            // Persistence
-            string dbPath = options.Persistence.DatabasePath.Replace("data/", $"data-{nodeId}/");
-            var dbDir = Path.GetDirectoryName(dbPath);
-            if (!string.IsNullOrEmpty(dbDir)) Directory.CreateDirectory(dbDir);
-
-            // Register Services
-            
-            // Conflict Resolution Strategy (can be switched at runtime via service replacement)
-            var useRecursiveMerge = args.Contains("--merge");
-            IConflictResolver resolver = useRecursiveMerge 
-                ? new RecursiveNodeMergeConflictResolver() 
-                : new LastWriteWinsConflictResolver();
-            
-            builder.Services.AddSingleton<IConflictResolver>(resolver);
-            
-            builder.Services.AddSingleton<IPeerStore>(sp => 
-                new SqlitePeerStore(
-                    $"Data Source={dbPath}", 
-                    sp.GetRequiredService<ILogger<SqlitePeerStore>>(),
-                    sp.GetRequiredService<IConflictResolver>()));
-
-            builder.Services.AddSingleton(sp => new DocumentCache(
-                options.Persistence.CacheSizeMb, sp.GetRequiredService<ILogger<DocumentCache>>()));
-            
-            builder.Services.AddSingleton(sp => new OfflineQueue(
-                options.Sync.MaxQueueSize, sp.GetRequiredService<ILogger<OfflineQueue>>()));
-            
-            builder.Services.AddSingleton(sp => new SyncStatusTracker(
-                sp.GetRequiredService<ILogger<SyncStatusTracker>>()));
-
-            builder.Services.AddSingleton(sp => new RetryPolicy(
-                sp.GetRequiredService<ILogger<RetryPolicy>>(),
-                options.Network.RetryAttempts, options.Network.RetryDelayMs));
-            
-            builder.Services.AddSingleton<EntglDbHealthCheck>();
-
-            // Security (optional)
-            if (useSecure)
+        IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(
+            new PeerNodeConfiguration
             {
-                builder.Services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
-                System.Console.WriteLine("🔒 Secure mode enabled (ECDH + AES-256)");
-            }
-
-            // Network
-            string authToken = "demo-secret-key"; 
-            builder.Services.AddEntglDbNetwork(nodeId, tcpPort, authToken, useLocalhost);
-
-            // Database
-            builder.Services.AddSingleton<PeerDatabase>(sp => 
-            {
-                var store = sp.GetRequiredService<IPeerStore>();
-                var jsonOptions = new System.Text.Json.JsonSerializerOptions 
-                { 
-                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower,
-                    PropertyNameCaseInsensitive = true
-                };
-                return new PeerDatabase(store, nodeId, jsonOptions);
+                NodeId = nodeId,
+                TcpPort = tcpPort,
+                AuthToken = "demo-secret-key"
             });
 
-            // Hosted Services (Lifter Pattern)
-            builder.Services.AddHostedService<EntglDbNodeService>();       // Starts/Stops the Node
-            builder.Services.AddHostedService<ConsoleInteractiveService>(); // Runs the Input Loop
+        builder.Services.AddSingleton(peerNodeConfigurationProvider);
 
-            var host = builder.Build();
-            await host.RunAsync();
+        // Security (optional)
+        if (useSecure)
+        {
+            builder.Services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
+            System.Console.WriteLine("🔒 Secure mode enabled (ECDH + AES-256)");
+        }
+
+        // Register EntglDb Services using Fluent Extensions
+        builder.Services.AddEntglDbCore()
+                        .AddEntglDbSqlite($"Data Source=node-{randomPort}.db")
+                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
+
+
+
+        // Hosted Services (Lifter Pattern)
+        builder.Services.AddHostedService<EntglDbNodeService>();       // Starts/Stops the Node
+        builder.Services.AddHostedService<ConsoleInteractiveService>(); // Runs the Input Loop
+
+        var host = builder.Build();
+        await host.RunAsync();
+    }
+
+    private class StaticPeerNodeConfigurationProvider : IPeerNodeConfigurationProvider
+    {
+        public PeerNodeConfiguration Configuration { get; set; }
+
+        public StaticPeerNodeConfigurationProvider(PeerNodeConfiguration configuration)
+        {
+            Configuration = configuration;
+        }
+
+        public event PeerNodeConfigurationChangedEventHandler? ConfigurationChanged;
+
+        public Task<PeerNodeConfiguration> GetConfiguration()
+        {
+            return Task.FromResult(Configuration);
+        }
+
+        protected virtual void OnConfigurationChanged(PeerNodeConfiguration newConfig)
+        {
+            ConfigurationChanged?.Invoke(this, newConfig);
         }
     }
 
@@ -137,14 +127,14 @@ namespace EntglDb.Sample.Console
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (!IsEnabled(logLevel)) return;
-            
+
             var msg = $"{DateTime.Now:O} [{logLevel}] {_category}: {formatter(state, exception)}";
             if (exception != null) msg += $"\n{exception}";
 
             // Simple append, no retry needed for unique files
-            try 
+            try
             {
-               File.AppendAllText(_path, msg + Environment.NewLine);
+                File.AppendAllText(_path, msg + Environment.NewLine);
             }
             catch { /* Ignore logging errors */ }
         }

@@ -1,4 +1,5 @@
 using EntglDb.Core.Metadata;
+using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using FluentAssertions;
 using System.Text.Json;
@@ -138,7 +139,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
         await db.InitializeAsync();
         var users = db.Collection<TestUser>();
 
@@ -159,7 +165,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
         await db.InitializeAsync();
         var users = db.Collection<TestUser>();
 
@@ -178,7 +189,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
         await db.InitializeAsync();
         var users = db.Collection<TestUser>();
 
@@ -199,7 +215,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
         await db.InitializeAsync();
         var users = db.Collection<TestUser>();
 
@@ -215,7 +236,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
         await db.InitializeAsync();
         var users = db.Collection<TestUser>();
 
@@ -234,7 +260,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
         await db.InitializeAsync();
         var users = db.Collection<TestUser>();
 
@@ -256,7 +287,12 @@ public class PeerCollectionTests
     {
         // Arrange
         var store = new InMemoryPeerStore();
-        var db = new PeerDatabase(store, "test-node");
+        var config = new StaticPeerNodeConfigurationProvider(new Network.PeerNodeConfiguration()
+        {
+            NodeId = "test-node",
+            TcpPort = 0,
+        });
+        var db = new PeerDatabase(store, config);
 
         // Act
         var users1 = db.Collection<TestUser>();

@@ -6,13 +6,13 @@ namespace EntglDb.Test.Maui;
 
 public partial class TodoListPage : ContentPage
 {
-    private readonly PeerDatabase _database;
+    private readonly IPeerDatabase _database;
     private readonly IPeerCollection<TodoList> _todoCollection;
     private TodoList? _selectedList;
     private ObservableCollection<string> _listNames = new();
     private List<TodoList> _allLists = new();
 
-    public TodoListPage(PeerDatabase database)
+    public TodoListPage(IPeerDatabase database)
     {
         InitializeComponent();
         

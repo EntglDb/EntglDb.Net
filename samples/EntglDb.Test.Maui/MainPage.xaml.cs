@@ -7,9 +7,9 @@ using EntglDb.Sample.Shared;
 namespace EntglDb.Test.Maui;
 
 public partial class MainPage : ContentPage
-{
-	private readonly PeerDatabase _database;
-    private readonly EntglDbNode _node;
+{   
+	private readonly IPeerDatabase _database;
+    private readonly IEntglDbNode _node;
     private readonly ILogger<MainPage> _logger;
     private readonly IDispatcherTimer _timer;
 
@@ -22,11 +22,11 @@ public partial class MainPage : ContentPage
         _node = node;
         _logger = logger;
         
-        NodeIdLabel.Text = $"Node: {_database.NodeId}";
+        NodeIdLabel.Text = $"Node: -";
         PortLabel.Text = $"Port: {_node.Address.Port}";
         PeersList.ItemsSource = Peers;
 
-        AppendLog($"Initialized Node: {_database.NodeId}");
+        AppendLog($"Initialized Node");
         AppendLog("🔒 Secure mode enabled (ECDH + AES-256)");
         
         // Initialize resolver radio from preferences

@@ -11,7 +11,7 @@ namespace EntglDb.Test.Avalonia;
 
 public partial class TodoListView : UserControl
 {
-    private readonly PeerDatabase _database;
+    private readonly IPeerDatabase _database;
     private readonly IPeerCollection<TodoList> _todoCollection;
     private TodoList? _selectedList;
     private List<TodoList> _allLists = new();
@@ -21,7 +21,7 @@ public partial class TodoListView : UserControl
         InitializeComponent();
     }
 
-    public TodoListView(PeerDatabase database) : this()
+    public TodoListView(IPeerDatabase database) : this()
     {
         _database = database;
         _todoCollection = _database.Collection<TodoList>();

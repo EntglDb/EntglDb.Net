@@ -9,35 +9,39 @@ using EntglDb.Network;
 using EntglDb.Persistence.Sqlite;
 using Microsoft.Extensions.DependencyInjection; // For IServiceProvider if needed
 using EntglDb.Sample.Shared;
+using EntglDb.Core.Network;
 
 namespace EntglDb.Sample.Console;
 
 public class ConsoleInteractiveService : BackgroundService
 {
     private readonly ILogger<ConsoleInteractiveService> _logger;
-    private readonly PeerDatabase _db;
-    private readonly EntglDbNode _node;
+    private readonly IPeerDatabase _db;
+    private readonly IEntglDbNode _node;
     private readonly IHostApplicationLifetime _lifetime;
-    private readonly IPeerStore _store; // Injected Store
+    private readonly IPeerStore _store; 
+
     
     // Auxiliary services for status/commands
-    private readonly DocumentCache _cache;
-    private readonly OfflineQueue _queue;
-    private readonly EntglDbHealthCheck _healthCheck;
-    private readonly SyncStatusTracker _syncTracker;
+    private readonly IDocumentCache _cache;
+    private readonly IOfflineQueue _queue;
+    private readonly IEntglDbHealthCheck _healthCheck;
+    private readonly ISyncStatusTracker _syncTracker;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IPeerNodeConfigurationProvider _configProvider;
 
     public ConsoleInteractiveService(
         ILogger<ConsoleInteractiveService> logger,
-        PeerDatabase db,
-        EntglDbNode node,
+        IPeerDatabase db,
+        IEntglDbNode node,
         IHostApplicationLifetime lifetime,
-        IPeerStore store, // Inject IPeerStore
-        DocumentCache cache,
-        OfflineQueue queue,
-        EntglDbHealthCheck healthCheck,
-        SyncStatusTracker syncTracker,
-        IServiceProvider serviceProvider)
+        IPeerStore store,
+        IDocumentCache cache,
+        IOfflineQueue queue,
+        IEntglDbHealthCheck healthCheck,
+        ISyncStatusTracker syncTracker,
+        IServiceProvider serviceProvider,
+        IPeerNodeConfigurationProvider peerNodeConfigurationProvider)
     {
         _logger = logger;
         _db = db;
@@ -53,6 +57,7 @@ public class ConsoleInteractiveService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var config = await _configProvider.GetConfiguration();
         // Wait for DB initialization (could be moved to IHostedService StartAsync in DB service if separate)
         await _db.InitializeAsync(stoppingToken);
         
@@ -61,7 +66,7 @@ public class ConsoleInteractiveService : BackgroundService
         var users = _db.Collection("users"); // Legacy/Dynamic
 
         System.Console.WriteLine($"--- Interactive Console ---");
-        System.Console.WriteLine($"Node ID: {_db.NodeId}");
+        System.Console.WriteLine($"Node ID: {config.NodeId}");
         PrintHelp();
 
         while (!stoppingToken.IsCancellationRequested)
@@ -104,6 +109,7 @@ public class ConsoleInteractiveService : BackgroundService
 
     private async Task HandleInput(string input, IPeerCollection<User> usersTyped, IPeerCollection users)
     {
+        var config = await _configProvider.GetConfiguration();
         if (input.StartsWith("n"))
         {
             var ts = DateTime.Now.ToString("HH:mm:ss.fff");
@@ -201,7 +207,7 @@ public class ConsoleInteractiveService : BackgroundService
         }
         else if (input.StartsWith("b"))
         {
-            var backupPath = $"backups/backup-{_db.NodeId}-{DateTime.Now:yyyyMMdd-HHmmss}.db";
+            var backupPath = $"backups/backup-{config.NodeId}-{DateTime.Now:yyyyMMdd-HHmmss}.db";
             Directory.CreateDirectory("backups");
             
             var store = _store as SqlitePeerStore;

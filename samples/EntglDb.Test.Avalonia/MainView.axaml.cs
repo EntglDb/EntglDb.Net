@@ -10,28 +10,31 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using EntglDb.Sample.Shared;
+using EntglDb.Core.Network;
 
 namespace EntglDb.Test.Avalonia;
 
 public partial class MainView : UserControl, IHostedView
 {
-    private readonly PeerDatabase _database;
-    private readonly EntglDbNode _node;
+    private readonly IPeerDatabase _database;
+    private readonly IEntglDbNode _node;
     private readonly ILogger<MainView> _logger;
+    private readonly IPeerNodeConfigurationProvider _configProvider;
     private readonly DispatcherTimer _timer;
 
-    public MainView(PeerDatabase database, EntglDbNode node, ILogger<MainView> logger)
+    public MainView(IPeerDatabase database, IEntglDbNode node, IPeerNodeConfigurationProvider peerNodeConfigurationProvider, ILogger<MainView> logger)
     {
         _database = database;
         _node = node;
         _logger = logger;
-        
+        _configProvider = peerNodeConfigurationProvider;
+
         InitializeComponent();
         
-        NodeIdLabel.Text = $"Node: {_database.NodeId}";
-        PortLabel.Text = $"Port: {_node.Address.Port}";
+        NodeIdLabel.Text = $"Node: -";
+        PortLabel.Text = $"Port: -";
         
-        AppendLog($"Initialized Node: {_database.NodeId}");
+        AppendLog($"Initialized Node: -");
         AppendLog("🔒 Secure mode enabled (ECDH + AES-256)");
         
         // Initialize resolver radio based on appsettings

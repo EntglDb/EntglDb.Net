@@ -5,9 +5,9 @@ namespace EntglDb.Test.Maui;
 
 public partial class ConflictDemoPage : ContentPage
 {
-    private readonly PeerDatabase _database;
+    private readonly IPeerDatabase _database;
 
-    public ConflictDemoPage(PeerDatabase database)
+    public ConflictDemoPage(IPeerDatabase database)
     {
         InitializeComponent();
         _database = database;

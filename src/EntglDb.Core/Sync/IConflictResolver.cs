@@ -1,25 +1,24 @@
 using System.Text.Json;
 using EntglDb.Core;
 
-namespace EntglDb.Core.Sync
+namespace EntglDb.Core.Sync;
+
+public class ConflictResolutionResult
 {
-    public class ConflictResolutionResult
+    public bool ShouldApply { get; }
+    public Document? MergedDocument { get; }
+
+    public ConflictResolutionResult(bool shouldApply, Document? mergedDocument)
     {
-        public bool ShouldApply { get; }
-        public Document? MergedDocument { get; }
-
-        public ConflictResolutionResult(bool shouldApply, Document? mergedDocument)
-        {
-            ShouldApply = shouldApply;
-            MergedDocument = mergedDocument;
-        }
-
-        public static ConflictResolutionResult Apply(Document document) => new(true, document);
-        public static ConflictResolutionResult Ignore() => new(false, null);
+        ShouldApply = shouldApply;
+        MergedDocument = mergedDocument;
     }
 
-    public interface IConflictResolver
-    {
-        ConflictResolutionResult Resolve(Document? local, OplogEntry remote);
-    }
+    public static ConflictResolutionResult Apply(Document document) => new(true, document);
+    public static ConflictResolutionResult Ignore() => new(false, null);
+}
+
+public interface IConflictResolver
+{
+    ConflictResolutionResult Resolve(Document? local, OplogEntry remote);
 }

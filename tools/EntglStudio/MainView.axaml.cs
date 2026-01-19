@@ -12,12 +12,13 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Lifter.Avalonia;
+using EntglDb.Core.Network;
 
 namespace EntglStudio;
 
 public partial class MainView : UserControl, IHostedView
 {
-    private PeerDatabase? _db;
+    private IPeerDatabase? _db;
     private IPeerStore? _store;
     private string? _selectedCollection;
 
@@ -45,9 +46,13 @@ public partial class MainView : UserControl, IHostedView
             // 1. Create Store
             var connStr = $"Data Source={path}";
             _store = new SqlitePeerStore(connStr, NullLogger<SqlitePeerStore>.Instance);
-            
+            var config = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
+            {
+                NodeId = Guid.NewGuid().ToString()
+            });
+
             // 2. Create Database
-            _db = new PeerDatabase(_store, "studio-viewer");
+            _db = new PeerDatabase(_store, config);
             await _db.InitializeAsync();
 
             LblStatus.Text = "Connected";

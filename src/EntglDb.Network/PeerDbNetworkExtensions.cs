@@ -1,44 +1,31 @@
-using System;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using EntglDb.Core;
-using EntglDb.Core.Storage;
 using EntglDb.Core.Network; // For IMeshNetwork if we implement it
+using EntglDb.Core.Storage;
+using EntglDb.Network.Security;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using System;
 
-namespace EntglDb.Network
+namespace EntglDb.Network;
+
+public static class EntglDbNetworkExtensions
 {
-    public static class EntglDbNetworkExtensions
+    public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(this IServiceCollection services) 
+        where TPeerNodeConfigurationProvider : class, IPeerNodeConfigurationProvider
     {
-        public static IServiceCollection AddEntglDbNetwork(this IServiceCollection services, string nodeId, int tcpPort, string authToken, bool useLocalhost = false)
-        {
-            services.AddSingleton<EntglDb.Network.Security.IAuthenticator>(new EntglDb.Network.Security.ClusterKeyAuthenticator(authToken));
+        services.TryAddSingleton<IPeerNodeConfigurationProvider, TPeerNodeConfigurationProvider>();
 
-            services.AddSingleton<UdpDiscoveryService>(sp => 
-                new UdpDiscoveryService(nodeId, tcpPort, sp.GetRequiredService<ILogger<UdpDiscoveryService>>(), useLocalhost));
+        services.TryAddSingleton<IAuthenticator, ClusterKeyAuthenticator>();
 
-            services.AddSingleton<TcpSyncServer>(sp => 
-                new TcpSyncServer(tcpPort, sp.GetRequiredService<IPeerStore>(), nodeId, sp.GetRequiredService<ILogger<TcpSyncServer>>(), sp.GetRequiredService<EntglDb.Network.Security.IAuthenticator>()));
+        services.TryAddSingleton<IDiscoveryService, UdpDiscoveryService>();
 
-            services.AddSingleton<SyncOrchestrator>(sp =>
-                new SyncOrchestrator(
-                    sp.GetRequiredService<UdpDiscoveryService>(),
-                    sp.GetRequiredService<IPeerStore>(),
-                    nodeId,
-                    authToken,
-                    sp.GetRequiredService<ILoggerFactory>(),
-                    sp.GetService<EntglDb.Network.Security.IPeerHandshakeService>()
-                ));
+        services.TryAddSingleton<ISyncServer, TcpSyncServer>();
 
-            // Facade for single-point control
-            services.AddSingleton<EntglDbNode>(sp => 
-                new EntglDbNode(
-                    sp.GetRequiredService<TcpSyncServer>(),
-                    sp.GetRequiredService<UdpDiscoveryService>(),
-                    sp.GetRequiredService<SyncOrchestrator>(),
-                    sp.GetRequiredService<ILogger<EntglDbNode>>()
-                ));
+        services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();
 
-            return services;
-        }
+        services.TryAddSingleton<IEntglDbNode, EntglDbNode>();
+
+        return services;
     }
 }

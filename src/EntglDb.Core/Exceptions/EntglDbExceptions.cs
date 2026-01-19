@@ -1,112 +1,111 @@
 using System;
 
-namespace EntglDb.Core.Exceptions
+namespace EntglDb.Core.Exceptions;
+
+/// <summary>
+/// Base exception for all EntglDb-related errors.
+/// </summary>
+public class EntglDbException : Exception
 {
     /// <summary>
-    /// Base exception for all EntglDb-related errors.
+    /// Error code for programmatic error handling.
     /// </summary>
-    public class EntglDbException : Exception
+    public string ErrorCode { get; }
+
+    public EntglDbException(string errorCode, string message) 
+        : base(message)
     {
-        /// <summary>
-        /// Error code for programmatic error handling.
-        /// </summary>
-        public string ErrorCode { get; }
-
-        public EntglDbException(string errorCode, string message) 
-            : base(message)
-        {
-            ErrorCode = errorCode;
-        }
-
-        public EntglDbException(string errorCode, string message, Exception innerException) 
-            : base(message, innerException)
-        {
-            ErrorCode = errorCode;
-        }
+        ErrorCode = errorCode;
     }
 
-    /// <summary>
-    /// Exception thrown when network operations fail.
-    /// </summary>
-    public class NetworkException : EntglDbException
+    public EntglDbException(string errorCode, string message, Exception innerException) 
+        : base(message, innerException)
     {
-        public NetworkException(string message) 
-            : base("NETWORK_ERROR", message) { }
-
-        public NetworkException(string message, Exception innerException) 
-            : base("NETWORK_ERROR", message, innerException) { }
+        ErrorCode = errorCode;
     }
+}
 
-    /// <summary>
-    /// Exception thrown when persistence operations fail.
-    /// </summary>
-    public class PersistenceException : EntglDbException
+/// <summary>
+/// Exception thrown when network operations fail.
+/// </summary>
+public class NetworkException : EntglDbException
+{
+    public NetworkException(string message) 
+        : base("NETWORK_ERROR", message) { }
+
+    public NetworkException(string message, Exception innerException) 
+        : base("NETWORK_ERROR", message, innerException) { }
+}
+
+/// <summary>
+/// Exception thrown when persistence operations fail.
+/// </summary>
+public class PersistenceException : EntglDbException
+{
+    public PersistenceException(string message) 
+        : base("PERSISTENCE_ERROR", message) { }
+
+    public PersistenceException(string message, Exception innerException) 
+        : base("PERSISTENCE_ERROR", message, innerException) { }
+}
+
+/// <summary>
+/// Exception thrown when synchronization operations fail.
+/// </summary>
+public class SyncException : EntglDbException
+{
+    public SyncException(string message) 
+        : base("SYNC_ERROR", message) { }
+
+    public SyncException(string message, Exception innerException) 
+        : base("SYNC_ERROR", message, innerException) { }
+}
+
+/// <summary>
+/// Exception thrown when configuration is invalid.
+/// </summary>
+public class ConfigurationException : EntglDbException
+{
+    public ConfigurationException(string message) 
+        : base("CONFIG_ERROR", message) { }
+}
+
+/// <summary>
+/// Exception thrown when database corruption is detected.
+/// </summary>
+public class DatabaseCorruptionException : PersistenceException
+{
+    public DatabaseCorruptionException(string message) 
+        : base(message) { }
+
+    public DatabaseCorruptionException(string message, Exception innerException) 
+        : base(message, innerException) { }
+}
+
+/// <summary>
+/// Exception thrown when a timeout occurs.
+/// </summary>
+public class TimeoutException : EntglDbException
+{
+    public TimeoutException(string operation, int timeoutMs) 
+        : base("TIMEOUT_ERROR", $"Operation '{operation}' timed out after {timeoutMs}ms") { }
+}
+
+
+public class DocumentNotFoundException : PersistenceException
+{
+    public string Key { get; }
+    public string Collection { get; }
+
+    public DocumentNotFoundException(string collection, string key) 
+        : base($"Document with key '{key}' not found in collection '{collection}'.")
     {
-        public PersistenceException(string message) 
-            : base("PERSISTENCE_ERROR", message) { }
-
-        public PersistenceException(string message, Exception innerException) 
-            : base("PERSISTENCE_ERROR", message, innerException) { }
+        Collection = collection;
+        Key = key;
     }
+}
 
-    /// <summary>
-    /// Exception thrown when synchronization operations fail.
-    /// </summary>
-    public class SyncException : EntglDbException
-    {
-        public SyncException(string message) 
-            : base("SYNC_ERROR", message) { }
-
-        public SyncException(string message, Exception innerException) 
-            : base("SYNC_ERROR", message, innerException) { }
-    }
-
-    /// <summary>
-    /// Exception thrown when configuration is invalid.
-    /// </summary>
-    public class ConfigurationException : EntglDbException
-    {
-        public ConfigurationException(string message) 
-            : base("CONFIG_ERROR", message) { }
-    }
-
-    /// <summary>
-    /// Exception thrown when database corruption is detected.
-    /// </summary>
-    public class DatabaseCorruptionException : PersistenceException
-    {
-        public DatabaseCorruptionException(string message) 
-            : base(message) { }
-
-        public DatabaseCorruptionException(string message, Exception innerException) 
-            : base(message, innerException) { }
-    }
-
-    /// <summary>
-    /// Exception thrown when a timeout occurs.
-    /// </summary>
-    public class TimeoutException : EntglDbException
-    {
-        public TimeoutException(string operation, int timeoutMs) 
-            : base("TIMEOUT_ERROR", $"Operation '{operation}' timed out after {timeoutMs}ms") { }
-    }
-
-
-    public class DocumentNotFoundException : PersistenceException
-    {
-        public string Key { get; }
-        public string Collection { get; }
-
-        public DocumentNotFoundException(string collection, string key) 
-            : base($"Document with key '{key}' not found in collection '{collection}'.")
-        {
-            Collection = collection;
-            Key = key;
-        }
-    }
-
-    public class EntglDbConcurrencyException : PersistenceException
-    {
-         public EntglDbConcurrencyException(string message) : base(message) { }
-    }
+public class EntglDbConcurrencyException : PersistenceException
+{
+     public EntglDbConcurrencyException(string message) : base(message) { }
 }

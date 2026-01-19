@@ -1,12 +1,11 @@
 ﻿using BenchmarkDotNet.Running;
 
-namespace EntglDb.Benchmarks
+namespace EntglDb.Benchmarks;
+
+class Program
 {
-    class Program
+    static void Main(string[] args)
     {
-        static void Main(string[] args)
-        {
-            var summary = BenchmarkRunner.Run<ConflictResolutionBenchmarks>();
-        }
+        var summary = BenchmarkRunner.Run<ConflictResolutionBenchmarks>();
     }
 }

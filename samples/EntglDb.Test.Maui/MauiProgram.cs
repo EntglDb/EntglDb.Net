@@ -8,6 +8,7 @@ using EntglDb.Core.Sync;
 using EntglDb.Persistence.Sqlite;
 using EntglDb.Network;
 using EntglDb.Network.Security;
+using EntglDb.Core.Network;
 
 namespace EntglDb.Test.Maui;
 
@@ -44,52 +45,26 @@ public static class MauiProgram
 		builder.Services.AddSingleton<AppShell>();
 		builder.Services.AddTransient<MainPage>();
 
+
 		// EntglDb Services
 		// Conflict Resolution - Read from preferences
 		var resolverType = Preferences.Default.Get("ConflictResolver", "Merge");
-		IConflictResolver resolver = resolverType == "Merge"
-			? new RecursiveNodeMergeConflictResolver()
-			: new LastWriteWinsConflictResolver();
-		
-		builder.Services.AddSingleton<IConflictResolver>(resolver);
-		
-		builder.Services.AddSingleton<IPeerStore>(sp => 
+		if (resolverType == "Merge")
 		{
-			var config = sp.GetRequiredService<IConfiguration>();
-			var dataDir = config["DataDirectory"];
-			if (dataDir == "FileSystem.AppDataDirectory" || string.IsNullOrEmpty(dataDir))
-			{
-				dataDir = FileSystem.AppDataDirectory;
-			}
-
-			// Ensure directory exists
-			if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
-
-			var dbPath = Path.Combine(dataDir, "entgldb-maui.db");
-			var conflictResolver = sp.GetRequiredService<IConflictResolver>();
-			return new SqlitePeerStore($"Data Source={dbPath}", sp.GetRequiredService<ILogger<SqlitePeerStore>>(), conflictResolver);
-		});
-
+			builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
+		}
+		// If LWW is desired, the default fallback in AddEntglDbSqlite will handle it, or we could explicitely register LastWriteWinsConflictResolver here.
 		
-        var mauiNodeId = "maui-node-" + Guid.NewGuid().ToString().Substring(0, 8); // Fallback
+		// Use a factory or pre-calculate path? 
+		// Since AddEntglDbSqlite takes a string, we need to resolve the path here.
+		var dataDir = FileSystem.AppDataDirectory;
+		if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
+		var dbPath = Path.Combine(dataDir, "entgldb-maui.db");
 
-		builder.Services.AddSingleton<PeerDatabase>(sp =>
-		{
-			var store = sp.GetRequiredService<IPeerStore>();
-			var config = sp.GetRequiredService<IConfiguration>();
-			var nodeId = config["EntglDb:Node:Id"] ?? mauiNodeId;
-			
-			return new PeerDatabase(store, nodeId);
-		});
+		builder.Services.AddEntglDbCore()
+						.AddEntglDbSqlite($"Data Source={dbPath}")
+						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 
-        // Network
-        // Reading directly from built config to get values for Network registration
-        var builtConfig = builder.Configuration;
-        var nodeId = builtConfig["EntglDb:Node:Id"] ?? mauiNodeId;
-        var tcpPort = builtConfig.GetValue<int>("EntglDb:Network:TcpPort", 0);
-        var authToken = builtConfig["EntglDb:Node:AuthToken"] ?? "demo-secret-key";
-
-        builder.Services.AddEntglDbNetwork(nodeId, tcpPort, authToken, useLocalhost: false);
         builder.Services.AddHostedService<EntglDbNodeService>();
 
 #if DEBUG
