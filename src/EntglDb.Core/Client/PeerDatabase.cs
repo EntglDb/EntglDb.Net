@@ -243,7 +243,7 @@ namespace EntglDb.Core
             QueryNode queryNode = null;
             try 
             {
-                queryNode = ExpressionToQueryNodeTranslator.Translate(predicate);
+                queryNode = ExpressionToQueryNodeTranslator.Translate(predicate, _db.JsonOptions);
             }
             catch (Exception ex)
             {
@@ -291,7 +291,7 @@ namespace EntglDb.Core
              {
                  try
                  {
-                     queryNode = ExpressionToQueryNodeTranslator.Translate(predicate);
+                     queryNode = ExpressionToQueryNodeTranslator.Translate(predicate, _db.JsonOptions);
                  }
                  catch (Exception ex)
                  {
