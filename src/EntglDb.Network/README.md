@@ -58,9 +58,9 @@ Updates propagate exponentially - each node tells multiple peers, ensuring fast 
 
 ## Documentation
 
-- **[Architecture](https://github.com/lucafabbri/EntglDb/blob/main/docs/architecture.md)**
-- **[LAN Deployment](https://github.com/lucafabbri/EntglDb/blob/main/docs/deployment-lan.md)**
-- **[Network Configuration](https://github.com/lucafabbri/EntglDb/blob/main/docs/production-hardening.md)**
+- **[Architecture](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/architecture.md)**
+- **[LAN Deployment](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/deployment-lan.md)**
+- **[Network Configuration](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/production-hardening.md)**
 
 ## Related Packages
 
@@ -69,4 +69,4 @@ Updates propagate exponentially - each node tells multiple peers, ensuring fast 
 
 ## License
 
-MIT - see [LICENSE](https://github.com/lucafabbri/EntglDb/blob/main/LICENSE)
+MIT - see [LICENSE](https://github.com/EntglDb/EntglDb.Net/blob/main/LICENSE)

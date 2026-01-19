@@ -16,8 +16,8 @@ Welcome to the EntglDb documentation.
 
 ## Downloads
 
-*   [**Download EntglStudio**](https://github.com/lucafabbri/EntglDb/releases) - Standalone tool for managing EntglDb data.
+*   [**Download EntglStudio**](https://github.com/EntglDb/EntglDb.Net/releases) - Standalone tool for managing EntglDb data.
 
 ## Links
 
-*   [GitHub Repository](https://github.com/lucafabbri/EntglDb)
+*   [GitHub Repository](https://github.com/EntglDb/EntglDb.Net)

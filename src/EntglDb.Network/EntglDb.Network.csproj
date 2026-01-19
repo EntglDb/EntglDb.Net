@@ -24,12 +24,12 @@
     <ImplicitUsings Condition="'$(TargetFramework)' == 'net6.0'">enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Version>0.7.0</Version>
-    <Authors>Luca Fabbri</Authors>
+    <Authors>MrDevRobot</Authors>
     <Description>Networking layer (TCP/UDP/Gossip) for EntglDb.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>p2p;mesh;network;gossip;lan;udp;tcp;discovery</PackageTags>
-    <PackageProjectUrl>https://github.com/lucafabbri/EntglDb</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/lucafabbri/EntglDb</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>

@@ -428,7 +428,7 @@ We welcome contributions! EntglDb is an open-source project and we'd love your h
 
 ```bash
 # Clone the repository
-git clone https://github.com/lucafabbri/EntglDb.git
+git clone https://github.com/EntglDb/EntglDb.Net.git
 cd EntglDb
 
 # Restore dependencies
@@ -466,7 +466,7 @@ EntglDb is licensed under the **MIT License**.
 ```
 MIT License
 
-Copyright (c) 2026 Luca Fabbri
+Copyright (c) 2026 MrDevRobot
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files...
@@ -482,7 +482,7 @@ If you find EntglDb useful, please **give it a star** on GitHub! It helps others
 
 <div align="center">
 
-### [⭐ Star on GitHub](https://github.com/lucafabbri/EntglDb)
+### [⭐ Star on GitHub](https://github.com/EntglDb/EntglDb.Net)
 
 **Thank you for your support!** 🙏
 
@@ -494,6 +494,6 @@ If you find EntglDb useful, please **give it a star** on GitHub! It helps others
 
 **Built with ❤️ for the .NET community**
 
-[Report Bug](https://github.com/lucafabbri/EntglDb/issues) • [Request Feature](https://github.com/lucafabbri/EntglDb/issues) • [Discussions](https://github.com/lucafabbri/EntglDb/discussions)
+[Report Bug](https://github.com/EntglDb/EntglDb.Net/issues) • [Request Feature](https://github.com/EntglDb/EntglDb.Net/issues) • [Discussions](https://github.com/EntglDb/EntglDb.Net/discussions)
 
 </div>

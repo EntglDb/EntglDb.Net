@@ -49,9 +49,9 @@ var results = await products.Find(p => p.Price > 500);
 
 ## Documentation
 
-- **[Complete Documentation](https://github.com/lucafabbri/EntglDb)**
-- **[API Reference](https://github.com/lucafabbri/EntglDb/blob/main/docs/api-reference.md)**
-- **[Production Hardening](https://github.com/lucafabbri/EntglDb/blob/main/docs/production-hardening.md)**
+- **[Complete Documentation](https://github.com/EntglDb/EntglDb.Net)**
+- **[API Reference](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/api-reference.md)**
+- **[Production Hardening](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/production-hardening.md)**
 
 ## Related Packages
 
@@ -60,4 +60,4 @@ var results = await products.Find(p => p.Price > 500);
 
 ## License
 
-MIT - see [LICENSE](https://github.com/lucafabbri/EntglDb/blob/main/LICENSE)
+MIT - see [LICENSE](https://github.com/EntglDb/EntglDb.Net/blob/main/LICENSE)

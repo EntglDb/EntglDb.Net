@@ -14,7 +14,7 @@ dotnet add package EntglDb.Persistence.Sqlite
 
 EntglStudio is a standalone GUI tool for managing your EntglDb nodes and data.
 
-*   [**Download EntglStudio**](https://github.com/lucafabbri/EntglDb/releases)
+*   [**Download EntglStudio**](https://github.com/EntglDb/EntglDb.Net/releases)
 
 ## Basic Usage
 

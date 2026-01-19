@@ -5,12 +5,12 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <Version>0.7.0</Version>
-    <Authors>Luca Fabbri</Authors>
+    <Authors>MrDevRobot</Authors>
     <Description>Core abstractions and logic for EntglDb, a lightweight P2P mesh database.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>p2p;mesh;database;gossip;entgldb;lan;offline-first;distributed</PackageTags>
-    <PackageProjectUrl>https://github.com/lucafabbri/EntglDb</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/lucafabbri/EntglDb</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>

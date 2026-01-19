@@ -68,8 +68,8 @@ await store.BackupAsync("backups/backup-20260115.db");
 
 ## Documentation
 
-- **[Production Hardening](https://github.com/lucafabbri/EntglDb/blob/main/docs/production-hardening.md)**
-- **[SQLite Configuration](https://github.com/lucafabbri/EntglDb/blob/main/docs/deployment-lan.md)**
+- **[Production Hardening](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/production-hardening.md)**
+- **[SQLite Configuration](https://github.com/EntglDb/EntglDb.Net/blob/main/docs/deployment-lan.md)**
 
 ## Related Packages
 
@@ -78,4 +78,4 @@ await store.BackupAsync("backups/backup-20260115.db");
 
 ## License
 
-MIT - see [LICENSE](https://github.com/lucafabbri/EntglDb/blob/main/LICENSE)
+MIT - see [LICENSE](https://github.com/EntglDb/EntglDb.Net/blob/main/LICENSE)
