@@ -25,9 +25,6 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
 			});
-
-		// Security - Always enabled for UI samples
-		builder.Services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
 		
 		// Network Configuration
 		// Configuration

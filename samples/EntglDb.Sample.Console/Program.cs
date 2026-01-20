@@ -60,8 +60,13 @@ class Program
         // Security (optional)
         if (useSecure)
         {
-            builder.Services.AddSingleton<IPeerHandshakeService, SecureHandshakeService>();
+            // Already default, just log
             System.Console.WriteLine("🔒 Secure mode enabled (ECDH + AES-256)");
+        }
+        else
+        {
+             // Disable Security
+             builder.Services.AddSingleton<IPeerHandshakeService, NoOpHandshakeService>();
         }
 
         // Register EntglDb Services using Fluent Extensions

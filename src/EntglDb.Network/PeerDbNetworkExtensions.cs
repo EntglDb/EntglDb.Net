@@ -17,6 +17,8 @@ public static class EntglDbNetworkExtensions
         services.TryAddSingleton<IPeerNodeConfigurationProvider, TPeerNodeConfigurationProvider>();
 
         services.TryAddSingleton<IAuthenticator, ClusterKeyAuthenticator>();
+        
+        services.TryAddSingleton<IPeerHandshakeService, SecureHandshakeService>();
 
         services.TryAddSingleton<IDiscoveryService, UdpDiscoveryService>();
 
