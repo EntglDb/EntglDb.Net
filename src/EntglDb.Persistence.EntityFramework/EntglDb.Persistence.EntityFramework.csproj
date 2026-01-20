@@ -7,10 +7,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="6.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="6.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="6.0.0" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="6.0.0" />
-    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="6.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="6.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
   </ItemGroup>
 
@@ -21,9 +17,9 @@
     <Nullable>enable</Nullable>
     <Version>0.8.0</Version>
     <Authors>MrDevRobot</Authors>
-    <Description>Entity Framework Core persistence provider for EntglDb supporting SQL Server, PostgreSQL, MySQL, and SQLite.</Description>
+    <Description>Entity Framework Core persistence provider for EntglDb. Generic implementation supporting any EF Core database provider (SQL Server, PostgreSQL, MySQL, SQLite, etc).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>p2p;database;entityframework;efcore;sqlserver;postgresql;mysql;sqlite;persistence;storage</PackageTags>
+    <PackageTags>p2p;database;entityframework;efcore;persistence;storage</PackageTags>
     <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

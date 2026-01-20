@@ -2,11 +2,15 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using EntglDb.AspNet.Configuration;
 using EntglDb.AspNet.Services;
 using EntglDb.AspNet.HealthChecks;
 using EntglDb.AspNet.HostedServices;
+using EntglDb.Core.Storage;
+using EntglDb.Core.Network;
 using EntglDb.Network;
+using EntglDb.Network.Security;
 
 namespace EntglDb.AspNet;
 
@@ -87,11 +91,23 @@ public static class EntglDbAspNetExtensions
         IServiceCollection services,
         SingleClusterOptions options)
     {
-        // Discovery service (no-op in server mode)
+        // Discovery service (no-op in server mode - no UDP broadcast)
         services.TryAddSingleton<IDiscoveryService, NoOpDiscoveryService>();
 
-        // Sync orchestrator (respond-only mode)
-        services.TryAddSingleton<ISyncOrchestrator, NoOpSyncOrchestrator>();
+        // Sync orchestrator - use actual orchestrator to propagate changes between peers
+        // Cloud nodes need to act as propagators for scenarios:
+        // 1. Services connected to cloud that modify data
+        // 2. Separate LAN clusters that connect through the cloud
+        services.TryAddSingleton<ISyncOrchestrator>(sp =>
+        {
+            var discovery = sp.GetRequiredService<IDiscoveryService>();
+            var store = sp.GetRequiredService<IPeerStore>();
+            var configProvider = sp.GetRequiredService<IPeerNodeConfigurationProvider>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var handshakeService = sp.GetService<IPeerHandshakeService>();
+            
+            return new SyncOrchestrator(discovery, store, configProvider, loggerFactory, handshakeService);
+        });
 
         // Hosted services
         services.AddHostedService<TcpSyncServerHostedService>();
@@ -105,11 +121,23 @@ public static class EntglDbAspNetExtensions
         // Multi-cluster mode uses the same services as single-cluster
         // but with different configuration for routing
         
-        // Discovery service (no-op in server mode)
+        // Discovery service (no-op in server mode - no UDP broadcast)
         services.TryAddSingleton<IDiscoveryService, NoOpDiscoveryService>();
 
-        // Sync orchestrator (respond-only mode)
-        services.TryAddSingleton<ISyncOrchestrator, NoOpSyncOrchestrator>();
+        // Sync orchestrator - use actual orchestrator to propagate changes between peers
+        // Cloud nodes need to act as propagators for scenarios:
+        // 1. Services connected to cloud that modify data
+        // 2. Separate LAN clusters that connect through the cloud
+        services.TryAddSingleton<ISyncOrchestrator>(sp =>
+        {
+            var discovery = sp.GetRequiredService<IDiscoveryService>();
+            var store = sp.GetRequiredService<IPeerStore>();
+            var configProvider = sp.GetRequiredService<IPeerNodeConfigurationProvider>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var handshakeService = sp.GetService<IPeerHandshakeService>();
+            
+            return new SyncOrchestrator(discovery, store, configProvider, loggerFactory, handshakeService);
+        });
 
         // Note: Multi-cluster TCP routing would be implemented here
         // For now, we use the same hosted services
