@@ -15,6 +15,10 @@ namespace EntglDb.Network;
 /// <summary>
 /// Composite discovery service that combines UDP LAN discovery with persistent remote peers from the database.
 /// Periodically refreshes the remote peer list and merges with actively discovered LAN peers.
+/// 
+/// IMPORTANT: Remote peer configurations are stored in each node's local database and are NOT automatically 
+/// synchronized across the cluster. For effective leader election, all nodes in a LAN cluster should be 
+/// configured with the same remote peer list. See docs/remote-peer-configuration.md for deployment patterns.
 /// </summary>
 public class CompositeDiscoveryService : IDiscoveryService
 {

@@ -194,6 +194,31 @@ CREATE TABLE IF NOT EXISTS RemotePeers (
 4. **Token Expiration**: Enforced with 60-second safety buffer
 5. **Configurable Validation**: Issuer and audience validation can be configured
 
+## ⚠️ Important: Configuration Consistency
+
+### Remote Peer List is NOT Automatically Synchronized
+
+Each node maintains its own local SQLite database with remote peer configurations. **Remote peer configurations are NOT automatically synchronized across cluster nodes.**
+
+### Impact on Leader Election
+
+- Any LAN node can be elected as Cloud Gateway (leader)
+- Only the elected leader connects to remote cloud nodes  
+- **If the elected leader doesn't have remote peers configured locally, it won't connect to cloud**
+
+### Required: Manual Configuration Consistency
+
+**All nodes in a LAN cluster MUST be configured with the same remote peer list** to ensure effective leader election and cloud connectivity.
+
+### Deployment Recommendations
+
+1. **Use shared configuration files** deployed to all nodes (see `docs/remote-peer-configuration.md`)
+2. **Apply configurations via automation** (Ansible, Puppet, Kubernetes ConfigMaps)
+3. **Verify consistency** after deployment on all nodes
+4. **Monitor for configuration drift** in production
+
+See `docs/remote-peer-configuration.md` for detailed deployment patterns and best practices.
+
 ## 🧪 Testing
 
 All 50 existing tests pass, demonstrating zero breaking changes:

@@ -15,6 +15,10 @@ namespace EntglDb.Core.Management;
 /// <summary>
 /// Implementation of peer management service.
 /// Provides CRUD operations for managing remote peer configurations.
+/// 
+/// IMPORTANT: Changes made through this service only affect the local node's database.
+/// For cluster-wide consistency, apply the same configuration changes to all nodes.
+/// See docs/remote-peer-configuration.md for deployment patterns.
 /// </summary>
 public class PeerManagementService : IPeerManagementService
 {
