@@ -194,30 +194,36 @@ CREATE TABLE IF NOT EXISTS RemotePeers (
 4. **Token Expiration**: Enforced with 60-second safety buffer
 5. **Configurable Validation**: Issuer and audience validation can be configured
 
-## ⚠️ Important: Configuration Consistency
+## ✅ Automatic Configuration Synchronization
 
-### Remote Peer List is NOT Automatically Synchronized
+### Remote Peer List is Automatically Synchronized
 
-Each node maintains its own local SQLite database with remote peer configurations. **Remote peer configurations are NOT automatically synchronized across cluster nodes.**
+Remote peer configurations are now stored in a **synchronized collection** (`_system_remote_peers`) that is automatically replicated across all nodes in the cluster through EntglDB's built-in sync infrastructure.
 
-### Impact on Leader Election
+### How It Works
 
-- Any LAN node can be elected as Cloud Gateway (leader)
-- Only the elected leader connects to remote cloud nodes  
-- **If the elected leader doesn't have remote peers configured locally, it won't connect to cloud**
+- When any node adds/modifies/removes a remote peer, the change is stored in a special collection
+- The collection is synchronized to all other nodes through the normal EntglDB sync process
+- All nodes in the cluster automatically receive and apply the configuration changes
+- Leader election works correctly because all nodes have the same remote peer list
 
-### Required: Manual Configuration Consistency
+### Benefits
 
-**All nodes in a LAN cluster MUST be configured with the same remote peer list** to ensure effective leader election and cloud connectivity.
+1. **Zero Manual Configuration**: Add a remote peer on any node, it syncs to all nodes automatically
+2. **Consistent Leader Election**: All nodes have the same remote peer configurations
+3. **Dynamic Updates**: Enable/disable peers on one node, changes propagate to all nodes
+4. **Cluster-Wide Visibility**: Query remote peers on any node, get consistent results
 
-### Deployment Recommendations
+### Usage
 
-1. **Use shared configuration files** deployed to all nodes (see `docs/remote-peer-configuration.md`)
-2. **Apply configurations via automation** (Ansible, Puppet, Kubernetes ConfigMaps)
-3. **Verify consistency** after deployment on all nodes
-4. **Monitor for configuration drift** in production
+```csharp
+// Add a cloud peer on Node-1
+var peerManagement = new PeerManagementService(database, logger);
+await peerManagement.AddCloudPeerAsync("cloud-1", "remote.com:9000", oauth2Config);
 
-See `docs/remote-peer-configuration.md` for detailed deployment patterns and best practices.
+// The peer is automatically synchronized to Node-2 and Node-3
+// All nodes can now see and connect to the remote peer when elected as leader
+```
 
 ## 🧪 Testing
 

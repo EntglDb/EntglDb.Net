@@ -1,37 +1,72 @@
-# Remote Peer Configuration - Deployment Guide
+# Remote Peer Configuration - Automatic Synchronization
 
-## ⚠️ Important: Configuration Consistency
+## ✅ Automatic Synchronization (Current Implementation)
 
-### Remote Peer List is NOT Automatically Synchronized
+### Remote Peer List is Automatically Synchronized
 
-Each node in an EntglDB.Net cluster maintains its own local SQLite database with remote peer configurations. **Remote peer configurations are NOT automatically synchronized across cluster nodes.**
+As of this implementation, remote peer configurations are stored in a **synchronized collection** (`_system_remote_peers`) that is automatically replicated across all nodes in the cluster through EntglDB's built-in sync infrastructure.
 
 ### Why This Matters for Leader Election
 
 When using the `BullyLeaderElectionService`:
 1. Any LAN node can be elected as the Cloud Gateway (leader)
 2. Only the elected leader connects to remote cloud nodes
-3. **If the elected leader doesn't have remote peers configured locally, it won't connect to any cloud nodes**
+3. **All nodes automatically have the same remote peer configurations through sync**
+4. Leader election is always effective because all nodes know about all remote peers
 
-### Required: Manual Configuration Consistency
+### How It Works
 
-**All nodes in a LAN cluster MUST be configured with the same remote peer list** to ensure effective leader election and cloud connectivity.
+1. Remote peer configurations are stored as documents in a special collection: `_system_remote_peers`
+2. This collection is synchronized automatically through EntglDB's normal sync process
+3. When you add/remove/modify a remote peer on any node, it syncs to all other nodes
+4. All nodes maintain consistent remote peer configurations without manual intervention
 
-## 📋 Deployment Patterns
+## 🚀 Simple Deployment Pattern
 
-### Pattern 1: Configuration File (Recommended)
+### Just Add on Any Node
 
-Use a shared configuration file deployed to all nodes:
+Since configurations sync automatically, you only need to add remote peers on **one node**:
 
-**appsettings.json** (deployed to all LAN nodes):
+```csharp
+// Add on any node in the cluster
+var database = new PeerDatabase(store, configProvider);
+var peerManagement = new PeerManagementService(database, logger);
+
+await peerManagement.AddCloudPeerAsync(
+    "cloud-node-1",
+    "remote.entgldb.com:9000",
+    new OAuth2Configuration {
+        Authority = "https://identity.example.com",
+        ClientId = "lan-cluster-client",
+        ClientSecret = "secret",
+        Scopes = new[] { "entgldb:sync" }
+    }
+);
+
+// Configuration automatically syncs to all other nodes in cluster
+```
+
+### Verification
+
+Query remote peers on any node - they should all return the same list:
+
+```csharp
+var peers = await peerManagement.GetAllRemotePeersAsync();
+foreach (var peer in peers)
+{
+    Console.WriteLine($"{peer.NodeId}: {peer.Address} (Type: {peer.Type}, Enabled: {peer.IsEnabled})");
+}
+```
+
+## 📋 Optional: Configuration File for Initial Setup
+
+You can still use configuration files for initial setup on cluster creation:
+
+**appsettings.json** (optional, for first-time cluster setup):
 ```json
 {
   "EntglDb": {
-    "Node": {
-      "NodeId": "node-1",  // Unique per node
-      "TcpPort": 9000
-    },
-    "RemotePeers": [
+    "InitialRemotePeers": [
       {
         "nodeId": "cloud-node-1",
         "address": "remote.entgldb.com:9000",
@@ -48,159 +83,141 @@ Use a shared configuration file deployed to all nodes:
 }
 ```
 
-**Startup code** (apply on each node):
+**Startup code** (apply once on any node):
 ```csharp
-var config = configuration.GetSection("EntglDb:RemotePeers")
+var initialPeers = configuration.GetSection("EntglDb:InitialRemotePeers")
     .Get<List<RemotePeerConfig>>();
 
-var peerManagement = new PeerManagementService(peerStore, logger);
-
-foreach (var remotePeer in config)
+if (initialPeers != null && initialPeers.Any())
 {
-    await peerManagement.AddCloudPeerAsync(
-        remotePeer.NodeId,
-        remotePeer.Address,
-        remotePeer.OAuth2
-    );
-}
-```
-
-### Pattern 2: Centralized Configuration Management
-
-Use a configuration management tool (Ansible, Puppet, etc.) to ensure consistency:
-
-```yaml
-# ansible-playbook.yml
-- name: Configure EntglDB remote peers
-  hosts: entgldb_cluster
-  tasks:
-    - name: Add cloud peer
-      shell: |
-        dotnet run -- add-cloud-peer \
-          --node-id cloud-node-1 \
-          --address remote.entgldb.com:9000 \
-          --authority https://identity.example.com \
-          --client-id lan-cluster-client \
-          --client-secret "{{ vault_secret }}"
-```
-
-### Pattern 3: Initialization Script
-
-Create an initialization script run on cluster setup:
-
-```bash
-#!/bin/bash
-# init-cluster.sh - Run on all cluster nodes
-
-# Add cloud peer to local database
-curl -X POST http://localhost:8080/api/peers/cloud \
-  -H "Content-Type: application/json" \
-  -d '{
-    "nodeId": "cloud-node-1",
-    "address": "remote.entgldb.com:9000",
-    "oauth2": {
-      "authority": "https://identity.example.com",
-      "clientId": "lan-cluster-client",
-      "clientSecret": "secret"
+    var peerManagement = new PeerManagementService(database, logger);
+    
+    foreach (var remotePeer in initialPeers)
+    {
+        // Check if already exists to avoid duplicates
+        var existing = await peerManagement.GetAllRemotePeersAsync();
+        if (!existing.Any(p => p.NodeId == remotePeer.NodeId))
+        {
+            await peerManagement.AddCloudPeerAsync(
+                remotePeer.NodeId,
+                remotePeer.Address,
+                remotePeer.OAuth2
+            );
+        }
     }
-  }'
-```
-
-## 🔄 Synchronization Strategies (Future Enhancement)
-
-### Option A: Gossip Protocol for Configuration
-
-Add a gossip-based synchronization for remote peer configurations:
-
-```csharp
-// Future enhancement - NOT currently implemented
-public class RemotePeerConfigSyncService
-{
-    // Gossip remote peer configs during normal sync
-    // Each node broadcasts its remote peer list
-    // Nodes merge and persist new remote peer configurations
 }
 ```
 
-### Option B: Leader-Based Distribution
+## 🔄 Dynamic Management
 
-Leader distributes its remote peer list to all members:
+### Add/Remove Peers at Runtime
 
-```csharp
-// Future enhancement - NOT currently implemented
-public class LeaderConfigDistributionService
-{
-    // When elected as leader, broadcast remote peer configs
-    // Members update their local database to match leader
-}
-```
-
-### Option C: External Configuration Service
-
-Use a centralized configuration service (Consul, etcd):
+You can manage remote peers dynamically without restarting nodes:
 
 ```csharp
-// Future enhancement - NOT currently implemented
-public class ConsulRemotePeerProvider : IPeerConfigProvider
-{
-    // Fetch remote peer configs from Consul
-    // All nodes read from same Consul key
-}
+// Add a new remote peer (syncs to all nodes)
+await peerManagement.AddCloudPeerAsync("cloud-2", "cloud2.example.com:9000", oauth2Config);
+
+// Disable a peer temporarily (syncs to all nodes)
+await peerManagement.DisablePeerAsync("cloud-1");
+
+// Re-enable later (syncs to all nodes)
+await peerManagement.EnablePeerAsync("cloud-1");
+
+// Remove a peer permanently (syncs to all nodes)
+await peerManagement.RemoveRemotePeerAsync("cloud-2");
 ```
 
-## ✅ Verification
+All changes are automatically synchronized across the cluster within seconds (depending on sync interval).
 
-After deploying remote peer configurations, verify consistency:
+## 🚨 Common Use Cases
 
+### Use Case 1: Add Cloud Node to Existing Cluster
+
+**Scenario**: You have a running 3-node LAN cluster and want to add cloud connectivity
+
+**Solution**: Connect to any node and add the cloud peer
+```bash
+# SSH to any node
+ssh node-1
+
+# Add cloud peer via API or code
+dotnet run -- add-cloud-peer \
+  --node-id cloud-1 \
+  --address cloud.example.com:9000 \
+  --authority https://identity.example.com \
+  --client-id client-id
+```
+
+The configuration automatically syncs to all 3 nodes.
+
+### Use Case 2: Temporary Disable Cloud Sync
+
+**Scenario**: Cloud node is under maintenance, disable temporarily
+
+**Solution**: Disable on any node
 ```csharp
-// Query remote peers on each node
-var peers = await peerManagement.GetAllRemotePeersAsync();
-
-foreach (var peer in peers)
-{
-    Console.WriteLine($"{peer.NodeId}: {peer.Address} (Enabled: {peer.IsEnabled})");
-}
+await peerManagement.DisablePeerAsync("cloud-1");
+// Syncs to all nodes, leader stops connecting
 ```
 
-All nodes should return identical lists.
+Re-enable when maintenance is done:
+```csharp
+await peerManagement.EnablePeerAsync("cloud-1");
+// Syncs to all nodes, leader resumes connecting
+```
 
-## 🚨 Common Issues
+### Use Case 3: Replace Cloud Node
 
-### Issue: Leader has no cloud peers configured
+**Scenario**: Migrating to a new cloud provider
 
-**Symptom**: Leader is elected but no cloud synchronization occurs
+**Solution**:
+```csharp
+// Add new cloud node (old one still active)
+await peerManagement.AddCloudPeerAsync("cloud-new", "newcloud.com:9000", newOAuth2);
 
-**Cause**: Leader node's local database doesn't have remote peer configurations
+// Disable old cloud node
+await peerManagement.DisablePeerAsync("cloud-old");
 
-**Solution**: Ensure remote peer configurations are deployed to ALL nodes, including the one that became leader
+// After verification, remove old cloud node
+await peerManagement.RemoveRemotePeerAsync("cloud-old");
+```
 
-### Issue: Inconsistent configurations across nodes
+All changes sync automatically to all nodes.
 
-**Symptom**: Some nodes have cloud peers, others don't; intermittent cloud connectivity
+## ✅ Benefits of Automatic Synchronization
 
-**Cause**: Manual configuration only applied to subset of nodes
+1. **Zero Configuration Drift**: All nodes always have identical remote peer lists
+2. **Dynamic Updates**: Add/remove/modify peers without restarting any node
+3. **Consistent Leader Election**: Leader always knows about all remote peers
+4. **Simplified Operations**: Manage from any node, changes propagate automatically
+5. **High Availability**: No single point of failure for configuration management
 
-**Solution**: Use deployment patterns above to ensure consistency
+## 🔮 Technical Details
 
-## 📝 Checklist for Production Deployment
+### Collection Name
+Remote peers are stored in: `_system_remote_peers`
 
-- [ ] All nodes deployed with same remote peer configuration
-- [ ] OAuth2 credentials secured (environment variables, secrets manager)
-- [ ] Remote peer configurations verified on all nodes
-- [ ] Leader election tested with failover scenarios
-- [ ] Monitoring alerts for configuration drift
+### Synchronization Mechanism
+Uses EntglDB's built-in document synchronization:
+- Documents are oplog entries with HLC timestamps
+- Conflict resolution uses last-write-wins by default
+- Synchronization happens every 2 seconds (default sync interval)
 
-## 🔮 Future Improvements
-
-The following enhancements are planned for future releases:
-
-1. **Automatic Configuration Sync**: Remote peer configs synchronized via gossip protocol
-2. **Configuration Version Tracking**: Detect and alert on configuration drift
-3. **Centralized Configuration API**: Single endpoint to configure entire cluster
-4. **Configuration Validation**: Pre-deployment checks for consistency
+### Schema
+Each remote peer is a document with NodeId as primary key:
+```json
+{
+  "NodeId": "cloud-node-1",
+  "Address": "remote.entgldb.com:9000",
+  "Type": 2,
+  "OAuth2Json": "{\"authority\":\"https://...\", ...}",
+  "IsEnabled": true
+}
+```
 
 ---
 
-**Current Status**: Manual configuration consistency required  
-**Recommended**: Use Pattern 1 (Configuration File) for most deployments  
-**Future**: Automatic synchronization (planned for v0.9.0)
+**Current Status**: Automatic synchronization implemented  
+**Recommended**: Simply add remote peers on any node - they sync automatically  
+**No Manual Consistency Required**: Configuration synchronization is automatic and real-time

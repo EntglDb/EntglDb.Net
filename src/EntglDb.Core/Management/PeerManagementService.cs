@@ -5,8 +5,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using EntglDb.Core.Network;
-using EntglDb.Core.Storage;
-using EntglDb.Core.Network;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -16,24 +14,30 @@ namespace EntglDb.Core.Management;
 /// Implementation of peer management service.
 /// Provides CRUD operations for managing remote peer configurations.
 /// 
-/// IMPORTANT: Changes made through this service only affect the local node's database.
-/// For cluster-wide consistency, apply the same configuration changes to all nodes.
-/// See docs/remote-peer-configuration.md for deployment patterns.
+/// Remote peer configurations are stored in a synchronized collection and automatically
+/// replicated across all nodes in the cluster. Any change made on one node will be
+/// synchronized to all other nodes through the normal EntglDB sync process.
 /// </summary>
 public class PeerManagementService : IPeerManagementService
 {
-    private readonly IPeerStore _peerStore;
+    private readonly IPeerDatabase _database;
     private readonly ILogger<PeerManagementService> _logger;
+    private const string RemotePeersCollectionName = "_system_remote_peers";
 
     /// <summary>
     /// Initializes a new instance of the PeerManagementService class.
     /// </summary>
-    /// <param name="peerStore">Store for persisting peer configurations.</param>
+    /// <param name="database">Database instance for accessing the synchronized collection.</param>
     /// <param name="logger">Logger instance.</param>
-    public PeerManagementService(IPeerStore peerStore, ILogger<PeerManagementService>? logger = null)
+    public PeerManagementService(IPeerDatabase database, ILogger<PeerManagementService>? logger = null)
     {
-        _peerStore = peerStore ?? throw new ArgumentNullException(nameof(peerStore));
+        _database = database ?? throw new ArgumentNullException(nameof(database));
         _logger = logger ?? NullLogger<PeerManagementService>.Instance;
+    }
+
+    private IPeerCollection<RemotePeerConfiguration> GetRemotePeersCollection()
+    {
+        return _database.Collection<RemotePeerConfiguration>(RemotePeersCollectionName);
     }
 
     public async Task AddCloudPeerAsync(string nodeId, string address, OAuth2Configuration oauth2Config, CancellationToken cancellationToken = default)
@@ -53,8 +57,9 @@ public class PeerManagementService : IPeerManagementService
             IsEnabled = true
         };
 
-        await _peerStore.SaveRemotePeerAsync(config, cancellationToken);
-        _logger.LogInformation("Added cloud remote peer: {NodeId} at {Address}", nodeId, address);
+        var collection = GetRemotePeersCollection();
+        await collection.Put(nodeId, config, cancellationToken);
+        _logger.LogInformation("Added cloud remote peer: {NodeId} at {Address} (will sync to all cluster nodes)", nodeId, address);
     }
 
     public async Task AddStaticPeerAsync(string nodeId, string address, CancellationToken cancellationToken = default)
@@ -71,29 +76,32 @@ public class PeerManagementService : IPeerManagementService
             IsEnabled = true
         };
 
-        await _peerStore.SaveRemotePeerAsync(config, cancellationToken);
-        _logger.LogInformation("Added static remote peer: {NodeId} at {Address}", nodeId, address);
+        var collection = GetRemotePeersCollection();
+        await collection.Put(nodeId, config, cancellationToken);
+        _logger.LogInformation("Added static remote peer: {NodeId} at {Address} (will sync to all cluster nodes)", nodeId, address);
     }
 
     public async Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         ValidateNodeId(nodeId);
 
-        await _peerStore.RemoveRemotePeerAsync(nodeId, cancellationToken);
-        _logger.LogInformation("Removed remote peer: {NodeId}", nodeId);
+        var collection = GetRemotePeersCollection();
+        await collection.Delete(nodeId, cancellationToken);
+        _logger.LogInformation("Removed remote peer: {NodeId} (will sync to all cluster nodes)", nodeId);
     }
 
     public async Task<IEnumerable<RemotePeerConfiguration>> GetAllRemotePeersAsync(CancellationToken cancellationToken = default)
     {
-        return await _peerStore.GetRemotePeersAsync(cancellationToken);
+        var collection = GetRemotePeersCollection();
+        return await collection.Find(p => true, cancellationToken);
     }
 
     public async Task EnablePeerAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         ValidateNodeId(nodeId);
 
-        var peers = await _peerStore.GetRemotePeersAsync(cancellationToken);
-        var peer = peers.FirstOrDefault(p => p.NodeId == nodeId);
+        var collection = GetRemotePeersCollection();
+        var peer = await collection.Get(nodeId, cancellationToken);
 
         if (peer == null)
         {
@@ -103,8 +111,8 @@ public class PeerManagementService : IPeerManagementService
         if (!peer.IsEnabled)
         {
             peer.IsEnabled = true;
-            await _peerStore.SaveRemotePeerAsync(peer, cancellationToken);
-            _logger.LogInformation("Enabled remote peer: {NodeId}", nodeId);
+            await collection.Put(nodeId, peer, cancellationToken);
+            _logger.LogInformation("Enabled remote peer: {NodeId} (will sync to all cluster nodes)", nodeId);
         }
     }
 
@@ -112,8 +120,8 @@ public class PeerManagementService : IPeerManagementService
     {
         ValidateNodeId(nodeId);
 
-        var peers = await _peerStore.GetRemotePeersAsync(cancellationToken);
-        var peer = peers.FirstOrDefault(p => p.NodeId == nodeId);
+        var collection = GetRemotePeersCollection();
+        var peer = await collection.Get(nodeId, cancellationToken);
 
         if (peer == null)
         {
@@ -123,8 +131,8 @@ public class PeerManagementService : IPeerManagementService
         if (peer.IsEnabled)
         {
             peer.IsEnabled = false;
-            await _peerStore.SaveRemotePeerAsync(peer, cancellationToken);
-            _logger.LogInformation("Disabled remote peer: {NodeId}", nodeId);
+            await collection.Put(nodeId, peer, cancellationToken);
+            _logger.LogInformation("Disabled remote peer: {NodeId} (will sync to all cluster nodes)", nodeId);
         }
     }
 

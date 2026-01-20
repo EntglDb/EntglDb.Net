@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using EntglDb.Core;
 using EntglDb.Core.Network;
-using EntglDb.Core.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -16,16 +15,17 @@ namespace EntglDb.Network;
 /// Composite discovery service that combines UDP LAN discovery with persistent remote peers from the database.
 /// Periodically refreshes the remote peer list and merges with actively discovered LAN peers.
 /// 
-/// IMPORTANT: Remote peer configurations are stored in each node's local database and are NOT automatically 
-/// synchronized across the cluster. For effective leader election, all nodes in a LAN cluster should be 
-/// configured with the same remote peer list. See docs/remote-peer-configuration.md for deployment patterns.
+/// Remote peer configurations are stored in a synchronized collection that is automatically
+/// replicated across all nodes in the cluster. Any node that adds a remote peer will have
+/// it synchronized to all other nodes automatically.
 /// </summary>
 public class CompositeDiscoveryService : IDiscoveryService
 {
     private readonly IDiscoveryService _udpDiscovery;
-    private readonly IPeerStore _peerStore;
+    private readonly IPeerDatabase _database;
     private readonly ILogger<CompositeDiscoveryService> _logger;
     private readonly TimeSpan _refreshInterval;
+    private const string RemotePeersCollectionName = "_system_remote_peers";
 
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerNode> _remotePeers = new();
@@ -34,17 +34,17 @@ public class CompositeDiscoveryService : IDiscoveryService
     /// Initializes a new instance of the CompositeDiscoveryService class.
     /// </summary>
     /// <param name="udpDiscovery">UDP-based LAN discovery service.</param>
-    /// <param name="peerStore">Store for retrieving persistent remote peer configurations.</param>
+    /// <param name="database">Database instance for accessing the synchronized remote peers collection.</param>
     /// <param name="logger">Logger instance.</param>
     /// <param name="refreshInterval">Interval for refreshing remote peers from database. Defaults to 5 minutes.</param>
     public CompositeDiscoveryService(
         IDiscoveryService udpDiscovery,
-        IPeerStore peerStore,
+        IPeerDatabase database,
         ILogger<CompositeDiscoveryService>? logger = null,
         TimeSpan? refreshInterval = null)
     {
         _udpDiscovery = udpDiscovery ?? throw new ArgumentNullException(nameof(udpDiscovery));
-        _peerStore = peerStore ?? throw new ArgumentNullException(nameof(peerStore));
+        _database = database ?? throw new ArgumentNullException(nameof(database));
         _logger = logger ?? NullLogger<CompositeDiscoveryService>.Instance;
         _refreshInterval = refreshInterval ?? TimeSpan.FromMinutes(5);
     }
@@ -76,7 +76,7 @@ public class CompositeDiscoveryService : IDiscoveryService
         // Initial load of remote peers
         await RefreshRemotePeersAsync();
 
-        _logger.LogInformation("Composite discovery service started (UDP + Remote Peers)");
+        _logger.LogInformation("Composite discovery service started (UDP + Synchronized Remote Peers)");
     }
 
     public async Task Stop()
@@ -117,13 +117,14 @@ public class CompositeDiscoveryService : IDiscoveryService
     {
         try
         {
-            var remoteConfigs = await _peerStore.GetRemotePeersAsync();
+            var collection = _database.Collection<RemotePeerConfiguration>(RemotePeersCollectionName);
+            var remoteConfigs = await collection.Find(p => p.IsEnabled);
             var now = DateTimeOffset.UtcNow;
 
             // Update remote peers dictionary
             _remotePeers.Clear();
 
-            foreach (var config in remoteConfigs.Where(c => c.IsEnabled))
+            foreach (var config in remoteConfigs)
             {
                 var peerNode = new PeerNode(
                     config.NodeId,
@@ -136,7 +137,7 @@ public class CompositeDiscoveryService : IDiscoveryService
                 _remotePeers[config.NodeId] = peerNode;
             }
 
-            _logger.LogInformation("Refreshed remote peers: {Count} enabled peers loaded", _remotePeers.Count);
+            _logger.LogInformation("Refreshed remote peers: {Count} enabled peers loaded from synchronized collection", _remotePeers.Count);
         }
         catch (Exception ex)
         {

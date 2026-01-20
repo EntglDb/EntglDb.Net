@@ -1,13 +1,17 @@
+using EntglDb.Core.Metadata;
+
 namespace EntglDb.Core.Network;
 
 /// <summary>
 /// Configuration for a remote peer node that is persistent across restarts.
+/// This collection is automatically synchronized across all nodes in the cluster.
 /// </summary>
 public class RemotePeerConfiguration
 {
     /// <summary>
     /// Gets or sets the unique identifier for the remote peer node.
     /// </summary>
+    [PrimaryKey(AutoGenerate = false)]
     public string NodeId { get; set; } = "";
     
     /// <summary>
