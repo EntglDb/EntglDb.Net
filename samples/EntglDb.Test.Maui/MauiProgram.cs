@@ -57,9 +57,7 @@ public static class MauiProgram
 							options.BasePath = FileSystem.AppDataDirectory;
 							options.UsePerCollectionTables = true; // Use new per-collection tables
 						})
-						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
-
-        builder.Services.AddHostedService<EntglDbNodeService>();
+						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
 
 #if DEBUG
 		builder.Logging.AddDebug();

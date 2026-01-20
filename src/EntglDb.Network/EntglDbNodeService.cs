@@ -1,9 +1,13 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using EntglDb.Network;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace EntglDb.Test.Maui;
+namespace EntglDb.Network;
 
+/// <summary>
+/// Hosted service that automatically starts and stops the EntglDb node.
+/// </summary>
 public class EntglDbNodeService : IHostedService
 {
     private readonly IEntglDbNode _node;

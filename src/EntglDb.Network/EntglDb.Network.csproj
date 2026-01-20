@@ -11,6 +11,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="6.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
   </ItemGroup>
 
@@ -23,7 +24,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings Condition="'$(TargetFramework)' == 'net6.0'">enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.7.5</Version>
+    <Version>0.7.6</Version>
     <Authors>MrDevRobot</Authors>
     <Description>Networking layer (TCP/UDP/Gossip) for EntglDb.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

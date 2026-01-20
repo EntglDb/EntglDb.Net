@@ -76,12 +76,7 @@ class Program
                             options.BasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
                             options.UsePerCollectionTables = true; // Use new per-collection tables
                         })
-                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
-
-
-
-        // Hosted Services (Lifter Pattern)
-        builder.Services.AddHostedService<EntglDbNodeService>();       // Starts/Stops the Node
+                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
         builder.Services.AddHostedService<ConsoleInteractiveService>(); // Runs the Input Loop
 
         var host = builder.Build();

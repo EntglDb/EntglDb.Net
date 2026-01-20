@@ -52,9 +52,6 @@ public class App : HostedApplication<MainView>
                     options.BasePath = basePath;
                     options.UsePerCollectionTables = true; // Use new per-collection tables
                 })
-                .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
-
-        // Register Node Service to Start/Stop the node
-        services.AddHostedService<EntglDbNodeService>();
+                .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
     }
 }

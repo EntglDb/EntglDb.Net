@@ -5,13 +5,20 @@ using EntglDb.Network.Security;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
 using System;
 
 namespace EntglDb.Network;
 
 public static class EntglDbNetworkExtensions
 {
-    public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(this IServiceCollection services) 
+    /// <summary>
+    /// Adds EntglDb network services to the service collection.
+    /// </summary>
+    /// <param name="useHostedService">If true, registers EntglDbNodeService as IHostedService to automatically start/stop the node.</param>
+    public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(
+        this IServiceCollection services,
+        bool useHostedService = true) 
         where TPeerNodeConfigurationProvider : class, IPeerNodeConfigurationProvider
     {
         services.TryAddSingleton<IPeerNodeConfigurationProvider, TPeerNodeConfigurationProvider>();
@@ -27,6 +34,12 @@ public static class EntglDbNetworkExtensions
         services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();
 
         services.TryAddSingleton<IEntglDbNode, EntglDbNode>();
+
+        // Optionally register hosted service for automatic node lifecycle management
+        if (useHostedService)
+        {
+            services.AddHostedService<EntglDbNodeService>();
+        }
 
         return services;
     }
