@@ -50,16 +50,13 @@ public static class MauiProgram
 		{
 			builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
 		}
-		// If LWW is desired, the default fallback in AddEntglDbSqlite will handle it, or we could explicitely register LastWriteWinsConflictResolver here.
-		
-		// Use a factory or pre-calculate path? 
-		// Since AddEntglDbSqlite takes a string, we need to resolve the path here.
-		var dataDir = FileSystem.AppDataDirectory;
-		if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
-		var dbPath = Path.Combine(dataDir, "entgldb-maui.db");
-
+		// EntglDb Core Services
 		builder.Services.AddEntglDbCore()
-						.AddEntglDbSqlite($"Data Source={dbPath}")
+						.AddEntglDbSqlite(options =>
+						{
+							options.BasePath = FileSystem.AppDataDirectory;
+							options.UsePerCollectionTables = true; // Use new per-collection tables
+						})
 						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 
         builder.Services.AddHostedService<EntglDbNodeService>();

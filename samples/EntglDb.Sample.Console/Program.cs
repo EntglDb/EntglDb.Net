@@ -71,7 +71,11 @@ class Program
 
         // Register EntglDb Services using Fluent Extensions
         builder.Services.AddEntglDbCore()
-                        .AddEntglDbSqlite($"Data Source=node-{randomPort}.db")
+                        .AddEntglDbSqlite(options =>
+                        {
+                            options.BasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                            options.UsePerCollectionTables = true; // Use new per-collection tables
+                        })
                         .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 
 

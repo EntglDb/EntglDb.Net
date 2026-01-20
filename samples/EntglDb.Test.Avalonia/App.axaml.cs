@@ -36,32 +36,22 @@ public class App : HostedApplication<MainView>
             builder.AddConfiguration(configuration.GetSection("Logging"));
         });
 
-        // Configure database path
-        var dbPath = configuration["Database:Path"];
-        if (string.IsNullOrEmpty(dbPath))
+        // Configure base database path
+        var basePath = configuration["Database:Path"];
+        if (string.IsNullOrEmpty(basePath))
         {
-            var appDataPath = Path.Combine(
+            basePath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "EntglDbTest");
-            Directory.CreateDirectory(appDataPath);
-            dbPath = Path.Combine(appDataPath, "entgldb-avalonia-test.db");
         }
-        
-
-        // Conflict Resolution - Read from preferences (stored as "LWW" or "Merge")
-        var resolverType = configuration["ConflictResolver"] ?? "Merge"; // Default to Merge for demo
-        if (resolverType == "Merge")
-        {
-            services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
-        }
-        
-        // Network Configuration
-        var tcpPort = configuration.GetValue<int>("EntglDb:Network:TcpPort", 0); // 0 = Random port
-        var authToken = configuration["EntglDb:Node:AuthToken"] ?? "demo-secret-key";
 
         // Register EntglDb Services using Fluent Extensions
         services.AddEntglDbCore()
-                .AddEntglDbSqlite($"Data Source={dbPath}")
+                .AddEntglDbSqlite(options =>
+                {
+                    options.BasePath = basePath;
+                    options.UsePerCollectionTables = true; // Use new per-collection tables
+                })
                 .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 
         // Register Node Service to Start/Stop the node
