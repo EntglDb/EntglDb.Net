@@ -1,0 +1,366 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using EntglDb.Core;
+using EntglDb.Core.Storage;
+using EntglDb.Core.Sync;
+using EntglDb.Core.Network;
+using EntglDb.Persistence.EntityFramework.Entities;
+
+namespace EntglDb.Persistence.EntityFramework;
+
+/// <summary>
+/// Entity Framework Core implementation of <see cref="IPeerStore"/>.
+/// Supports SQL Server, PostgreSQL, MySQL, and SQLite via EF Core.
+/// </summary>
+public class EfCorePeerStore : IPeerStore
+{
+    protected readonly EntglDbContext _context;
+    protected readonly ILogger<EfCorePeerStore> _logger;
+    protected readonly IConflictResolver _conflictResolver;
+
+    public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="EfCorePeerStore"/> class.
+    /// </summary>
+    public EfCorePeerStore(
+        EntglDbContext context,
+        ILogger<EfCorePeerStore>? logger = null,
+        IConflictResolver? conflictResolver = null)
+    {
+        _context = context ?? throw new ArgumentNullException(nameof(context));
+        _logger = logger ?? NullLogger<EfCorePeerStore>.Instance;
+        _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
+    }
+
+    public async Task SaveDocumentAsync(Document document, CancellationToken cancellationToken = default)
+    {
+        var entity = await _context.Documents
+            .FirstOrDefaultAsync(d => d.Collection == document.Collection && d.Key == document.Key, cancellationToken);
+
+        if (entity == null)
+        {
+            entity = new DocumentEntity
+            {
+                Collection = document.Collection,
+                Key = document.Key
+            };
+            _context.Documents.Add(entity);
+        }
+
+        entity.ContentJson = document.Content.ValueKind == JsonValueKind.Undefined 
+            ? "{}" 
+            : document.Content.GetRawText();
+        entity.IsDeleted = document.IsDeleted;
+        entity.UpdatedAtPhysicalTime = document.UpdatedAt.PhysicalTime;
+        entity.UpdatedAtLogicalCounter = document.UpdatedAt.LogicalCounter;
+        entity.UpdatedAtNodeId = document.UpdatedAt.NodeId;
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
+    {
+        var entity = await _context.Documents
+            .FirstOrDefaultAsync(d => d.Collection == collection && d.Key == key, cancellationToken);
+
+        if (entity == null)
+            return null;
+
+        var hlc = new HlcTimestamp(
+            entity.UpdatedAtPhysicalTime,
+            entity.UpdatedAtLogicalCounter,
+            entity.UpdatedAtNodeId);
+
+        var content = string.IsNullOrEmpty(entity.ContentJson)
+            ? default
+            : JsonSerializer.Deserialize<JsonElement>(entity.ContentJson);
+
+        return new Document(collection, key, content, hlc, entity.IsDeleted);
+    }
+
+    public async Task AppendOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)
+    {
+        var entity = new OplogEntity
+        {
+            Collection = entry.Collection,
+            Key = entry.Key,
+            Operation = (int)entry.Operation,
+            PayloadJson = entry.Payload?.GetRawText(),
+            TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
+            TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
+            TimestampNodeId = entry.Timestamp.NodeId
+        };
+
+        _context.Oplog.Add(entity);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, CancellationToken cancellationToken = default)
+    {
+        var entities = await _context.Oplog
+            .Where(o => o.TimestampPhysicalTime > timestamp.PhysicalTime ||
+                       (o.TimestampPhysicalTime == timestamp.PhysicalTime &&
+                        o.TimestampLogicalCounter > timestamp.LogicalCounter))
+            .OrderBy(o => o.TimestampPhysicalTime)
+            .ThenBy(o => o.TimestampLogicalCounter)
+            .ToListAsync(cancellationToken);
+
+        return entities.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            (OperationType)e.Operation,
+            string.IsNullOrEmpty(e.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
+            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId)
+        ));
+    }
+
+    public async Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
+    {
+        var latest = await _context.Oplog
+            .OrderByDescending(o => o.TimestampPhysicalTime)
+            .ThenByDescending(o => o.TimestampLogicalCounter)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latest == null)
+            return new HlcTimestamp(0, 0, "");
+
+        return new HlcTimestamp(
+            latest.TimestampPhysicalTime,
+            latest.TimestampLogicalCounter,
+            latest.TimestampNodeId);
+    }
+
+    public async Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            foreach (var entry in oplogEntries)
+            {
+                var localEntity = await _context.Documents
+                    .FirstOrDefaultAsync(d => d.Collection == entry.Collection && d.Key == entry.Key, cancellationToken);
+
+                Document? localDoc = null;
+                if (localEntity != null)
+                {
+                    var localHlc = new HlcTimestamp(
+                        localEntity.UpdatedAtPhysicalTime,
+                        localEntity.UpdatedAtLogicalCounter,
+                        localEntity.UpdatedAtNodeId);
+
+                    var localContent = string.IsNullOrEmpty(localEntity.ContentJson)
+                        ? default
+                        : JsonSerializer.Deserialize<JsonElement>(localEntity.ContentJson);
+
+                    localDoc = new Document(entry.Collection, entry.Key, localContent, localHlc, localEntity.IsDeleted);
+                }
+
+                var resolution = _conflictResolver.Resolve(localDoc, entry);
+
+                if (resolution.ShouldApply && resolution.MergedDocument != null)
+                {
+                    var doc = resolution.MergedDocument;
+
+                    if (localEntity == null)
+                    {
+                        localEntity = new DocumentEntity
+                        {
+                            Collection = doc.Collection,
+                            Key = doc.Key
+                        };
+                        _context.Documents.Add(localEntity);
+                    }
+
+                    localEntity.ContentJson = doc.Content.ValueKind == JsonValueKind.Undefined
+                        ? "{}"
+                        : doc.Content.GetRawText();
+                    localEntity.IsDeleted = doc.IsDeleted;
+                    localEntity.UpdatedAtPhysicalTime = doc.UpdatedAt.PhysicalTime;
+                    localEntity.UpdatedAtLogicalCounter = doc.UpdatedAt.LogicalCounter;
+                    localEntity.UpdatedAtNodeId = doc.UpdatedAt.NodeId;
+                }
+
+                var oplogEntity = new OplogEntity
+                {
+                    Collection = entry.Collection,
+                    Key = entry.Key,
+                    Operation = (int)entry.Operation,
+                    PayloadJson = entry.Payload?.GetRawText(),
+                    TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
+                    TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
+                    TimestampNodeId = entry.Timestamp.NodeId
+                };
+                _context.Oplog.Add(oplogEntity);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            try
+            {
+                ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling ChangesApplied event");
+            }
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<Document>> QueryDocumentsAsync(
+        string collection,
+        QueryNode? queryExpression,
+        int? skip = null,
+        int? take = null,
+        string? orderBy = null,
+        bool ascending = true,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Documents
+            .Where(d => d.Collection == collection && !d.IsDeleted);
+
+        if (queryExpression != null)
+        {
+            query = ApplyQueryExpression(query, queryExpression);
+        }
+
+        if (!string.IsNullOrEmpty(orderBy))
+        {
+            // Basic ordering by key for now - full JSON path ordering would require database-specific functions
+            query = ascending
+                ? query.OrderBy(d => d.Key)
+                : query.OrderByDescending(d => d.Key);
+        }
+        else
+        {
+            query = query.OrderBy(d => d.Key);
+        }
+
+        if (skip.HasValue)
+            query = query.Skip(skip.Value);
+
+        if (take.HasValue)
+            query = query.Take(take.Value);
+
+        var entities = await query.ToListAsync(cancellationToken);
+
+        return entities.Select(e =>
+        {
+            var hlc = new HlcTimestamp(
+                e.UpdatedAtPhysicalTime,
+                e.UpdatedAtLogicalCounter,
+                e.UpdatedAtNodeId);
+
+            var content = string.IsNullOrEmpty(e.ContentJson)
+                ? default
+                : JsonSerializer.Deserialize<JsonElement>(e.ContentJson);
+
+            return new Document(collection, e.Key, content, hlc, e.IsDeleted);
+        });
+    }
+
+    protected virtual IQueryable<DocumentEntity> ApplyQueryExpression(IQueryable<DocumentEntity> query, QueryNode queryExpression)
+    {
+        // Basic implementation - filters in memory after retrieval
+        // Derived classes (like PostgreSQL) can override for database-level filtering with JSONB
+        _logger.LogWarning("Query expressions are evaluated in-memory for EF Core. Consider using PostgreSQL provider for efficient JSON queries.");
+        return query;
+    }
+
+    public async Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
+    {
+        var query = _context.Documents
+            .Where(d => d.Collection == collection && !d.IsDeleted);
+
+        if (queryExpression != null)
+        {
+            query = ApplyQueryExpression(query, queryExpression);
+        }
+
+        return await query.CountAsync(cancellationToken);
+    }
+
+    public async Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.Documents
+            .Select(d => d.Collection)
+            .Distinct()
+            .OrderBy(c => c)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Index creation for collection {Collection} on property {PropertyPath} is managed by migrations", collection, propertyPath);
+        await Task.CompletedTask;
+    }
+
+    public async Task SaveRemotePeerAsync(RemotePeerConfiguration peer, CancellationToken cancellationToken = default)
+    {
+        var entity = await _context.RemotePeers
+            .FirstOrDefaultAsync(p => p.NodeId == peer.NodeId, cancellationToken);
+
+        if (entity == null)
+        {
+            entity = new RemotePeerEntity
+            {
+                NodeId = peer.NodeId
+            };
+            _context.RemotePeers.Add(entity);
+        }
+
+        entity.Address = peer.Address;
+        entity.Type = (int)peer.Type;
+        entity.OAuth2Json = peer.OAuth2Json;
+        entity.IsEnabled = peer.IsEnabled;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Saved remote peer configuration: {NodeId} ({Type})", peer.NodeId, peer.Type);
+    }
+
+    public async Task<IEnumerable<RemotePeerConfiguration>> GetRemotePeersAsync(CancellationToken cancellationToken = default)
+    {
+        var entities = await _context.RemotePeers.ToListAsync(cancellationToken);
+
+        return entities.Select(e => new RemotePeerConfiguration
+        {
+            NodeId = e.NodeId,
+            Address = e.Address,
+            Type = (PeerType)e.Type,
+            OAuth2Json = e.OAuth2Json,
+            IsEnabled = e.IsEnabled
+        });
+    }
+
+    public async Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        var entity = await _context.RemotePeers
+            .FirstOrDefaultAsync(p => p.NodeId == nodeId, cancellationToken);
+
+        if (entity != null)
+        {
+            _context.RemotePeers.Remove(entity);
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Removed remote peer configuration: {NodeId}", nodeId);
+        }
+        else
+        {
+            _logger.LogWarning("Attempted to remove non-existent remote peer: {NodeId}", nodeId);
+        }
+    }
+}

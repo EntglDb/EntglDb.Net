@@ -19,6 +19,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Network.Tests", "te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence.Sqlite.Tests", "tests\EntglDb.Persistence.Sqlite.Tests\EntglDb.Persistence.Sqlite.Tests.csproj", "{FF10AFE5-3846-49DE-8CCC-DB48249CC4EE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence.EntityFramework", "src\EntglDb.Persistence.EntityFramework\EntglDb.Persistence.EntityFramework.csproj", "{63A85459-DAB3-4921-9631-1C40865AC7C7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence.PostgreSQL", "src\EntglDb.Persistence.PostgreSQL\EntglDb.Persistence.PostgreSQL.csproj", "{E2017F92-1A56-4B5F-83F1-298048DD39B3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -101,6 +105,30 @@ Global
 		{FF10AFE5-3846-49DE-8CCC-DB48249CC4EE}.Release|x64.Build.0 = Release|Any CPU
 		{FF10AFE5-3846-49DE-8CCC-DB48249CC4EE}.Release|x86.ActiveCfg = Release|Any CPU
 		{FF10AFE5-3846-49DE-8CCC-DB48249CC4EE}.Release|x86.Build.0 = Release|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Debug|x64.Build.0 = Debug|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Debug|x86.Build.0 = Debug|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Release|x64.ActiveCfg = Release|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Release|x64.Build.0 = Release|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Release|x86.ActiveCfg = Release|Any CPU
+		{63A85459-DAB3-4921-9631-1C40865AC7C7}.Release|x86.Build.0 = Release|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Debug|x64.Build.0 = Debug|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Debug|x86.Build.0 = Debug|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Release|x64.ActiveCfg = Release|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Release|x64.Build.0 = Release|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Release|x86.ActiveCfg = Release|Any CPU
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -112,5 +140,7 @@ Global
 		{6BE51455-7846-4732-9436-B99504959506} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{038DE3B1-6D49-4336-B6EA-A681060EB79A} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{FF10AFE5-3846-49DE-8CCC-DB48249CC4EE} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{63A85459-DAB3-4921-9631-1C40865AC7C7} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{E2017F92-1A56-4B5F-83F1-298048DD39B3} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
