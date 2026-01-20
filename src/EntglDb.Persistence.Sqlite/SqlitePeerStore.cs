@@ -123,12 +123,30 @@ public class SqlitePeerStore : IPeerStore
                         HlcNode TEXT NOT NULL
                     );
 
+                    CREATE TABLE IF NOT EXISTS RemotePeers (
+                        NodeId TEXT PRIMARY KEY,
+                        Address TEXT NOT NULL,
+                        Type INTEGER NOT NULL,
+                        OAuth2Json TEXT,
+                        IsEnabled INTEGER NOT NULL
+                    );
+
                     CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
                 ");
                 _logger.LogInformation("Initialized with legacy single-table mode");
             }
             else
             {
+                // Even in per-collection mode, we need RemotePeers table (it's global, not per-collection)
+                connection.Execute(@"
+                    CREATE TABLE IF NOT EXISTS RemotePeers (
+                        NodeId TEXT PRIMARY KEY,
+                        Address TEXT NOT NULL,
+                        Type INTEGER NOT NULL,
+                        OAuth2Json TEXT,
+                        IsEnabled INTEGER NOT NULL
+                    );
+                ");
                 _logger.LogInformation("Initialized with per-collection table mode");
             }
         }
@@ -853,7 +871,74 @@ public class SqlitePeerStore : IPeerStore
         _logger.LogInformation("Ensured index {IndexName} on {Collection}.{Property}", indexName, collection, propertyPath);
     }
 
+    // Remote Peer Management
+    public async Task SaveRemotePeerAsync(RemotePeerConfiguration peer, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = @"
+            INSERT OR REPLACE INTO RemotePeers (NodeId, Address, Type, OAuth2Json, IsEnabled)
+            VALUES (@NodeId, @Address, @Type, @OAuth2Json, @IsEnabled)";
+
+        await connection.ExecuteAsync(sql, new
+        {
+            peer.NodeId,
+            peer.Address,
+            Type = (int)peer.Type,
+            peer.OAuth2Json,
+            IsEnabled = peer.IsEnabled ? 1 : 0
+        });
+
+        _logger.LogInformation("Saved remote peer configuration: {NodeId} ({Type})", peer.NodeId, peer.Type);
+    }
+
+    public async Task<IEnumerable<RemotePeerConfiguration>> GetRemotePeersAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = "SELECT NodeId, Address, Type, OAuth2Json, IsEnabled FROM RemotePeers";
+        var rows = await connection.QueryAsync<RemotePeerRow>(sql);
+
+        return rows.Select(row => new RemotePeerConfiguration
+        {
+            NodeId = row.NodeId,
+            Address = row.Address,
+            Type = (PeerType)row.Type,
+            OAuth2Json = row.OAuth2Json,
+            IsEnabled = row.IsEnabled == 1
+        });
+    }
+
+    public async Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = "DELETE FROM RemotePeers WHERE NodeId = @NodeId";
+        var affected = await connection.ExecuteAsync(sql, new { NodeId = nodeId });
+
+        if (affected > 0)
+        {
+            _logger.LogInformation("Removed remote peer configuration: {NodeId}", nodeId);
+        }
+        else
+        {
+            _logger.LogWarning("Attempted to remove non-existent remote peer: {NodeId}", nodeId);
+        }
+    }
+
     // Inner classes for Dapper mapping
+    private class RemotePeerRow
+    {
+        public string NodeId { get; set; } = "";
+        public string Address { get; set; } = "";
+        public int Type { get; set; }
+        public string? OAuth2Json { get; set; }
+        public int IsEnabled { get; set; }
+    }
+
     private class DocumentRow
     {
         public string Key { get; set; } = "";
