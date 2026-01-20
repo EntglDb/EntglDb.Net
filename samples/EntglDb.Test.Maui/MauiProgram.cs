@@ -32,10 +32,19 @@ public static class MauiProgram
 		using var stream = assembly.GetManifestResourceStream("EntglDb.Test.Maui.appsettings.json");
 		if (stream != null)
 		{
-			var config = new ConfigurationBuilder()
+			var configBuilder = new ConfigurationBuilder()
 				.AddJsonStream(stream)
 				.Build();
-			builder.Configuration.AddConfiguration(config);
+			builder.Configuration.AddConfiguration(configBuilder);
+
+			// Register PeerNodeConfiguration manually for StaticPeerNodeConfigurationProvider
+			var peerConfig = new PeerNodeConfiguration();
+			configBuilder.GetSection("EntglDb:Node").Bind(peerConfig);
+			configBuilder.GetSection("EntglDb:Network").Bind(peerConfig);
+			// Fallback/Validation
+			if (string.IsNullOrEmpty(peerConfig.NodeId)) peerConfig.NodeId = Guid.NewGuid().ToString();
+			
+			builder.Services.AddSingleton(peerConfig);
 		}
 
 		// Services
