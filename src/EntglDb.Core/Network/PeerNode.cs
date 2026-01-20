@@ -29,16 +29,35 @@ public class PeerNode
     public PeerNodeConfiguration Configuration { get; }
 
     /// <summary>
+    /// Gets the type of the peer node (LanDiscovered, StaticRemote, or CloudRemote).
+    /// </summary>
+    public PeerType Type { get; }
+
+    /// <summary>
+    /// Gets the role of the peer node in the cluster (Member or CloudGateway).
+    /// </summary>
+    public NodeRole Role { get; }
+
+    /// <summary>
+    /// Gets whether this peer is persistent (stored in database) or ephemeral (LAN discovery).
+    /// </summary>
+    public bool IsPersistent => Type != PeerType.LanDiscovered;
+
+    /// <summary>
     /// Initializes a new instance of the PeerNode class with the specified node identifier, network address, and last
     /// seen timestamp.
     /// </summary>
     /// <param name="nodeId">The unique identifier for the peer node. Cannot be null or empty.</param>
     /// <param name="address">The network address of the peer node. Cannot be null or empty.</param>
     /// <param name="lastSeen">The date and time when the peer node was last seen, expressed as a DateTimeOffset.</param>
-    public PeerNode(string nodeId, string address, DateTimeOffset lastSeen)
+    /// <param name="type">The type of the peer node. Defaults to LanDiscovered.</param>
+    /// <param name="role">The role of the peer node. Defaults to Member.</param>
+    public PeerNode(string nodeId, string address, DateTimeOffset lastSeen, PeerType type = PeerType.LanDiscovered, NodeRole role = NodeRole.Member)
     {
         NodeId = nodeId;
         Address = address;
         LastSeen = lastSeen;
+        Type = type;
+        Role = role;
     }
 }

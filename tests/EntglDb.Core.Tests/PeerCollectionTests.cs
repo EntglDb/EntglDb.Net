@@ -132,6 +132,31 @@ public class PeerCollectionTests
         {
             return Task.FromResult(true);
         }
+
+        // Remote Peer Management
+        private readonly List<RemotePeerConfiguration> _remotePeers = new();
+
+        public Task SaveRemotePeerAsync(RemotePeerConfiguration peer, CancellationToken cancellationToken = default)
+        {
+            var existing = _remotePeers.FirstOrDefault(p => p.NodeId == peer.NodeId);
+            if (existing != null)
+                _remotePeers.Remove(existing);
+            _remotePeers.Add(peer);
+            return Task.CompletedTask;
+        }
+
+        public Task<IEnumerable<RemotePeerConfiguration>> GetRemotePeersAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IEnumerable<RemotePeerConfiguration>>(_remotePeers);
+        }
+
+        public Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
+        {
+            var peer = _remotePeers.FirstOrDefault(p => p.NodeId == nodeId);
+            if (peer != null)
+                _remotePeers.Remove(peer);
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
