@@ -8,10 +8,10 @@ namespace EntglDb.Test.Avalonia;
 
 public class EntglDbNodeService : IHostedService
 {
-    private readonly EntglDbNode _node;
+    private readonly IEntglDbNode _node;
     private readonly ILogger<EntglDbNodeService> _logger;
 
-    public EntglDbNodeService(EntglDbNode node, ILogger<EntglDbNodeService> logger)
+    public EntglDbNodeService(IEntglDbNode node, ILogger<EntglDbNodeService> logger)
     {
         _node = node;
         _logger = logger;
