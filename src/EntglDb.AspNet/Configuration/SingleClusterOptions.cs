@@ -1,3 +1,5 @@
+using System;
+
 namespace EntglDb.AspNet.Configuration;
 
 /// <summary>
