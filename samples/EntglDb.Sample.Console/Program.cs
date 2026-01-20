@@ -55,7 +55,7 @@ class Program
                 AuthToken = "demo-secret-key"
             });
 
-        builder.Services.AddSingleton(peerNodeConfigurationProvider);
+        builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(peerNodeConfigurationProvider);
 
         // Security (optional)
         if (useSecure)

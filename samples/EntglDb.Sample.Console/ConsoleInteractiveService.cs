@@ -47,12 +47,13 @@ public class ConsoleInteractiveService : BackgroundService
         _db = db;
         _node = node;
         _lifetime = lifetime;
-        _store = store; // Store it
+        _store = store;
         _cache = cache;
         _queue = queue;
         _healthCheck = healthCheck;
         _syncTracker = syncTracker;
         _serviceProvider = serviceProvider;
+        _configProvider = peerNodeConfigurationProvider;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
