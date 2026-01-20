@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EntglDb.Network.Security;
+using EntglDb.Core.Network;
 
 /// <summary>
 /// Token provider implementing OAuth2 Client Credentials flow.

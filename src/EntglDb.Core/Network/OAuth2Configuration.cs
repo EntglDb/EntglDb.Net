@@ -1,6 +1,6 @@
 using System;
 
-namespace EntglDb.Network.Security;
+namespace EntglDb.Core.Network;
 
 /// <summary>
 /// Configuration for OAuth2 authentication.
