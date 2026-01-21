@@ -62,7 +62,7 @@ public static class MauiProgram
 
 		IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
 		{
-			NodeId = "MauiAppNode",
+			NodeId = $"MauiAppNode-{Guid.NewGuid()}",
             TcpPort = 5001,
 			AuthToken = "RK544E50Q4HR43ECA2D6YXC4KC"
         });	
