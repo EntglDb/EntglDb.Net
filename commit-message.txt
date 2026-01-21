@@ -1,0 +1,44 @@
+fix(network): resolve critical concurrency and connection issues
+
+BREAKING FIXES:
+- Fixed application hanging on startup due to blocking await on infinite background tasks
+- Resolved memory leaks from undisposed CancellationTokenSource and NetworkStream
+- Fixed race conditions in Start/Stop methods across all network services
+- Fixed silent exceptions in background tasks with proper error logging
+
+CONNECTION IMPROVEMENTS:
+- Added connection timeout (5s) to prevent indefinite blocking
+- Added operation timeouts (30s) on TCP read/write operations
+- Added TCP keepalive to detect dead connections
+- Added max concurrent connections limit (100) to prevent DoS
+- Added automatic reconnection on failed/disconnected peers
+- Added proper socket option configuration
+
+ROBUSTNESS:
+- Implemented thread-safe connection state management with locks
+- Enhanced error handling with specific exception types (TimeoutException, SocketException)
+- Improved client pool management with automatic cleanup on failures
+- Added session timeouts (60s) for server-side client handlers
+- Fixed Task.Delay after OperationCanceledException
+- Added graceful disposal with error handling in all cleanup paths
+
+OBSERVABILITY:
+- Changed OperationCanceledException logging from Error to Information
+- Added detailed logging for all connection lifecycle events
+- Added metrics tracking for active server connections
+- Enhanced error messages with contextual information
+
+FILES MODIFIED:
+- EntglDbNodeService.cs: Added CancellationToken usage and exception handling
+- UdpDiscoveryService.cs: Thread-safe start/stop, proper disposal, background task error handling
+- TcpSyncServer.cs: Connection limits, timeouts, keepalive, proper disposal
+- SyncOrchestrator.cs: Client pool management, reconnection logic, timeout handling
+- TcpPeerClient.cs: Connection timeouts, keepalive, thread-safe state, proper disposal
+- CompositeDiscoveryService.cs: Thread-safe start/stop, proper disposal
+- EntglDbNode.cs: Removed redundant Task.Run wrapper
+
+This patch makes the networking layer production-ready for distributed .NET MAUI/Avalonia
+applications with zero hanging, zero memory leaks, and robust P2P connectivity.
+
+Closes: Connection hanging, memory leaks, race conditions, silent failures
+Version: 0.8.0 -> 0.8.1

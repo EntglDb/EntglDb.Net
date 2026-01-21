@@ -27,6 +27,11 @@ internal class TcpSyncServer : ISyncServer
     private readonly IPeerNodeConfigurationProvider _configProvider;
     private CancellationTokenSource? _cts;
     private TcpListener? _listener;
+    private readonly object _startStopLock = new object();
+    private int _activeConnections = 0;
+    
+    private const int MaxConcurrentConnections = 100;
+    private const int ClientOperationTimeoutMs = 60000;
 
     private readonly IAuthenticator _authenticator;
 
@@ -70,15 +75,35 @@ internal class TcpSyncServer : ISyncServer
     {
         var config = await _configProvider.GetConfiguration();
 
-        if (_cts != null) return;
-        _cts = new CancellationTokenSource();
+        lock (_startStopLock)
+        {
+            if (_cts != null)
+            {
+                _logger.LogWarning("TCP Sync Server already started");
+                return;
+            }
+            _cts = new CancellationTokenSource();
+        }
 
         _listener = new TcpListener(IPAddress.Any, config.TcpPort);
         _listener.Start();
 
         _logger.LogInformation("TCP Sync Server Listening on port {Port}", config.TcpPort);
 
-        Task.Run(() => ListenAsync(_cts.Token));
+        var token = _cts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ListenAsync(token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "TCP Listen task failed");
+            }
+        }, token);
+
+        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -90,9 +115,39 @@ internal class TcpSyncServer : ISyncServer
     /// <returns>A task that represents the asynchronous stop operation.</returns>
     public async Task Stop()
     {
-        _cts?.Cancel();
-        _listener?.Stop();
-        _cts = null;
+        CancellationTokenSource? ctsToDispose = null;
+        TcpListener? listenerToStop = null;
+        
+        lock (_startStopLock)
+        {
+            if (_cts == null)
+            {
+                _logger.LogWarning("TCP Sync Server already stopped or never started");
+                return;
+            }
+            
+            ctsToDispose = _cts;
+            listenerToStop = _listener;
+            _cts = null;
+            _listener = null;
+        }
+        
+        try
+        {
+            ctsToDispose.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed, ignore
+        }
+        finally
+        {
+            ctsToDispose.Dispose();
+        }
+        
+        listenerToStop?.Stop();
+        
+        await Task.CompletedTask;
     }
 
     /// <summary>

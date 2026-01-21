@@ -23,8 +23,23 @@ public class TcpPeerClient : IDisposable
     private readonly IPeerHandshakeService? _handshakeService;
     private NetworkStream? _stream;
     private CipherState? _cipherState;
+    private readonly object _connectionLock = new object();
+    private bool _disposed = false;
+    
+    private const int ConnectionTimeoutMs = 5000;
+    private const int OperationTimeoutMs = 30000;
 
-    public bool IsConnected => _client != null && _client.Connected && _stream != null;
+    public bool IsConnected
+    {
+        get
+        {
+            lock (_connectionLock)
+            {
+                return _client != null && _client.Connected && _stream != null && !_disposed;
+            }
+        }
+    }
+    
     public bool HasHandshaked { get; private set; }
 
     public TcpPeerClient(string peerAddress, ILogger logger, IPeerHandshakeService? handshakeService = null)
@@ -289,6 +304,30 @@ public class TcpPeerClient : IDisposable
 
     public void Dispose()
     {
-        _client.Dispose();
+        lock (_connectionLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
+        
+        try
+        {
+            _stream?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disposing network stream");
+        }
+        
+        try
+        {
+            _client?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disposing TCP client");
+        }
+        
+        _logger.LogDebug("Disposed connection to peer: {Address}", _peerAddress);
     }
 }

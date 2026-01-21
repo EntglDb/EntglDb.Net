@@ -6,13 +6,18 @@ layout: default
 
 Welcome to the EntglDb documentation.
 
-## Active Versions
+## Documentation
 
-*   [**v0.7.0 (Latest)**](https://www.entgldb.com/docs/v0.7.0) - *Hosted on EntglDb.com*
-*   [v0.6.0](v0.6/getting-started.html) - Secure networking + Advanced conflict resolution.
-*   [v0.5.0](v0.5/getting-started.html) - Production hardening release.
-*   [v0.4.0](v0.4/getting-started.html) - Previous release.
-*   [v0.2.0](v0.2/getting-started.html) - Initial production release.
+*   [**Getting Started**](getting-started.md)
+*   [Architecture](architecture.md)
+*   [API Reference](api-reference.md)
+*   [Persistence Providers](persistence-providers.md)
+*   [Querying](querying.md)
+*   [Conflict Resolution](conflict-resolution.md)
+*   [Security](security.md)
+*   [Deployment (LAN)](deployment-lan.md)
+*   [Dynamic Reconfiguration & Leader Election (v0.8.0)](dynamic-reconfiguration.md)
+*   [Production Hardening](production-hardening.md)
 
 ## Downloads
 

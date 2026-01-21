@@ -24,6 +24,7 @@ internal class UdpDiscoveryService : IDiscoveryService
     private readonly IPeerNodeConfigurationProvider _configProvider;
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerNode> _activePeers = new();
+    private readonly object _startStopLock = new object();
 
     /// <summary>
     /// Initializes a new instance of the UdpDiscoveryService class with the specified peer node configuration provider
@@ -42,12 +43,55 @@ internal class UdpDiscoveryService : IDiscoveryService
     /// </summary>
     public async Task Start()
     {
-        if (_cts != null) return;
-        _cts = new CancellationTokenSource();
+        lock (_startStopLock)
+        {
+            if (_cts != null)
+            {
+                _logger.LogWarning("UDP Discovery Service already started");
+                return;
+            }
+            _cts = new CancellationTokenSource();
+        }
 
-        Task.Run(() => ListenAsync(_cts.Token));
-        Task.Run(() => BroadcastAsync(_cts.Token));
-        Task.Run(() => CleanupAsync(_cts.Token));
+        var token = _cts.Token;
+        
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ListenAsync(token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UDP Listen task failed");
+            }
+        }, token);
+        
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await BroadcastAsync(token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UDP Broadcast task failed");
+            }
+        }, token);
+        
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await CleanupAsync(token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UDP Cleanup task failed");
+            }
+        }, token);
+
+        await Task.CompletedTask;
     }
 
     // ... Stop ...
@@ -101,8 +145,34 @@ internal class UdpDiscoveryService : IDiscoveryService
 
     public async Task Stop()
     {
-        _cts?.Cancel();
-        _cts = null;
+        CancellationTokenSource? ctsToDispose = null;
+        
+        lock (_startStopLock)
+        {
+            if (_cts == null)
+            {
+                _logger.LogWarning("UDP Discovery Service already stopped or never started");
+                return;
+            }
+            
+            ctsToDispose = _cts;
+            _cts = null;
+        }
+        
+        try
+        {
+            ctsToDispose.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed, ignore
+        }
+        finally
+        {
+            ctsToDispose.Dispose();
+        }
+        
+        await Task.CompletedTask;
     }
 
     public IEnumerable<PeerNode> GetActivePeers() => _activePeers.Values;

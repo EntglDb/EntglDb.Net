@@ -1,3 +1,8 @@
+---
+layout: default
+title: Querying
+---
+
 # Querying
 
 EntglDb allows querying local collections using a rich set of operators and idiomatic C# syntax, including LINQ support.

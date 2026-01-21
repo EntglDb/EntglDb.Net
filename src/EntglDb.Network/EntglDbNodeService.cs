@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,17 +20,42 @@ public class EntglDbNodeService : IHostedService
         _logger = logger;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting EntglDb Node Service...");
-        _node.Start();
-        return Task.CompletedTask;
+        try
+        {
+            _logger.LogInformation("Starting EntglDb Node Service...");
+            
+            // Check for cancellation before starting
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            await _node.Start();
+            _logger.LogInformation("EntglDb Node Service started successfully");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("EntglDb Node Service start was cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start EntglDb Node Service");
+            throw;
+        }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Stopping EntglDb Node Service...");
-        _node.Stop();
-        return Task.CompletedTask;
+        try
+        {
+            _logger.LogInformation("Stopping EntglDb Node Service...");
+            await _node.Stop();
+            _logger.LogInformation("EntglDb Node Service stopped successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while stopping EntglDb Node Service");
+            // Don't rethrow during shutdown to avoid breaking the shutdown process
+        }
     }
 }

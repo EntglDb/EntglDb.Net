@@ -29,6 +29,7 @@ public class CompositeDiscoveryService : IDiscoveryService
 
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerNode> _remotePeers = new();
+    private readonly object _startStopLock = new object();
 
     /// <summary>
     /// Initializes a new instance of the CompositeDiscoveryService class.
@@ -60,18 +61,32 @@ public class CompositeDiscoveryService : IDiscoveryService
 
     public async Task Start()
     {
-        if (_cts != null)
+        lock (_startStopLock)
         {
-            _logger.LogWarning("Composite discovery service already started");
-            return;
+            if (_cts != null)
+            {
+                _logger.LogWarning("Composite discovery service already started");
+                return;
+            }
+            _cts = new CancellationTokenSource();
         }
 
         // Start UDP discovery
         await _udpDiscovery.Start();
 
         // Start remote peer refresh loop
-        _cts = new CancellationTokenSource();
-        _ = Task.Run(() => RefreshLoopAsync(_cts.Token));
+        var token = _cts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await RefreshLoopAsync(token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Remote peer refresh loop failed");
+            }
+        }, token);
 
         // Initial load of remote peers
         await RefreshRemotePeersAsync();
@@ -81,11 +96,32 @@ public class CompositeDiscoveryService : IDiscoveryService
 
     public async Task Stop()
     {
-        if (_cts == null) return;
+        CancellationTokenSource? ctsToDispose = null;
+        
+        lock (_startStopLock)
+        {
+            if (_cts == null)
+            {
+                _logger.LogWarning("Composite discovery service already stopped or never started");
+                return;
+            }
+            
+            ctsToDispose = _cts;
+            _cts = null;
+        }
 
-        _cts.Cancel();
-        _cts.Dispose();
-        _cts = null;
+        try
+        {
+            ctsToDispose.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed, ignore
+        }
+        finally
+        {
+            ctsToDispose.Dispose();
+        }
 
         await _udpDiscovery.Stop();
 

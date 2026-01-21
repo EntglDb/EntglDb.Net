@@ -9,6 +9,7 @@ using EntglDb.Persistence.Sqlite;
 using EntglDb.Network;
 using EntglDb.Network.Security;
 using EntglDb.Core.Network;
+using Microsoft.Extensions.Hosting;
 
 namespace EntglDb.Test.Maui;
 
@@ -36,21 +37,20 @@ public static class MauiProgram
 				.AddJsonStream(stream)
 				.Build();
 			builder.Configuration.AddConfiguration(configBuilder);
-
-			// Register PeerNodeConfiguration manually for StaticPeerNodeConfigurationProvider
-			var peerConfig = new PeerNodeConfiguration();
-			configBuilder.GetSection("EntglDb:Node").Bind(peerConfig);
-			configBuilder.GetSection("EntglDb:Network").Bind(peerConfig);
-			// Fallback/Validation
-			if (string.IsNullOrEmpty(peerConfig.NodeId)) peerConfig.NodeId = Guid.NewGuid().ToString();
-			
-			builder.Services.AddSingleton(peerConfig);
 		}
 
 		// Services
 		builder.Services.AddSingleton<AppShell>();
-		builder.Services.AddTransient<MainPage>();
+        
+        // Dashboard / Utility Pages
+        builder.Services.AddTransient<NetworkPage>();
+        builder.Services.AddTransient<DatabasePage>();
+        builder.Services.AddTransient<LogsPage>();
 
+        // Logging
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<LogEntry>();
+        builder.Services.AddSingleton(logs);
+        builder.Logging.AddProvider(new InMemoryLoggerProvider(logs));
 
 		// EntglDb Services
 		// Conflict Resolution - Read from preferences
@@ -59,8 +59,18 @@ public static class MauiProgram
 		{
 			builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
 		}
-		// EntglDb Core Services
-		builder.Services.AddEntglDbCore()
+
+		IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
+		{
+			NodeId = "MauiAppNode",
+            TcpPort = 5001,
+			AuthToken = "RK544E50Q4HR43ECA2D6YXC4KC"
+        });	
+
+		builder.Services.AddSingleton(peerNodeConfigurationProvider);
+
+        // EntglDb Core Services
+        builder.Services.AddEntglDbCore()
 						.AddEntglDbSqlite(options =>
 						{
 							options.BasePath = FileSystem.AppDataDirectory;
@@ -72,6 +82,8 @@ public static class MauiProgram
 		builder.Logging.AddDebug();
 #endif
 
-		return builder.Build();
+		var app = builder.Build();
+
+        return app;
 	}
 }

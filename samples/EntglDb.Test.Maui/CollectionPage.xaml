@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="EntglDb.Test.Maui.CollectionPage"
+             Title="{Binding CollectionName}">
+    <Grid RowDefinitions="Auto, *">
+        <Label Grid.Row="0" Text="{Binding DocumentCount, StringFormat='Count: {0}'}" Margin="10,5" TextColor="Gray" FontSize="Small"/>
+        
+        <RefreshView Grid.Row="1" x:Name="DocsRefreshView" Command="{Binding RefreshCommand}">
+            <CollectionView x:Name="DocsCollectionView" ItemsSource="{Binding Documents}" SelectionMode="Single" SelectionChanged="OnDocumentSelected">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Frame Padding="10" Margin="5" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
+                            <VerticalStackLayout>
+                                <Label Text="{Binding Key}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                                <Label Text="{Binding ShortPayload}" LineBreakMode="TailTruncation" TextColor="Gray" FontSize="Small" />
+                                <Label Text="{Binding Timestamp}" FontSize="Micro" TextColor="LightGray" HorizontalOptions="End" />
+                            </VerticalStackLayout>
+                        </Frame>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+                <CollectionView.EmptyView>
+                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center">
+                         <Label Text="No documents found." TextColor="Gray" />
+                    </VerticalStackLayout>
+                </CollectionView.EmptyView>
+            </CollectionView>
+        </RefreshView>
+    </Grid>
+</ContentPage>
