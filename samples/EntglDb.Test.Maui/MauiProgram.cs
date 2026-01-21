@@ -64,17 +64,17 @@ public static class MauiProgram
 
         // Create/Retrieve Persistent Node Id
         var nodeId = Preferences.Default.Get("NodeId", string.Empty);
-        if (string.IsNullOrEmpty(nodeId))
+        if (string.IsNullOrEmpty(nodeId) || nodeId.StartsWith("Maui"))
         {
-            nodeId = $"MauiAppNode-{Guid.NewGuid()}";
+            nodeId = Guid.NewGuid().ToString();
             Preferences.Default.Set("NodeId", nodeId);
         }
 
 		IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
 		{
-			NodeId = nodeId,
+			NodeId = $"NODO-{nodeId}",
             TcpPort = 5001,
-			AuthToken = "RK544E50Q4HR43ECA2D6YXC4KC"
+			AuthToken = "Test-Cluster-Key"
         });	
 
 		builder.Services.AddSingleton(peerNodeConfigurationProvider);

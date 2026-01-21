@@ -313,7 +313,9 @@ internal class TcpSyncServer : ISyncServer
                                     JsonData = e.Payload?.GetRawText() ?? "",
                                     HlcWall = e.Timestamp.PhysicalTime,
                                     HlcLogic = e.Timestamp.LogicalCounter,
-                                    HlcNode = e.Timestamp.NodeId
+                                    HlcNode = e.Timestamp.NodeId,
+                                    Hash = e.Hash,
+                                    PreviousHash = e.PreviousHash
                                 });
                             }
                             response = csRes;
@@ -327,13 +329,38 @@ internal class TcpSyncServer : ISyncServer
                                 e.Key,
                                 (OperationType)Enum.Parse(typeof(OperationType), e.Operation),
                                 string.IsNullOrEmpty(e.JsonData) ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-                                new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode)
+                                new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+                                e.PreviousHash, // Restore PreviousHash
+                                e.Hash          // Restore Hash
                             ));
 
                             await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), entries, token);
 
                             response = new AckResponse { Success = true };
                             resType = MessageType.AckRes;
+                            break;
+
+                        case MessageType.GetChainRangeReq:
+                            var rangeReq = GetChainRangeRequest.Parser.ParseFrom(payload);
+                            var rangeEntries = await _store.GetChainRangeAsync(rangeReq.StartHash, rangeReq.EndHash, token);
+                            var rangeRes = new ChainRangeResponse();
+                            foreach (var e in rangeEntries)
+                            {
+                                rangeRes.Entries.Add(new ProtoOplogEntry
+                                {
+                                    Collection = e.Collection,
+                                    Key = e.Key,
+                                    Operation = e.Operation.ToString(),
+                                    JsonData = e.Payload?.GetRawText() ?? "",
+                                    HlcWall = e.Timestamp.PhysicalTime,
+                                    HlcLogic = e.Timestamp.LogicalCounter,
+                                    HlcNode = e.Timestamp.NodeId,
+                                    Hash = e.Hash,
+                                    PreviousHash = e.PreviousHash
+                                });
+                            }
+                            response = rangeRes;
+                            resType = MessageType.ChainRangeRes;
                             break;
                     }
 

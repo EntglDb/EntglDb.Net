@@ -55,6 +55,7 @@ public class EntglDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId });
             entity.HasIndex(e => e.Collection);
+            entity.HasIndex(e => e.Hash);
         });
 
         // Configure RemotePeerEntity

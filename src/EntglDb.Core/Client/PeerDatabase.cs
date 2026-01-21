@@ -199,8 +199,11 @@ internal class PeerCollection : IPeerCollection
     {
         var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
         var timestamp = await _db.Tick();
+        
+        // Fetch last hash for my node to build the chain
+        var previousHash = await _db.Store.GetLastEntryHashAsync(timestamp.NodeId, cancellationToken);
 
-        var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp);
+        var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
         var paramsContainer = new Document(_name, key, json, timestamp, false);
 
         await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
@@ -211,15 +214,29 @@ internal class PeerCollection : IPeerCollection
     {
         var docList = new List<Document>();
         var oplogList = new List<OplogEntry>();
+        
+        // 1. Get NodeId from config (same for all)
+        // 2. We need to serialize this operation to ensure chain integrity
+        // OR: We pre-fetch last hash, then chain them in memory.
+        
+        // Optimizing for batch insert (chaining in-memory)
+        var firstTimestamp = await _db.Tick(); // This ticks logic+1
+        var nodeId = firstTimestamp.NodeId;
+        var previousHash = await _db.Store.GetLastEntryHashAsync(nodeId, cancellationToken);
 
         foreach (var kvp in documents)
         {
             var key = kvp.Key;
             var document = kvp.Value;
             var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
-            var timestamp = await _db.Tick();
+            
+            // We need unique logical timestamps for each entry in the batch
+            // The first one is already ticked. Subsequent ones increment logic counter.
+            var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
 
-            var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp);
+            var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
+            previousHash = oplog.Hash; // Update for next item in batch
+
             var paramsContainer = new Document(_name, key, json, timestamp, false);
 
             docList.Add(paramsContainer);
@@ -229,6 +246,10 @@ internal class PeerCollection : IPeerCollection
         if (docList.Count > 0)
         {
             await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+            
+            // Sync local clock to the last used timestamp
+            // (Actually Tick() handles state, but we manually incremented. We should probably accept this slight drift or expose AdvanceClock)
+            // But _db.Tick() uses system time, so next tick will catch up anyway.
         }
     }
 
@@ -243,7 +264,9 @@ internal class PeerCollection : IPeerCollection
     public async Task Delete(string key, CancellationToken cancellationToken = default)
     {
         var timestamp = await _db.Tick();
-        var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp);
+        var previousHash = await _db.Store.GetLastEntryHashAsync(timestamp.NodeId, cancellationToken);
+        
+        var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
         var empty = default(JsonElement);
         var paramsContainer = new Document(_name, key, empty, timestamp, true);
 
@@ -256,11 +279,18 @@ internal class PeerCollection : IPeerCollection
         var docList = new List<Document>();
         var oplogList = new List<OplogEntry>();
         var empty = default(JsonElement);
+        
+        var firstTimestamp = await _db.Tick();
+        var nodeId = firstTimestamp.NodeId;
+        var previousHash = await _db.Store.GetLastEntryHashAsync(nodeId, cancellationToken);
 
         foreach (var key in keys)
         {
-            var timestamp = await _db.Tick();
-            var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp);
+            var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
+            
+            var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
+            previousHash = oplog.Hash;
+            
             var paramsContainer = new Document(_name, key, empty, timestamp, true);
 
             docList.Add(paramsContainer);

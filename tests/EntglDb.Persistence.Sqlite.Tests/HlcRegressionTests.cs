@@ -47,7 +47,7 @@ public class HlcRegressionTests : IDisposable
 
         var store1 = new SqlitePeerStore(configProvider, options);
         var doc = new Document("test_collection", "key1", JsonDocument.Parse("{}").RootElement, new HlcTimestamp(1000, 0, "test-node"), false);
-        var oplog = new OplogEntry("test_collection", "key1", OperationType.Put, null, new HlcTimestamp(1000, 0, "test-node"));
+        var oplog = new OplogEntry("test_collection", "key1", OperationType.Put, null, new HlcTimestamp(1000, 0, "test-node"), string.Empty);
         
         await store1.SaveDocumentAsync(doc);
         await store1.AppendOplogEntryAsync(oplog); // Ensure oplog table exists and has data

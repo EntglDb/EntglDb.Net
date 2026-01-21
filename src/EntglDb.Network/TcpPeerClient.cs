@@ -204,7 +204,33 @@ public class TcpPeerClient : IDisposable
             e.Key,
             ParseOp(e.Operation),
             string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode)
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.PreviousHash,
+            e.Hash // Pass the received hash to preserve integrity reference
+        )).ToList();
+    }
+
+    /// <summary>
+    /// Retrieves a range of oplog entries connecting two hashes (Gap Recovery).
+    /// </summary>
+    public async Task<List<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken token)
+    {
+        var req = new GetChainRangeRequest { StartHash = startHash, EndHash = endHash };
+        await _protocol.SendMessageAsync(_stream!, MessageType.GetChainRangeReq, req, _useCompression, _cipherState, token);
+
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        if (type != MessageType.ChainRangeRes) throw new Exception($"Unexpected response for ChainRange: {type}");
+
+        var res = ChainRangeResponse.Parser.ParseFrom(payload);
+
+        return res.Entries.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            ParseOp(e.Operation),
+            string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.PreviousHash,
+            e.Hash
         )).ToList();
     }
 
@@ -227,7 +253,9 @@ public class TcpPeerClient : IDisposable
                 JsonData = e.Payload?.GetRawText() ?? "",
                 HlcWall = e.Timestamp.PhysicalTime,
                 HlcLogic = e.Timestamp.LogicalCounter,
-                HlcNode = e.Timestamp.NodeId
+                HlcNode = e.Timestamp.NodeId,
+                Hash = e.Hash,
+                PreviousHash = e.PreviousHash
             });
         }
 

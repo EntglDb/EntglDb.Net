@@ -31,6 +31,23 @@ public interface IPeerStore
     /// </summary>
     Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Retrieves the hash of the last oplog entry for a specific node.
+    /// Used to build the chain when appending new entries or validating sync.
+    /// </summary>
+    Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a range of oplog entries connecting two hashes (exclusive of start, inclusive of end).
+    /// Used for Gap Recovery.
+    /// </summary>
+    Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves a specific oplog entry by its hash.
+    /// </summary>
+    Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default);
+
     // Atomic Batch (for Sync)
     Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default);
 

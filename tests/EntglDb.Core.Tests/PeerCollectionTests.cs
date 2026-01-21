@@ -59,6 +59,39 @@ public class PeerCollectionTests
             return Task.FromResult(_latestTimestamp);
         }
 
+        public Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
+        {
+            var last = _oplog
+                .Where(e => e.Timestamp.NodeId == nodeId)
+                .OrderByDescending(e => e.Timestamp)
+                .FirstOrDefault();
+            return Task.FromResult(last?.Hash);
+        }
+
+        public Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default)
+        {
+            var entry = _oplog.FirstOrDefault(e => e.Hash == hash);
+            return Task.FromResult(entry);
+        }
+
+        public Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default)
+        {
+            // Simplified in-memory implementation
+            var start = _oplog.FirstOrDefault(e => e.Hash == startHash);
+            var end = _oplog.FirstOrDefault(e => e.Hash == endHash);
+
+            if (start == null || end == null) return Task.FromResult(Enumerable.Empty<OplogEntry>());
+            if (start.Timestamp.NodeId != end.Timestamp.NodeId) return Task.FromResult(Enumerable.Empty<OplogEntry>());
+
+            var range = _oplog
+                .Where(e => e.Timestamp.NodeId == start.Timestamp.NodeId &&
+                            e.Timestamp.CompareTo(start.Timestamp) > 0 &&
+                            e.Timestamp.CompareTo(end.Timestamp) <= 0)
+                .OrderBy(e => e.Timestamp);
+
+            return Task.FromResult<IEnumerable<OplogEntry>>(range);
+        }
+
         public Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
         {
             foreach (var doc in documents)

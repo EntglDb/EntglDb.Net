@@ -39,6 +39,15 @@ message PushChangesRequest {
   repeated ProtoOplogEntry entries = 1;
 }
 
+message GetChainRangeRequest { 
+  string start_hash = 1; 
+  string end_hash = 2; 
+}
+
+message ChainRangeResponse { 
+  repeated ProtoOplogEntry entries = 1; 
+}
+
 message AckResponse {
   bool success = 1;
 }
@@ -51,6 +60,8 @@ message ProtoOplogEntry {
   int64 hlc_wall = 5;
   int32 hlc_logic = 6;
   string hlc_node = 7;
+  string hash = 8;
+  string previous_hash = 9;
 }
 
 // Enum for wire framing (1 byte)
@@ -65,6 +76,8 @@ enum MessageType {
   PushChangesReq = 7;
   AckRes = 8;
   SecureEnv = 9;
+  GetChainRangeReq = 10;
+  ChainRangeRes = 11;
 }
 
 message SecureEnvelope {

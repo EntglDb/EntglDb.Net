@@ -26,7 +26,7 @@ public class RecursiveNodeMergeConflictResolverTests
     {
         var json = JsonSerializer.Serialize(data);
         var element = JsonDocument.Parse(json).RootElement;
-        return new OplogEntry("test", key, OperationType.Put, element, ts);
+        return new OplogEntry("test", key, OperationType.Put, element, ts, string.Empty);
     }
 
     [Fact]

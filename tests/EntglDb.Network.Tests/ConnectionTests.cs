@@ -104,6 +104,9 @@ namespace EntglDb.Network.Tests
             public Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task<bool> CheckIntegrityAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
             public Task BackupAsync(string backupPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+            public Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default) => Task.FromResult<OplogEntry?>(null);
+            public Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
         }
 
         private class StubAuthenticator : IAuthenticator

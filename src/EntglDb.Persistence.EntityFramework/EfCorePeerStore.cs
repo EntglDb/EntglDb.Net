@@ -96,7 +96,9 @@ public class EfCorePeerStore : IPeerStore
             PayloadJson = entry.Payload?.GetRawText(),
             TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
             TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
-            TimestampNodeId = entry.Timestamp.NodeId
+            TimestampNodeId = entry.Timestamp.NodeId,
+            Hash = entry.Hash,
+            PreviousHash = entry.PreviousHash
         };
 
         _context.Oplog.Add(entity);
@@ -118,7 +120,9 @@ public class EfCorePeerStore : IPeerStore
             e.Key,
             (OperationType)e.Operation,
             string.IsNullOrEmpty(e.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
-            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId)
+            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId),
+            e.PreviousHash ?? "",
+            e.Hash
         ));
     }
 
@@ -136,6 +140,76 @@ public class EfCorePeerStore : IPeerStore
             latest.TimestampPhysicalTime,
             latest.TimestampLogicalCounter,
             latest.TimestampNodeId);
+    }
+
+    public async Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        var latest = await _context.Oplog
+            .Where(o => o.TimestampNodeId == nodeId)
+            .OrderByDescending(o => o.TimestampPhysicalTime)
+            .ThenByDescending(o => o.TimestampLogicalCounter)
+            .Select(o => o.Hash)
+            .FirstOrDefaultAsync(cancellationToken);
+            
+        return latest;
+    }
+
+    public async Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        var entity = await _context.Oplog
+            .FirstOrDefaultAsync(o => o.Hash == hash, cancellationToken);
+            
+        if (entity == null) return null;
+        
+        return new OplogEntry(
+            entity.Collection,
+            entity.Key,
+            (OperationType)entity.Operation,
+            string.IsNullOrEmpty(entity.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(entity.PayloadJson),
+            new HlcTimestamp(entity.TimestampPhysicalTime, entity.TimestampLogicalCounter, entity.TimestampNodeId),
+            entity.PreviousHash ?? "",
+            entity.Hash
+        );
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default)
+    {
+        // 1. Fetch bounds to identify the chain and range
+        var startRow = await _context.Oplog
+            .Where(o => o.Hash == startHash)
+            .Select(o => new { o.TimestampPhysicalTime, o.TimestampLogicalCounter, o.TimestampNodeId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var endRow = await _context.Oplog
+            .Where(o => o.Hash == endHash)
+            .Select(o => new { o.TimestampPhysicalTime, o.TimestampLogicalCounter, o.TimestampNodeId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (startRow == null || endRow == null) return Enumerable.Empty<OplogEntry>();
+        if (startRow.TimestampNodeId != endRow.TimestampNodeId) return Enumerable.Empty<OplogEntry>();
+        
+        var nodeId = startRow.TimestampNodeId;
+
+        // 2. Fetch range (Start < Entry <= End)
+        var entities = await _context.Oplog
+            .Where(o => o.TimestampNodeId == nodeId &&
+                       ((o.TimestampPhysicalTime > startRow.TimestampPhysicalTime) ||
+                        (o.TimestampPhysicalTime == startRow.TimestampPhysicalTime && o.TimestampLogicalCounter > startRow.TimestampLogicalCounter)) &&
+                       ((o.TimestampPhysicalTime < endRow.TimestampPhysicalTime) ||
+                        (o.TimestampPhysicalTime == endRow.TimestampPhysicalTime && o.TimestampLogicalCounter <= endRow.TimestampLogicalCounter)))
+            .OrderBy(o => o.TimestampPhysicalTime)
+            .ThenBy(o => o.TimestampLogicalCounter)
+            .ToListAsync(cancellationToken);
+
+        return entities.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            (OperationType)e.Operation,
+            string.IsNullOrEmpty(e.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
+            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId),
+            e.PreviousHash ?? "",
+            e.Hash
+        ));
     }
 
     public async Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
@@ -197,7 +271,9 @@ public class EfCorePeerStore : IPeerStore
                     PayloadJson = entry.Payload?.GetRawText(),
                     TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
                     TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
-                    TimestampNodeId = entry.Timestamp.NodeId
+                    TimestampNodeId = entry.Timestamp.NodeId,
+                    Hash = entry.Hash,
+                    PreviousHash = entry.PreviousHash
                 };
                 _context.Oplog.Add(oplogEntity);
             }

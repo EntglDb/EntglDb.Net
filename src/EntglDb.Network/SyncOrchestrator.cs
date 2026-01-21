@@ -6,6 +6,7 @@ using EntglDb.Network.Telemetry;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
@@ -75,14 +76,14 @@ public class SyncOrchestrator : ISyncOrchestrator
                 _logger.LogError(ex, "Sync Loop task failed");
             }
         }, token);
-        
+
         await Task.CompletedTask;
     }
 
     public async Task Stop()
     {
         CancellationTokenSource? ctsToDispose = null;
-        
+
         lock (_startStopLock)
         {
             if (_cts == null)
@@ -90,11 +91,11 @@ public class SyncOrchestrator : ISyncOrchestrator
                 _logger.LogWarning("Sync Orchestrator already stopped or never started");
                 return;
             }
-            
+
             ctsToDispose = _cts;
             _cts = null;
         }
-        
+
         try
         {
             ctsToDispose.Cancel();
@@ -107,7 +108,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         {
             ctsToDispose.Dispose();
         }
-        
+
         // Cleanup clients
         foreach (var client in _clients.Values)
         {
@@ -121,7 +122,7 @@ public class SyncOrchestrator : ISyncOrchestrator
             }
         }
         _clients.Clear();
-        
+
         await Task.CompletedTask;
     }
 
@@ -141,25 +142,14 @@ public class SyncOrchestrator : ISyncOrchestrator
                 // Gossip Fanout: Pick 3 random peers
                 var targets = peers.OrderBy(x => _random.Next()).Take(3).ToList();
 
-                // Execute sync in parallel with a max degree of parallelism
-//#if NET6_0_OR_GREATER
-//                await Parallel.ForEachAsync(targets, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = token }, async (peer, ct) => 
-//                {
-//                    await TrySyncWithPeer(peer, ct);
-//                });
-//#else
-//                // NetStandard 2.0 fallback: Use Task.WhenAll (Since we only take 3 targets, this effectively runs them in parallel)
-//                var tasks = targets.Select(peer => TrySyncWithPeer(peer, token));
-//                await Task.WhenAll(tasks);
-//#endif
-                // NetStandard 2.0 fallback: Use Task.WhenAll (Since we only take 3 targets, this effectively runs them in parallel)
+                // NetStandard 2.0 fallback: Use Task.WhenAll
                 var tasks = targets.Select(peer => TrySyncWithPeer(peer, token));
                 await Task.WhenAll(tasks);
             }
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Sync Loop Cancelled");
-                break; 
+                break;
             }
             catch (Exception ex)
             {
@@ -180,6 +170,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     /// <summary>
     /// Attempts to synchronize with a specific peer.
     /// Performs handshake, clock comparison, and data exchange (Push/Pull).
+    /// Refactored to handle bi-directional sync (convergence) and cleaner validation.
     /// </summary>
     private async Task TrySyncWithPeer(PeerNode peer, CancellationToken token)
     {
@@ -189,7 +180,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         try
         {
             var config = await _peerNodeConfigurationProvider.GetConfiguration();
-            
+
             // Get or create persistent client
             client = _clients.GetOrAdd(peer.NodeId, id => new TcpPeerClient(
                 peer.Address,
@@ -215,24 +206,35 @@ public class SyncOrchestrator : ISyncOrchestrator
             var remoteClock = await client.GetClockAsync(token);
             var localClock = await _store.GetLatestTimestampAsync(token);
 
-            // 2. Determine Sync Direction
-            if (remoteClock.CompareTo(localClock) > 0)
+            // 2. Determine Sync Direction (Bi-directional check for convergence)
+            // Note: Standard CompareTo usually returns > 0 if strict, but for VectorClocks we must handle concurrency.
+            // We separate the checks to allow PULL and PUSH in the same session if clocks are concurrent.
+
+            bool remoteHasUpdates = remoteClock.CompareTo(localClock) > 0;
+            bool localHasUpdates = localClock.CompareTo(remoteClock) > 0;
+            bool areConcurrentOrEqual = !remoteHasUpdates && !localHasUpdates;
+
+            // PULL: If remote is strictly ahead OR if we are concurrent (diverged)
+            if (remoteHasUpdates || (areConcurrentOrEqual && !remoteClock.Equals(localClock)))
             {
-                // Remote is ahead -> Pull
                 _logger.LogInformation("Pulling changes from {NodeId} (Remote: {Remote}, Local: {Local})", peer.NodeId, remoteClock, localClock);
+
                 var changes = await client.PullChangesAsync(localClock, token);
-                if (changes.Count > 0)
+                if (changes != null && changes.Count > 0)
                 {
-                    _logger.LogInformation("Received {Count} changes from {NodeId}", changes.Count, peer.NodeId);
-                    await _store.ApplyBatchAsync(System.Linq.Enumerable.Empty<Document>(), changes, token);
+                    await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
                 }
             }
-            else if (localClock.CompareTo(remoteClock) > 0)
+
+            // PUSH: If local is strictly ahead OR if we are concurrent (diverged)
+            if (localHasUpdates || (areConcurrentOrEqual && !remoteClock.Equals(localClock)))
             {
-                // Local is ahead -> Push (Optimistic)
                 _logger.LogInformation("Pushing changes to {NodeId}", peer.NodeId);
                 var changes = await _store.GetOplogAfterAsync(remoteClock, token);
-                await client.PushChangesAsync(changes, token);
+                if (changes != null && changes.Any())
+                {
+                    await client.PushChangesAsync(changes, token);
+                }
             }
         }
         catch (TimeoutException tex)
@@ -252,21 +254,95 @@ public class SyncOrchestrator : ISyncOrchestrator
         }
         finally
         {
-            // On failure or auth rejection, remove from pool to force fresh connection next time
             if (shouldRemoveClient && client != null)
             {
                 if (_clients.TryRemove(peer.NodeId, out var removedClient))
                 {
-                    try
-                    {
-                        removedClient.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error disposing client for {NodeId}", peer.NodeId);
-                    }
+                    try { removedClient.Dispose(); } catch { /* Ignore disposal errors */ }
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to store.
+    /// Extracted to enforce Single Responsibility Principle.
+    /// </summary>
+    private async Task ProcessInboundBatchAsync(TcpPeerClient client, string peerNodeId, IList<OplogEntry> changes, CancellationToken token)
+    {
+        _logger.LogInformation("Received {Count} changes from {NodeId}", changes.Count, peerNodeId);
+
+        // 1. Validate internal integrity of the batch (Hash check)
+        foreach (var entry in changes)
+        {
+            if (!entry.IsValid())
+            {
+                throw new InvalidOperationException($"Integrity Check Failed for Entry {entry.Hash} (Node: {entry.Timestamp.NodeId})");
+            }
+        }
+
+        // 2. Group changes by Author Node to validate Source Chains independently
+        var changesByNode = changes.GroupBy(c => c.Timestamp.NodeId);
+
+        foreach (var group in changesByNode)
+        {
+            var authorNodeId = group.Key;
+            var authorChain = group.OrderBy(c => c.Timestamp.LogicalCounter).ToList();
+
+            // Check linkage within the batch
+            for (int i = 1; i < authorChain.Count; i++)
+            {
+                if (authorChain[i].PreviousHash != authorChain[i - 1].Hash)
+                {
+                    throw new InvalidOperationException($"Chain Broken in Batch for Node {authorNodeId}");
+                }
+            }
+
+            // Check linkage with Local State
+            var firstEntry = authorChain[0];
+            var localHeadHash = await _store.GetLastEntryHashAsync(authorNodeId, token);
+
+            if (localHeadHash != null && firstEntry.PreviousHash != localHeadHash)
+            {
+                // GAP DETECTED
+                _logger.LogWarning("Gap Detected for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Initiating Recovery.", authorNodeId, localHeadHash, firstEntry.PreviousHash);
+
+                // Gap Recovery (Range Sync)
+                var missingChain = await client.GetChainRangeAsync(localHeadHash, firstEntry.PreviousHash, token);
+
+                if (missingChain != null && missingChain.Any())
+                {
+                    _logger.LogInformation("Gap Recovery: Retrieved {Count} missing entries.", missingChain.Count);
+
+                    // Validate Recovery Chain Linkage
+                    if (missingChain[0].PreviousHash != localHeadHash)
+                        throw new InvalidOperationException("Recovery Chain does not link to Local Head");
+
+                    for (int i = 1; i < missingChain.Count; i++)
+                        if (missingChain[i].PreviousHash != missingChain[i - 1].Hash)
+                            throw new InvalidOperationException("Recovery Chain has internal breaks");
+
+                    if (missingChain.Last().Hash != firstEntry.PreviousHash)
+                        throw new InvalidOperationException("Recovery Chain does not link to Batch Start");
+
+                    // Apply Missing Chain First
+                    await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), missingChain, token);
+                    _logger.LogInformation("Gap Recovery Applied Successfully.");
+                }
+                else
+                {
+                    // Fail hard or soft depending on policy. Hard fail protects consistency.
+                    throw new InvalidOperationException($"Could not recover gap for Node {authorNodeId}. Peer might not have history.");
+                }
+            }
+            else if (localHeadHash == null && !string.IsNullOrEmpty(firstEntry.PreviousHash))
+            {
+                // Implicit Accept / Partial Sync warning
+                _logger.LogWarning("First contact with Node {AuthorId} at explicit state (Not Genesis). Accepting.", authorNodeId);
+            }
+        }
+
+        // Apply original batch
+        await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), changes, token);
     }
 }

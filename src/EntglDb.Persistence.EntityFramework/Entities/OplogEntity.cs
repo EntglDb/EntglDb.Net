@@ -57,4 +57,16 @@ public class OplogEntity
     [Required]
     [MaxLength(256)]
     public string TimestampNodeId { get; set; } = "";
+
+    /// <summary>
+    /// Gets or sets the cryptographic hash of this entry.
+    /// </summary>
+    [MaxLength(64)]
+    public string? Hash { get; set; }
+
+    /// <summary>
+    /// Gets or sets the hash of the previous entry in the chain.
+    /// </summary>
+    [MaxLength(64)]
+    public string? PreviousHash { get; set; }
 }
