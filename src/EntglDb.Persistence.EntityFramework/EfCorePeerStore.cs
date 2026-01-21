@@ -146,6 +146,14 @@ public class EfCorePeerStore : IPeerStore
         {
             foreach (var entry in oplogEntries)
             {
+                // Validate that Put operations have a payload
+                if (entry.Operation == OperationType.Put && (entry.Payload == null || entry.Payload.Value.ValueKind == JsonValueKind.Undefined))
+                {
+                    _logger.LogWarning("Rejecting Put operation without payload for {Collection}/{Key} at timestamp {Timestamp}", 
+                        entry.Collection, entry.Key, entry.Timestamp);
+                    continue; // Skip this entry - do not write oplog without applying document
+                }
+
                 var localEntity = await _context.Documents
                     .FirstOrDefaultAsync(d => d.Collection == entry.Collection && d.Key == entry.Key, cancellationToken);
 

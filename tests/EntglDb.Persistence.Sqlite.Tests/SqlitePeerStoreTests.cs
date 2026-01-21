@@ -162,4 +162,52 @@ public class SqlitePeerStoreTests : IDisposable
         
         // No exception means pass
     }
+
+    [Fact]
+    public async Task ApplyBatchAsync_WithEmptyDocsAndOplogWithPayload_ShouldApplyChanges()
+    {
+        // Arrange - Save initial document
+        var initialDoc = CreateDocument("users", "user1", new { Name = "Alice", Age = 30 }, new HlcTimestamp(1000, 0, "node1"));
+        await _store.SaveDocumentAsync(initialDoc);
+
+        // Create oplog entry with payload for update (newer timestamp)
+        var json = JsonSerializer.Serialize(new { Name = "Alice Updated", Age = 31 });
+        var jsonElement = JsonDocument.Parse(json).RootElement;
+        var oplogEntry = new OplogEntry("users", "user1", OperationType.Put, jsonElement, new HlcTimestamp(2000, 0, "node2"));
+
+        // Act - Apply batch with empty documents list but oplog entries
+        await _store.ApplyBatchAsync(System.Linq.Enumerable.Empty<Document>(), new[] { oplogEntry });
+
+        // Assert - Document should be updated from oplog entry
+        var result = await _store.GetDocumentAsync("users", "user1");
+        result.Should().NotBeNull();
+        result!.Content.GetProperty("Name").GetString().Should().Be("Alice Updated");
+        result.Content.GetProperty("Age").GetInt32().Should().Be(31);
+        result.UpdatedAt.PhysicalTime.Should().Be(2000);
+    }
+
+    [Fact]
+    public async Task ApplyBatchAsync_WithPutWithoutPayload_ShouldRejectAndNotWriteOplog()
+    {
+        // Arrange - Save initial document
+        var initialDoc = CreateDocument("users", "user1", new { Name = "Alice", Age = 30 }, new HlcTimestamp(1000, 0, "node1"));
+        await _store.SaveDocumentAsync(initialDoc);
+
+        // Create oplog entry WITHOUT payload (should be rejected)
+        var oplogEntry = new OplogEntry("users", "user1", OperationType.Put, null, new HlcTimestamp(2000, 0, "node2"));
+
+        // Act - Apply batch with Put but no payload
+        await _store.ApplyBatchAsync(System.Linq.Enumerable.Empty<Document>(), new[] { oplogEntry });
+
+        // Assert - Document should remain unchanged
+        var result = await _store.GetDocumentAsync("users", "user1");
+        result.Should().NotBeNull();
+        result!.Content.GetProperty("Name").GetString().Should().Be("Alice");
+        result.Content.GetProperty("Age").GetInt32().Should().Be(30);
+        result.UpdatedAt.PhysicalTime.Should().Be(1000);
+
+        // Oplog should not contain the rejected entry
+        var oplog = await _store.GetOplogAfterAsync(new HlcTimestamp(1500, 0, "node1"));
+        oplog.Should().BeEmpty(); // No entries after timestamp 1500
+    }
 }
