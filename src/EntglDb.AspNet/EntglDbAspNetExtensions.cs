@@ -1,17 +1,12 @@
-using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using EntglDb.AspNet.Configuration;
 using EntglDb.AspNet.Services;
 using EntglDb.AspNet.HealthChecks;
 using EntglDb.AspNet.HostedServices;
-using EntglDb.Core.Storage;
-using EntglDb.Core.Network;
 using EntglDb.Network;
-using EntglDb.Network.Security;
 
 namespace EntglDb.AspNet;
 
