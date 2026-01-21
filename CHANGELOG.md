@@ -16,6 +16,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="0.8.0"></a>
+## [0.8.0] - 2026-01-20
+
+### Added - Phase 2: ASP.NET Server + Persistence Layers
+
+#### EntglDb.Persistence.EntityFramework Package
+- **Generic EF Core Persistence**: Full IPeerStore implementation using Entity Framework Core
+- **Multi-Database Support**: SQL Server, PostgreSQL, MySQL, and SQLite support
+- **Entity Classes**: DocumentEntity, OplogEntity, RemotePeerEntity with proper indexes
+- **EntglDbContext**: Configured DbContext with optimized model configuration
+- **DI Extensions**: AddEntglDbEntityFramework() methods for easy service registration
+- **Migration Support**: Initial EF Core migrations for all supported databases
+
+#### EntglDb.Persistence.PostgreSQL Package
+- **JSONB Optimization**: PostgreSQL-specific DbContext with JSONB column types
+- **GIN Indexes**: Configured for high-performance JSON queries
+- **PostgreSqlPeerStore**: Optimized persistence layer extending EfCorePeerStore
+- **Connection Resilience**: Built-in retry logic and connection pooling
+- **Production Ready**: Optimized for PostgreSQL 12+ with best practices
+
+#### EntglDb.AspNet Package
+- **Dual Deployment Modes**: Single Cluster (production) and Multi Cluster (dev/staging)
+- **Configuration Models**: ServerMode, SingleClusterOptions, MultiClusterOptions
+- **NoOpDiscoveryService**: Passive discovery for server scenarios (no UDP broadcast)
+- **NoOpSyncOrchestrator**: Respond-only sync mode for cloud deployments
+- **Health Checks**: EntglDbHealthCheck for monitoring and observability
+- **Hosted Services**: TcpSyncServerHostedService and DiscoveryServiceHostedService
+- **OAuth2 Integration**: JWT token validation for cloud authentication
+- **DI Extensions**: AddEntglDbAspNetSingleCluster() and AddEntglDbAspNetMultiCluster()
+
+### Documentation
+- **docs/deployment-modes.md**: Comprehensive guide to Single vs Multi-cluster deployment
+- **docs/persistence-providers.md**: Detailed comparison of SQLite, EF Core, and PostgreSQL options
+- **Package READMEs**: Complete documentation for each new package with examples
+- **Configuration Examples**: JSON configuration samples for both deployment modes
+
+### Enhanced
+- **Production Infrastructure**: Complete cloud deployment stack built on Phase 1 foundations
+- **Database Flexibility**: Choose the right database for your deployment scenario
+- **Hosting Options**: Deploy as standalone ASP.NET Core application or container
+- **Security**: OAuth2 JWT validation integrated throughout the stack
+
+### Compatibility
+- **Zero Breaking Changes**: Full backward compatibility with existing v0.7.x code
+- **All Tests Pass**: 50/50 tests passing (27 Core + 8 Network + 15 SQLite)
+- **Incremental Adoption**: Can use new packages alongside existing SQLite persistence
+
+---
+
 <a name="0.6.1"></a>
 ## [0.6.1] - 2026-01-18
 
@@ -130,7 +179,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/EntglDb/EntglDb.Net/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/EntglDb/EntglDb.Net/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/EntglDb/EntglDb.Net/compare/v0.6.1...v0.8.0
+[0.6.1]: https://github.com/EntglDb/EntglDb.Net/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/EntglDb/EntglDb.Net/compare/v0.3.1...v0.6.0
 [0.3.1]: https://github.com/EntglDb/EntglDb.Net/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/EntglDb/EntglDb.Net/compare/v0.2.0-alpha...v0.3.0
 [0.2.0-alpha]: https://github.com/EntglDb/EntglDb.Net/compare/v0.1.0-alpha...v0.2.0-alpha

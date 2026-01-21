@@ -7,10 +7,10 @@
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ## Status
-![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)
 
-**Latest Release**: v0.7.0 (Brotli Compression, Uniform Versioning)
+**Latest Release**: v0.8.0 (ASP.NET Server + Persistence Layers)
 
 EntglDb is a mesh database...
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Contributing](#contributing)
@@ -26,6 +26,7 @@ EntglDb is a mesh database...
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Cloud Deployment](#cloud-deployment)
 - [Production Features](#production-features)
 - [Use Cases](#use-cases)
 - [Documentation](#documentation)
@@ -88,6 +89,14 @@ EntglDb is a mesh database...
 - **Performance**: LRU cache, batch operations, WAL mode, net8.0 optimizations
 - **Monitoring**: Health checks, sync status, diagnostics
 - **Reliability**: Database backup, integrity checks, corruption detection
+
+### ☁️ Cloud Infrastructure (v0.8.0)
+- **ASP.NET Core Hosting** with dual deployment modes (Single/Multi cluster)
+- **Multi-Database Support** via Entity Framework Core (SQL Server, PostgreSQL, MySQL, SQLite)
+- **PostgreSQL Optimization** with JSONB storage and GIN indexes
+- **OAuth2 JWT Authentication** for secure cloud deployments
+- **Health Checks** and hosted services for production monitoring
+- **Flexible Persistence** - choose the right database for your scenario
 
 ### 🌍 Cross-Platform
 - **Windows** (10+, Server 2019+)
@@ -232,6 +241,69 @@ dotnet run -- node-2 5002
 
 # Changes on node-1 automatically sync to node-2!
 ```
+
+---
+
+## ☁️ Cloud Deployment
+
+EntglDb v0.8.0 introduces comprehensive cloud infrastructure support with ASP.NET Core hosting and flexible persistence options.
+
+### Deployment Modes
+
+**Single Cluster Mode** (Production)
+- One EntglDb node per ASP.NET Core instance
+- Simple configuration and deployment
+- OAuth2 JWT authentication
+- Perfect for dedicated cloud deployments
+
+**Multi Cluster Mode** (Dev/Staging)
+- Multiple EntglDb clusters in one ASP.NET Core instance
+- Multi-tenant scenarios
+- Shared infrastructure
+- Cluster routing via JWT claims
+
+### Persistence Options
+
+Choose the right database for your deployment:
+
+- **SQLite**: Lightweight, file-based, perfect for edge computing
+- **SQL Server**: Enterprise-grade with advanced features
+- **PostgreSQL**: High-performance with JSONB optimization and GIN indexes
+- **MySQL**: Wide compatibility and ecosystem support
+
+### Quick Example
+
+**SQL Server with Single Cluster:**
+```csharp
+// Program.cs
+builder.Services.AddEntglDbEntityFramework(options =>
+{
+    options.UseSqlServer("Server=localhost;Database=EntglDb;...");
+});
+
+builder.Services.AddEntglDbAspNetSingleCluster(options =>
+{
+    options.TcpPort = 5001;
+    options.RequireAuthentication = true;
+    options.OAuth2Authority = "https://auth.example.com";
+});
+
+app.MapHealthChecks("/health");
+```
+
+**PostgreSQL with JSONB Optimization:**
+```csharp
+builder.Services.AddEntglDbPostgreSql(
+    "Host=localhost;Database=EntglDb;Username=app;Password=secret"
+);
+
+builder.Services.AddEntglDbAspNetSingleCluster(options =>
+{
+    options.TcpPort = 5001;
+});
+```
+
+See [Deployment Modes Guide](docs/deployment-modes.md) and [Persistence Providers Guide](docs/persistence-providers.md) for detailed information.
 
 ---
 
