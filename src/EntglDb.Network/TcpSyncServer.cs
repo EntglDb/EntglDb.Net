@@ -180,13 +180,24 @@ internal class TcpSyncServer : ISyncServer
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
-        using (client)
-        using (var stream = client.GetStream())
+        var remoteEp = client.Client.RemoteEndPoint;
+        _logger.LogDebug("Client Connected: {Endpoint}", remoteEp);
+        
+        try
         {
-            var remoteEp = client.Client.RemoteEndPoint;
-            _logger.LogDebug("Client Connected: {Endpoint}", remoteEp);
-            try
+            using (client)
+            using (var stream = client.GetStream())
             {
+                // CRITICAL for Android: Disable Nagle's algorithm for immediate packet send
+                client.NoDelay = true;
+                
+                // Configure TCP keepalive
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                
+                // Set stream timeouts
+                stream.ReadTimeout = ClientOperationTimeoutMs;
+                stream.WriteTimeout = ClientOperationTimeoutMs;
+                
                 bool useCompression = false;
 
                 while (client.Connected && !token.IsCancellationRequested)
@@ -279,10 +290,14 @@ internal class TcpSyncServer : ISyncServer
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Client Handler Error: {Message}", ex.Message);
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Client Handler Error from {Endpoint}: {Message}", remoteEp, ex.Message);
+        }
+        finally
+        {
+            _logger.LogDebug("Client Disconnected: {Endpoint}", remoteEp);
         }
     }
 

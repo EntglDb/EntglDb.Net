@@ -3,11 +3,19 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace EntglDb.Network.Security;
 
 public class SecureHandshakeService : IPeerHandshakeService
 {
+    private readonly ILogger<SecureHandshakeService>? _logger;
+
+    public SecureHandshakeService(ILogger<SecureHandshakeService>? logger = null)
+    {
+        _logger = logger;
+    }
+
     // Simple protocol:
     // Initiator -> [Public Key Length (4) + Public Key]
     // Responder -> [Public Key Length (4) + Public Key]
@@ -24,11 +32,18 @@ public class SecureHandshakeService : IPeerHandshakeService
         var lenBytes = BitConverter.GetBytes(myPublicKey.Length);
         await stream.WriteAsync(lenBytes, 0, 4, token);
         await stream.WriteAsync(myPublicKey, 0, myPublicKey.Length, token);
+        await stream.FlushAsync(token); // CRITICAL: Ensure data is sent immediately
 
         // 2. Receive Peer Public Key
         var peerLenBuf = new byte[4];
         await ReadExactAsync(stream, peerLenBuf, 0, 4, token);
         int peerLen = BitConverter.ToInt32(peerLenBuf, 0);
+        
+        // Validate peer key length to prevent DoS
+        if (peerLen <= 0 || peerLen > 10000)
+        {
+            throw new InvalidOperationException($"Invalid peer key length: {peerLen}");
+        }
 
         var peerKeyBytes = new byte[peerLen];
         await ReadExactAsync(stream, peerKeyBytes, 0, peerLen, token);

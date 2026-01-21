@@ -52,13 +52,62 @@ public class TcpPeerClient : IDisposable
 
     public async Task ConnectAsync(CancellationToken token)
     {
-        if (IsConnected) return;
+        lock (_connectionLock)
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(TcpPeerClient));
+            }
+            
+            if (IsConnected) return;
+        }
 
         var parts = _peerAddress.Split(':');
-        if (parts.Length != 2) throw new ArgumentException("Invalid address format");
+        if (parts.Length != 2)
+        {
+            throw new ArgumentException($"Invalid address format: {_peerAddress}. Expected format: host:port");
+        }
 
-        await _client.ConnectAsync(parts[0], int.Parse(parts[1]));
-        _stream = _client.GetStream();
+        if (!int.TryParse(parts[1], out int port) || port <= 0 || port > 65535)
+        {
+            throw new ArgumentException($"Invalid port number: {parts[1]}");
+        }
+
+        // Connect with timeout
+        using var timeoutCts = new CancellationTokenSource(ConnectionTimeoutMs);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+        
+        try
+        {
+            await _client.ConnectAsync(parts[0], port);
+            
+            lock (_connectionLock)
+            {
+                if (_disposed)
+                {
+                    throw new ObjectDisposedException(nameof(TcpPeerClient));
+                }
+                
+                _stream = _client.GetStream();
+                
+                // CRITICAL for Android: Disable Nagle's algorithm to prevent buffering delays
+                // This ensures immediate packet transmission for handshake data
+                _client.NoDelay = true;
+                
+                // Configure TCP keepalive
+                _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                
+                // Set read/write timeouts
+                _stream.ReadTimeout = OperationTimeoutMs;
+                _stream.WriteTimeout = OperationTimeoutMs;
+            }
+            
+            _logger.LogDebug("Connected to peer: {Address} (NoDelay=true for immediate send)", _peerAddress);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Connection to {_peerAddress} timed out after {ConnectionTimeoutMs}ms");
+        }
     }
 
     /// <summary>

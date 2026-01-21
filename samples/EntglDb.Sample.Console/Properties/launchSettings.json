@@ -4,9 +4,8 @@
       "commandName": "WSL2",
       "distributionName": ""
     },
-    "EntglDb.Sample.Console 24101": {
-      "commandName": "Project",
-      "commandLineArgs": "mirror\r\n24101"
+    "EntglDb.Sample.Console": {
+      "commandName": "Project"
     }
   }
 }
