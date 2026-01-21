@@ -15,7 +15,7 @@ namespace EntglDb.Network;
 /// Orchestrates the synchronization process between the local node and discovered peers.
 /// Manages anti-entropy sessions and data exchange.
 /// </summary>
-internal class SyncOrchestrator : ISyncOrchestrator
+public class SyncOrchestrator : ISyncOrchestrator
 {
     private readonly IDiscoveryService _discovery;
     private readonly IPeerStore _store;
