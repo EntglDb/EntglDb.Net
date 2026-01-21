@@ -131,8 +131,12 @@ public class ConsoleInteractiveService : BackgroundService
         }
         else if (input.StartsWith("c"))
         {
-            var all = await usersTyped.Find(u => true);
-            System.Console.WriteLine($"Total Documents: {System.Linq.Enumerable.Count(all)}");
+            var allCollections = await _db.GetCollectionsAsync();
+            foreach (var col in allCollections)
+            {
+                var count = await _db.Collection(col).Count();
+                System.Console.WriteLine($"Collection '{col}': {count} documents");
+            }
         }
         else if (input.StartsWith("p"))
         {

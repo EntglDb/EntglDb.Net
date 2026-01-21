@@ -52,7 +52,7 @@ class Program
             {
                 NodeId = nodeId,
                 TcpPort = tcpPort,
-                AuthToken = "demo-secret-key"
+                AuthToken = "RK544E50Q4HR43ECA2D6YXC4KC"
             });
 
         builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(peerNodeConfigurationProvider);
