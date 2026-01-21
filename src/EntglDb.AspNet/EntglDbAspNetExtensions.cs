@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using EntglDb.AspNet.Configuration;
 using EntglDb.AspNet.Services;
@@ -98,20 +99,11 @@ public static class EntglDbAspNetExtensions
         // Cloud nodes need to act as propagators for scenarios:
         // 1. Services connected to cloud that modify data
         // 2. Separate LAN clusters that connect through the cloud
-        services.TryAddSingleton<ISyncOrchestrator>(sp =>
-        {
-            var discovery = sp.GetRequiredService<IDiscoveryService>();
-            var store = sp.GetRequiredService<IPeerStore>();
-            var configProvider = sp.GetRequiredService<IPeerNodeConfigurationProvider>();
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var handshakeService = sp.GetService<IPeerHandshakeService>();
-            
-            return new SyncOrchestrator(discovery, store, configProvider, loggerFactory, handshakeService);
-        });
+        services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();
 
         // Hosted services
-        services.AddHostedService<TcpSyncServerHostedService>();
-        services.AddHostedService<DiscoveryServiceHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, TcpSyncServerHostedService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DiscoveryServiceHostedService>());
     }
 
     private static void RegisterMultiClusterServices(
@@ -128,21 +120,12 @@ public static class EntglDbAspNetExtensions
         // Cloud nodes need to act as propagators for scenarios:
         // 1. Services connected to cloud that modify data
         // 2. Separate LAN clusters that connect through the cloud
-        services.TryAddSingleton<ISyncOrchestrator>(sp =>
-        {
-            var discovery = sp.GetRequiredService<IDiscoveryService>();
-            var store = sp.GetRequiredService<IPeerStore>();
-            var configProvider = sp.GetRequiredService<IPeerNodeConfigurationProvider>();
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var handshakeService = sp.GetService<IPeerHandshakeService>();
-            
-            return new SyncOrchestrator(discovery, store, configProvider, loggerFactory, handshakeService);
-        });
+        services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();
 
         // Note: Multi-cluster TCP routing would be implemented here
         // For now, we use the same hosted services
-        services.AddHostedService<TcpSyncServerHostedService>();
-        services.AddHostedService<DiscoveryServiceHostedService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, TcpSyncServerHostedService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DiscoveryServiceHostedService>());
     }
 
     private static void RegisterCommonServices(
