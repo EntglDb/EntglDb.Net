@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="EntglDb.Test.Maui.PayloadExchangePage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Payload Exchange">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <Label
+                FontAttributes="Bold"
+                FontSize="Title"
+                Text="Send Payload" />
+
+            <Label FontSize="Medium" Text="Collection Name" />
+            <Entry
+                x:Name="CollectionEntry"
+                Placeholder="Enter collection name"
+                Text="test-collection" />
+
+            <Label FontSize="Medium" Text="JSON Payload" />
+            <Editor
+                x:Name="JsonEditor"
+                HeightRequest="200"
+                Placeholder="Enter JSON here"
+                Text="{}{&quot;id&quot;: &quot;1&quot;, &quot;message&quot;: &quot;Hello from MAUI&quot;, &quot;timestamp&quot;: 0}" />
+
+            <Button
+                BackgroundColor="{StaticResource Primary}"
+                Clicked="OnSaveClicked"
+                Text="Save Document"
+                TextColor="White" />
+
+            <BoxView
+                Margin="0,10"
+                HeightRequest="1"
+                Color="Gray" />
+
+            <Label
+                FontAttributes="Bold"
+                FontSize="Medium"
+                Text="Status" />
+            <Label
+                x:Name="StatusLabel"
+                Text="Ready"
+                TextColor="Gray" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

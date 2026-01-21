@@ -40,6 +40,49 @@ public class PeerDatabase : IPeerDatabase
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _peerNodeConfigurationProvider = peerNodeConfigurationProvider ?? throw new ArgumentNullException(nameof(peerNodeConfigurationProvider));
         _jsonOptions = jsonOptions ?? new JsonSerializerOptions();
+        
+        _store.ChangesApplied += OnStoreChangesApplied;
+    }
+
+    private void OnStoreChangesApplied(object sender, ChangesAppliedEventArgs e)
+    {
+        if (e.Changes == null || !e.Changes.Any()) return;
+
+        lock (_clockLock)
+        {
+            if (_localClock == null) return; // Not initialized yet
+
+            foreach (var change in e.Changes)
+            {
+                var changeHlc = change.Timestamp;
+                
+                // Hybrid Logical Clock "Receive" event logic:
+                // max(old_physical, new_physical, now_physical)
+                // usually we just want to ensure our clock is ahead of the received event.
+                
+                // If the received physical time is greater than our current physical time,
+                // we should push our clock forward (or at least be aware of it).
+                
+                // Standard HLC update on receive:
+                // l.j = max(l.j, m.j, pt.j)
+                // l.c = (l.j == l.j && l.j == m.j) ? max(l.c, m.c) + 1 : (l.j == l.j) ? l.c + 1 : (l.j == m.j) ? m.c + 1 : 0
+                
+                // Simplified for this implementation:
+                // We just want to make sure _localClock is greater than what we saw.
+                
+                if (changeHlc.PhysicalTime > _localClock.Value.PhysicalTime)
+                {
+                    _localClock = new HlcTimestamp(changeHlc.PhysicalTime, changeHlc.LogicalCounter + 1, _localClock.Value.NodeId);
+                }
+                else if (changeHlc.PhysicalTime == _localClock.Value.PhysicalTime)
+                {
+                    if (changeHlc.LogicalCounter >= _localClock.Value.LogicalCounter)
+                    {
+                        _localClock = new HlcTimestamp(changeHlc.PhysicalTime, changeHlc.LogicalCounter + 1, _localClock.Value.NodeId);
+                    }
+                }
+            }
+        }
     }
 
     internal JsonSerializerOptions JsonOptions => _jsonOptions;

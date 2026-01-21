@@ -29,6 +29,13 @@ public static class EntglDbNetworkExtensions
 
         services.TryAddSingleton<IDiscoveryService, UdpDiscoveryService>();
 
+        services.TryAddSingleton<EntglDb.Network.Telemetry.INetworkTelemetryService>(sp => 
+        {
+            var logger = sp.GetRequiredService<ILogger<EntglDb.Network.Telemetry.NetworkTelemetryService>>();
+            var path = System.IO.Path.Combine(System.AppContext.BaseDirectory, "entgldb_metrics.bin");
+            return new EntglDb.Network.Telemetry.NetworkTelemetryService(logger, path);
+        });
+
         services.TryAddSingleton<ISyncServer, TcpSyncServer>();
 
         services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();

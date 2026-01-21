@@ -2,6 +2,7 @@ using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Network.Security;
+using EntglDb.Network.Telemetry;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -31,13 +32,15 @@ public class SyncOrchestrator : ISyncOrchestrator
     private readonly ConcurrentDictionary<string, TcpPeerClient> _clients = new();
 
     private readonly IPeerHandshakeService? _handshakeService;
+    private readonly EntglDb.Network.Telemetry.INetworkTelemetryService? _telemetry;
 
     public SyncOrchestrator(
         IDiscoveryService discovery,
         IPeerStore store,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
         ILoggerFactory loggerFactory,
-        IPeerHandshakeService? handshakeService = null)
+        IPeerHandshakeService? handshakeService = null,
+        EntglDb.Network.Telemetry.INetworkTelemetryService? telemetry = null)
     {
         _discovery = discovery;
         _store = store;
@@ -45,6 +48,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<SyncOrchestrator>();
         _handshakeService = handshakeService;
+        _telemetry = telemetry;
     }
 
     public async Task Start()
@@ -190,7 +194,8 @@ public class SyncOrchestrator : ISyncOrchestrator
             client = _clients.GetOrAdd(peer.NodeId, id => new TcpPeerClient(
                 peer.Address,
                 _loggerFactory.CreateLogger<TcpPeerClient>(),
-                _handshakeService));
+                _handshakeService,
+                _telemetry));
 
             // Reconnect if disconnected
             if (!client.IsConnected)

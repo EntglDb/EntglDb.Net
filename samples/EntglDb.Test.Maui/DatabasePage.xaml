@@ -1,29 +1,57 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="EntglDb.Test.Maui.DatabasePage"
-             Title="Database">
+<ContentPage
+    x:Class="EntglDb.Test.Maui.DatabasePage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Database">
     <RefreshView x:Name="CollectionsRefreshView" Command="{Binding RefreshCommand}">
-        <ScrollView>
-            <VerticalStackLayout Padding="10" Spacing="10">
-                <Label Text="Collections" FontAttributes="Bold" FontSize="18" Margin="0,0,0,10"/>
-                
-                <CollectionView x:Name="CollectionsCollectionView" ItemsSource="{Binding Collections}" SelectionMode="Single" SelectionChanged="OnCollectionSelected">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Frame Padding="15" Margin="0,0,0,8" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
-                                <Grid ColumnDefinitions="*, Auto">
-                                    <Label Grid.Column="0" Text="{Binding Name}" FontAttributes="Bold" VerticalOptions="Center" />
-                                    <Label Grid.Column="1" Text=">" TextColor="Gray" VerticalOptions="Center" />
-                                </Grid>
-                            </Frame>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                    <CollectionView.EmptyView>
-                        <Label Text="No collections found." HorizontalOptions="Center" VerticalOptions="Center" TextColor="Gray" Margin="0,20,0,0" />
-                    </CollectionView.EmptyView>
-                </CollectionView>
-            </VerticalStackLayout>
-        </ScrollView>
+        <CollectionView
+            x:Name="CollectionsCollectionView"
+            ItemsSource="{Binding Collections}"
+            SelectionChanged="OnCollectionSelected"
+            SelectionMode="Single">
+
+            <CollectionView.Header>
+                <VerticalStackLayout Padding="10">
+                    <Label
+                        Margin="0,0,0,10"
+                        FontAttributes="Bold"
+                        FontSize="18"
+                        Text="Collections" />
+                </VerticalStackLayout>
+            </CollectionView.Header>
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border
+                        Margin="10,0,10,8"
+                        Padding="15"
+                        BackgroundColor="{AppThemeBinding Light=White,
+                                                          Dark=#2d2d2d}">
+                        <Grid ColumnDefinitions="*, Auto">
+                            <Label
+                                Grid.Column="0"
+                                FontAttributes="Bold"
+                                Text="{Binding Name}"
+                                VerticalOptions="Center" />
+                            <Label
+                                Grid.Column="1"
+                                Text="&gt;"
+                                TextColor="Gray"
+                                VerticalOptions="Center" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+
+            <CollectionView.EmptyView>
+                <Label
+                    Margin="0,20,0,0"
+                    HorizontalOptions="Center"
+                    Text="No collections found."
+                    TextColor="Gray"
+                    VerticalOptions="Center" />
+            </CollectionView.EmptyView>
+        </CollectionView>
     </RefreshView>
 </ContentPage>

@@ -3,6 +3,8 @@ using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Network.Proto;
 using EntglDb.Network.Security;
+using EntglDb.Network.Protocol;
+using EntglDb.Network.Telemetry;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using System;
@@ -30,10 +32,12 @@ internal class TcpSyncServer : ISyncServer
     private readonly object _startStopLock = new object();
     private int _activeConnections = 0;
     
-    private const int MaxConcurrentConnections = 100;
+    internal int MaxConnections = 100;
     private const int ClientOperationTimeoutMs = 60000;
 
     private readonly IAuthenticator _authenticator;
+    private readonly IPeerHandshakeService _handshakeService;
+    private readonly INetworkTelemetryService? _telemetry;
 
     /// <summary>
     /// Initializes a new instance of the TcpSyncServer class with the specified peer store, configuration provider,
@@ -47,16 +51,21 @@ internal class TcpSyncServer : ISyncServer
     /// changes.</param>
     /// <param name="logger">The logger used to record informational and error messages for the server instance.</param>
     /// <param name="authenticator">The authenticator responsible for validating peer connections to the server.</param>
+    /// <param name="handshakeService">The service used to perform secure handshake (optional).</param>
     public TcpSyncServer(
         IPeerStore store, 
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider, 
         ILogger<TcpSyncServer> logger, 
-        IAuthenticator authenticator)
+        IAuthenticator authenticator,
+        IPeerHandshakeService handshakeService,
+        EntglDb.Network.Telemetry.INetworkTelemetryService? telemetry = null)
     {
         _store = store;
         _logger = logger;
         _authenticator = authenticator;
+        _handshakeService = handshakeService;
         _configProvider = peerNodeConfigurationProvider;
+        _telemetry = telemetry;
         _configProvider.ConfigurationChanged += async (s, e) =>
         {
             _logger.LogInformation("Configuration changed, restarting TCP Sync Server...");
@@ -168,7 +177,27 @@ internal class TcpSyncServer : ISyncServer
             {
                 if (_listener == null) break;
                 var client = await _listener.AcceptTcpClientAsync();
-                _ = Task.Run(() => HandleClientAsync(client, token));
+                
+                if (_activeConnections >= MaxConnections)
+                {
+                    _logger.LogWarning("Max connections reached ({Max}). Rejecting client.", MaxConnections);
+                    client.Close();
+                    continue;
+                }
+
+                Interlocked.Increment(ref _activeConnections);
+
+                _ = Task.Run(async () => 
+                {
+                    try
+                    {
+                        await HandleClientAsync(client, token);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _activeConnections);
+                    }
+                }, token);
             }
             catch (ObjectDisposedException) { break; }
             catch (Exception ex)
@@ -198,23 +227,47 @@ internal class TcpSyncServer : ISyncServer
                 stream.ReadTimeout = ClientOperationTimeoutMs;
                 stream.WriteTimeout = ClientOperationTimeoutMs;
                 
+                var protocol = new ProtocolHandler(_logger, _telemetry);
+                
                 bool useCompression = false;
+                CipherState? cipherState = null;
+
+                // Perform Secure Handshake (if service is available)
+                var config = await _configProvider.GetConfiguration();
+                if (_handshakeService != null)
+                {
+                    try
+                    {
+                        // We are NOT initiator
+                        _logger.LogDebug("Starting Secure Handshake as Responder.");
+                        cipherState = await _handshakeService.HandshakeAsync(stream, false, config.NodeId, token);
+                        _logger.LogDebug("Secure Handshake Completed.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Secure Handshake failed check logic");
+                        return;
+                    }
+                }
 
                 while (client.Connected && !token.IsCancellationRequested)
                 {
-                    var config = await _configProvider.GetConfiguration();
-                    var (type, payload) = await ReadMessageAsync(stream, token);
+                    // Re-fetch config if needed, though usually stable
+                    config = await _configProvider.GetConfiguration();
+
+                    var (type, payload) = await protocol.ReadMessageAsync(stream, cipherState, token);
                     if (type == MessageType.Unknown) break; // EOF or Error
 
                     // Handshake Loop
                     if (type == MessageType.HandshakeReq)
                     {
                         var hReq = HandshakeRequest.Parser.ParseFrom(payload);
+                        _logger.LogDebug("Received HandshakeReq from Node {NodeId}", hReq.NodeId);
                         bool valid = await _authenticator.ValidateAsync(hReq.NodeId, hReq.AuthToken);
                         if (!valid)
                         {
                             _logger.LogWarning("Authentication failed for Node {NodeId}", hReq.NodeId);
-                            await SendMessageAsync(stream, MessageType.HandshakeRes, new HandshakeResponse { NodeId = config.NodeId, Accepted = false }, false);
+                            await protocol.SendMessageAsync(stream, MessageType.HandshakeRes, new HandshakeResponse { NodeId = config.NodeId, Accepted = false }, false, cipherState, token);
                             return;
                         }
 
@@ -225,7 +278,7 @@ internal class TcpSyncServer : ISyncServer
                             useCompression = true;
                         }
 
-                        await SendMessageAsync(stream, MessageType.HandshakeRes, hRes, false);
+                        await protocol.SendMessageAsync(stream, MessageType.HandshakeRes, hRes, false, cipherState, token);
                         continue;
                     }
 
@@ -286,7 +339,7 @@ internal class TcpSyncServer : ISyncServer
 
                     if (response != null)
                     {
-                        await SendMessageAsync(stream, resType, response, useCompression);
+                        await protocol.SendMessageAsync(stream, resType, response, useCompression, cipherState, token);
                     }
                 }
             }
@@ -299,59 +352,5 @@ internal class TcpSyncServer : ISyncServer
         {
             _logger.LogDebug("Client Disconnected: {Endpoint}", remoteEp);
         }
-    }
-
-    private async Task SendMessageAsync(NetworkStream stream, MessageType type, IMessage message, bool useCompression)
-    {
-        var payloadBytes = message.ToByteArray();
-        byte compressionFlag = 0x00;
-
-        if (useCompression && payloadBytes.Length > CompressionHelper.THRESHOLD)
-        {
-            payloadBytes = CompressionHelper.Compress(payloadBytes);
-            compressionFlag = 0x01;
-        }
-
-        // Framing: [Length] [Type] [Comp] [Payload]
-        var length = BitConverter.GetBytes(payloadBytes.Length);
-        await stream.WriteAsync(length, 0, 4);
-        stream.WriteByte((byte)type);
-        stream.WriteByte(compressionFlag);
-        await stream.WriteAsync(payloadBytes, 0, payloadBytes.Length);
-    }
-
-    private async Task<(MessageType, byte[]?)> ReadMessageAsync(NetworkStream stream, CancellationToken token)
-    {
-        var lenBuf = new byte[4];
-        int total = 0;
-        while (total < 4)
-        {
-            int r = await stream.ReadAsync(lenBuf, total, 4 - total, token);
-            if (r == 0) return (MessageType.Unknown, null);
-            total += r;
-        }
-        int length = BitConverter.ToInt32(lenBuf, 0);
-
-        int typeByte = stream.ReadByte();
-        if (typeByte == -1) return (MessageType.Unknown, null);
-
-        int compByte = stream.ReadByte();
-        if (compByte == -1) return (MessageType.Unknown, null);
-
-        var payload = new byte[length];
-        total = 0;
-        while (total < length)
-        {
-            int r = await stream.ReadAsync(payload, total, length - total, token);
-            if (r == 0) return (MessageType.Unknown, null);
-            total += r;
-        }
-
-        if (compByte == 0x01)
-        {
-            payload = CompressionHelper.Decompress(payload);
-        }
-
-        return ((MessageType)typeByte, payload);
     }
 }

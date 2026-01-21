@@ -17,6 +17,7 @@ Welcome to the EntglDb documentation.
 *   [Security](security.md)
 *   [Deployment (LAN)](deployment-lan.md)
 *   [Dynamic Reconfiguration & Leader Election (v0.8.0)](dynamic-reconfiguration.md)
+*   [Network Telemetry (v0.7.2)](network-telemetry.md)
 *   [Production Hardening](production-hardening.md)
 
 ## Downloads

@@ -37,8 +37,6 @@ class Program
         string nodeId = args.Length > 0 ? args[0] : ("node-" + randomPort);
         int tcpPort = args.Length > 1 ? int.Parse(args[1]) : randomPort;
 
-        bool useSecure = args.Contains("--secure");
-
 
         // Conflict Resolution Strategy (can be switched at runtime via service replacement)
         var useRecursiveMerge = args.Contains("--merge");
@@ -56,18 +54,6 @@ class Program
             });
 
         builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(peerNodeConfigurationProvider);
-
-        // Security (optional)
-        if (useSecure)
-        {
-            // Already default, just log
-            System.Console.WriteLine("🔒 Secure mode enabled (ECDH + AES-256)");
-        }
-        else
-        {
-             // Disable Security
-             builder.Services.AddSingleton<IPeerHandshakeService, NoOpHandshakeService>();
-        }
 
         // Register EntglDb Services using Fluent Extensions
         builder.Services.AddEntglDbCore()

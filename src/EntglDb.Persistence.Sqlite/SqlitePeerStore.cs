@@ -30,6 +30,8 @@ public class SqlitePeerStore : IPeerStore
     private readonly SqlitePersistenceOptions? _options;
     private readonly HashSet<string> _createdTables = new HashSet<string>();
     private readonly object _tableLock = new object();
+    private readonly object _cacheLock = new object();
+    private HlcTimestamp _cachedTimestamp = new HlcTimestamp(0, 0, "");
 
     public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
@@ -149,6 +151,10 @@ public class SqlitePeerStore : IPeerStore
                 ");
                 _logger.LogInformation("Initialized with per-collection table mode");
             }
+            
+            // Initialize cached timestamp
+            _cachedTimestamp = GetLatestTimestampInternal(connection);
+            _logger.LogInformation("Cached HLC Timestamp initialized to: {Timestamp}", _cachedTimestamp);
         }
         catch (Exception ex)
         {
@@ -336,6 +342,17 @@ public class SqlitePeerStore : IPeerStore
                     HlcNode = document.UpdatedAt.NodeId
                 });
         }
+
+        if (document.UpdatedAt.CompareTo(_cachedTimestamp) > 0)
+        {
+            lock (_cacheLock)
+            {
+                if (document.UpdatedAt.CompareTo(_cachedTimestamp) > 0)
+                {
+                    _cachedTimestamp = document.UpdatedAt;
+                }
+            }
+        }
     }
 
     public async Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
@@ -489,7 +506,17 @@ public class SqlitePeerStore : IPeerStore
 
     private List<string> GetKnownCollections(SqliteConnection connection)
     {
-        // Get all known collections from the cache
+        // If we are using per-collection tables, we should query the database for tables that match the pattern,
+        // because _createdTables memory cache might be empty after restart.
+        if (_options?.UsePerCollectionTables == true)
+        {
+            var tables = connection.Query<string>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Oplog_%'");
+            
+            return tables.Select(t => t.Substring(6)).ToList(); // Remove "Oplog_" prefix
+        }
+
+        // Fallback to cache or single table mode logic (though this method is mostly used for per-collection)
         lock (_tableLock)
         {
             return _createdTables.ToList();
@@ -497,36 +524,44 @@ public class SqlitePeerStore : IPeerStore
     }
 
 
-    public async Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
+    public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
     {
-         using var connection = new SqliteConnection(_connectionString);
-         await connection.OpenAsync(cancellationToken);
+         lock (_cacheLock)
+         {
+             return Task.FromResult(_cachedTimestamp);
+         }
+    }
 
+    private class MaxHlcResult
+    {
+        public long? Wall { get; set; }
+        public int? Logic { get; set; }
+        public string? HlcNode { get; set; }
+    }
+
+    private HlcTimestamp GetLatestTimestampInternal(SqliteConnection connection)
+    {
          var usePerCollection = _options?.UsePerCollectionTables == true;
 
          if (!usePerCollection)
          {
-             // Legacy mode: single Oplog table
-             var row = await connection.QuerySingleOrDefaultAsync<MaxHlcResult>(@"
+             var row = connection.QuerySingleOrDefault<MaxHlcResult>(@"
                  SELECT MAX(HlcWall) as Wall, MAX(HlcLogic) as Logic, HlcNode 
                  FROM Oplog
                  ORDER BY HlcWall DESC, HlcLogic DESC LIMIT 1");
              
              if (row == null || row.Wall == null) return new HlcTimestamp(0, 0, "");
-             
-             string nodeId = row.HlcNode ?? "";
-             return new HlcTimestamp(row.Wall.Value, row.Logic ?? 0, nodeId);
+             return new HlcTimestamp(row.Wall.Value, row.Logic ?? 0, row.HlcNode ?? "");
          }
          else
          {
-             // Per-collection mode: find max across all oplog tables
              var collections = GetKnownCollections(connection);
              HlcTimestamp maxTimestamp = new HlcTimestamp(0, 0, "");
 
              foreach (var collection in collections)
              {
                  var oplogTable = GetOplogTableName(collection);
-                 var row = await connection.QuerySingleOrDefaultAsync<MaxHlcResult>($@"
+                 var row = connection.QuerySingleOrDefault<MaxHlcResult>($@"
                      SELECT MAX(HlcWall) as Wall, MAX(HlcLogic) as Logic, HlcNode 
                      FROM {oplogTable}
                      ORDER BY HlcWall DESC, HlcLogic DESC LIMIT 1");
@@ -540,16 +575,8 @@ public class SqlitePeerStore : IPeerStore
                      }
                  }
              }
-
              return maxTimestamp;
          }
-    }
-
-    private class MaxHlcResult
-    {
-        public long? Wall { get; set; }
-        public int? Logic { get; set; }
-        public string? HlcNode { get; set; }
     }
 
     /// <summary>
@@ -692,6 +719,19 @@ public class SqlitePeerStore : IPeerStore
             try 
             {
                 ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
+
+                // Update cache if we have new entries
+                var maxEntry = oplogEntries.OrderByDescending(e => e.Timestamp).FirstOrDefault();
+                if (maxEntry != null && maxEntry.Timestamp.CompareTo(_cachedTimestamp) > 0)
+                {
+                    lock (_cacheLock)
+                    {
+                        if (maxEntry.Timestamp.CompareTo(_cachedTimestamp) > 0)
+                        {
+                            _cachedTimestamp = maxEntry.Timestamp;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
