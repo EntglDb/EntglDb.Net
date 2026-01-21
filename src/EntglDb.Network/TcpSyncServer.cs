@@ -313,7 +313,8 @@ internal class TcpSyncServer : ISyncServer
                                     JsonData = e.Payload?.GetRawText() ?? "",
                                     HlcWall = e.Timestamp.PhysicalTime,
                                     HlcLogic = e.Timestamp.LogicalCounter,
-                                    HlcNode = e.Timestamp.NodeId
+                                    HlcNode = e.Timestamp.NodeId,
+                                    SequenceNumber = e.SequenceNumber
                                 });
                             }
                             response = csRes;
@@ -327,13 +328,55 @@ internal class TcpSyncServer : ISyncServer
                                 e.Key,
                                 (OperationType)Enum.Parse(typeof(OperationType), e.Operation),
                                 string.IsNullOrEmpty(e.JsonData) ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-                                new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode)
+                                new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+                                e.SequenceNumber
                             ));
 
                             await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), entries, token);
 
                             response = new AckResponse { Success = true };
                             resType = MessageType.AckRes;
+                            break;
+
+                        case MessageType.GetSequenceNumbersReq:
+                            _logger.LogDebug("GetSequenceNumbers request received");
+                            var seqNums = await _store.GetPeerSequenceNumbersAsync(token);
+                            var seqRes = new SequenceNumbersResponse();
+                            foreach (var kvp in seqNums)
+                            {
+                                seqRes.NodeSequences.Add(kvp.Key, kvp.Value);
+                            }
+                            response = seqRes;
+                            resType = MessageType.SequenceNumbersRes;
+                            break;
+
+                        case MessageType.GetMissingEntriesReq:
+                            var gapReq = GetMissingEntriesRequest.Parser.ParseFrom(payload);
+                            _logger.LogDebug("GetMissingEntries request for node {NodeId}, {Count} sequence numbers", 
+                                gapReq.NodeId, gapReq.SequenceNumbers.Count);
+                            
+                            var missingEntries = await _store.GetOplogBySequenceNumbersAsync(
+                                gapReq.NodeId, 
+                                gapReq.SequenceNumbers, 
+                                token);
+                            
+                            var gapRes = new ChangeSetResponse();
+                            foreach (var e in missingEntries)
+                            {
+                                gapRes.Entries.Add(new ProtoOplogEntry
+                                {
+                                    Collection = e.Collection,
+                                    Key = e.Key,
+                                    Operation = e.Operation.ToString(),
+                                    JsonData = e.Payload?.GetRawText() ?? "",
+                                    HlcWall = e.Timestamp.PhysicalTime,
+                                    HlcLogic = e.Timestamp.LogicalCounter,
+                                    HlcNode = e.Timestamp.NodeId,
+                                    SequenceNumber = e.SequenceNumber
+                                });
+                            }
+                            response = gapRes;
+                            resType = MessageType.ChangeSetRes;
                             break;
                     }
 

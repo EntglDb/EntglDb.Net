@@ -84,9 +84,12 @@ public static class MauiProgram
 						.AddEntglDbSqlite(options =>
 						{
 							options.BasePath = FileSystem.AppDataDirectory;
-							options.UsePerCollectionTables = true; // Use new per-collection tables
+							options.UsePerCollectionTables = true; 
 						})
-						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
+						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(reconciliationOtions: opt =>
+						{
+							opt.EnableOnStartup = true;
+						});
 
 #if DEBUG
 		builder.Logging.AddDebug();

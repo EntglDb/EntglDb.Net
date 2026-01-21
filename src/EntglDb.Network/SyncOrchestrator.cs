@@ -1,6 +1,7 @@
 using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
+using EntglDb.Core.Sync;
 using EntglDb.Network.Security;
 using EntglDb.Network.Telemetry;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public class SyncOrchestrator : ISyncOrchestrator
 
     private readonly IPeerHandshakeService? _handshakeService;
     private readonly EntglDb.Network.Telemetry.INetworkTelemetryService? _telemetry;
+    private readonly IGapDetectionService _gapDetectionService;
 
     public SyncOrchestrator(
         IDiscoveryService discovery,
@@ -49,6 +51,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         _logger = loggerFactory.CreateLogger<SyncOrchestrator>();
         _handshakeService = handshakeService;
         _telemetry = telemetry;
+        _gapDetectionService = new GapDetectionService(store, loggerFactory.CreateLogger<GapDetectionService>());
     }
 
     public async Task Start()
@@ -225,6 +228,9 @@ public class SyncOrchestrator : ISyncOrchestrator
                 {
                     _logger.LogInformation("Received {Count} changes from {NodeId}", changes.Count, peer.NodeId);
                     await _store.ApplyBatchAsync(System.Linq.Enumerable.Empty<Document>(), changes, token);
+                    
+                    // Record received entries for gap tracking
+                    _gapDetectionService.RecordReceivedEntries(changes);
                 }
             }
             else if (localClock.CompareTo(remoteClock) > 0)
@@ -233,6 +239,46 @@ public class SyncOrchestrator : ISyncOrchestrator
                 _logger.LogInformation("Pushing changes to {NodeId}", peer.NodeId);
                 var changes = await _store.GetOplogAfterAsync(remoteClock, token);
                 await client.PushChangesAsync(changes, token);
+            }
+
+            // 3. Gap Detection - Check for missing historical operations
+            try
+            {
+                var remoteSequences = await client.GetSequenceNumbersAsync(token);
+                
+                // Check each node for gaps
+                foreach (var nodeId in remoteSequences.Keys)
+                {
+                    var gaps = await _gapDetectionService.DetectGapsAsync(nodeId, remoteSequences, token);
+                    
+                    if (gaps.Count > 0)
+                    {
+                        _logger.LogWarning("Detected {GapCount} missing operations from node {NodeId}. Requesting backfill...", 
+                            gaps.Count, nodeId);
+                        
+                        // Request missing entries in chunks to avoid large payloads
+                        const int chunkSize = 100;
+                        for (int i = 0; i < gaps.Count; i += chunkSize)
+                        {
+                            var chunk = gaps.Skip(i).Take(chunkSize).ToList();
+                            var missingEntries = await client.GetMissingEntriesAsync(nodeId, chunk, token);
+                            
+                            if (missingEntries.Count > 0)
+                            {
+                                _logger.LogInformation("Backfilled {Count} missing operations from node {NodeId}", 
+                                    missingEntries.Count, nodeId);
+                                
+                                await _store.ApplyBatchAsync(System.Linq.Enumerable.Empty<Document>(), missingEntries, token);
+                                _gapDetectionService.RecordReceivedEntries(missingEntries);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception gapEx)
+            {
+                _logger.LogWarning(gapEx, "Gap detection failed with {NodeId}, continuing normal sync", peer.NodeId);
+                // Don't fail the entire sync if gap detection fails
             }
         }
         catch (TimeoutException tex)

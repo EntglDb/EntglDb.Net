@@ -157,6 +157,22 @@ public class PeerCollectionTests
                 _remotePeers.Remove(peer);
             return Task.CompletedTask;
         }
+
+        // Gap Detection Support
+        public Task<long> GetCurrentSequenceNumberAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0L);
+        }
+
+        public Task<Dictionary<string, long>> GetPeerSequenceNumbersAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new Dictionary<string, long>());
+        }
+
+        public Task<IEnumerable<OplogEntry>> GetOplogBySequenceNumbersAsync(string nodeId, IEnumerable<long> sequenceNumbers, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Enumerable.Empty<OplogEntry>());
+        }
     }
 
     [Fact]

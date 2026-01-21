@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System;
+using EntglDb.Network.HostedServices;
+using EntglDb.Core.Sync;
 
 namespace EntglDb.Network;
 
@@ -18,7 +20,8 @@ public static class EntglDbNetworkExtensions
     /// <param name="useHostedService">If true, registers EntglDbNodeService as IHostedService to automatically start/stop the node.</param>
     public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(
         this IServiceCollection services,
-        bool useHostedService = true) 
+        bool useHostedService = true,
+        Action<ReconciliationOptions>? reconciliationOtions = null) 
         where TPeerNodeConfigurationProvider : class, IPeerNodeConfigurationProvider
     {
         services.TryAddSingleton<IPeerNodeConfigurationProvider, TPeerNodeConfigurationProvider>();
@@ -28,6 +31,10 @@ public static class EntglDbNetworkExtensions
         services.TryAddSingleton<IPeerHandshakeService, SecureHandshakeService>();
 
         services.TryAddSingleton<IDiscoveryService, UdpDiscoveryService>();
+
+        services.TryAddSingleton<IGapDetectionService, GapDetectionService>();
+
+        services.TryAddSingleton<IReconciliationService, ReconciliationService>();
 
         services.TryAddSingleton<EntglDb.Network.Telemetry.INetworkTelemetryService>(sp => 
         {
@@ -42,10 +49,16 @@ public static class EntglDbNetworkExtensions
 
         services.TryAddSingleton<IEntglDbNode, EntglDbNode>();
 
+        if (reconciliationOtions != null)
+        {
+            services.Configure(reconciliationOtions);
+        }
+
         // Optionally register hosted service for automatic node lifecycle management
         if (useHostedService)
         {
             services.AddHostedService<EntglDbNodeService>();
+            services.AddHostedService<ReconciliationBackgroundService>();
         }
 
         return services;

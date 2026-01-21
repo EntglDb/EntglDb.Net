@@ -80,4 +80,25 @@ public interface IPeerStore
     /// <param name="nodeId">The unique identifier of the peer to remove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default);
+
+    // Sequence Number Management (for Gap Detection)
+    /// <summary>
+    /// Gets the current sequence number for this node (local counter).
+    /// </summary>
+    Task<long> GetCurrentSequenceNumberAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves the latest sequence number for each peer node.
+    /// </summary>
+    /// <returns>Dictionary of NodeId -> Latest Sequence Number</returns>
+    Task<Dictionary<string, long>> GetPeerSequenceNumbersAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves specific oplog entries by sequence numbers from a specific node.
+    /// Used to fill gaps detected during synchronization.
+    /// </summary>
+    /// <param name="nodeId">The node that generated the operations</param>
+    /// <param name="sequenceNumbers">The specific sequence numbers to retrieve</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    Task<IEnumerable<OplogEntry>> GetOplogBySequenceNumbersAsync(string nodeId, IEnumerable<long> sequenceNumbers, CancellationToken cancellationToken = default);
 }

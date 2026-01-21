@@ -204,7 +204,8 @@ public class TcpPeerClient : IDisposable
             e.Key,
             ParseOp(e.Operation),
             string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode)
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.SequenceNumber
         )).ToList();
     }
 
@@ -227,7 +228,8 @@ public class TcpPeerClient : IDisposable
                 JsonData = e.Payload?.GetRawText() ?? "",
                 HlcWall = e.Timestamp.PhysicalTime,
                 HlcLogic = e.Timestamp.LogicalCounter,
-                HlcNode = e.Timestamp.NodeId
+                HlcNode = e.Timestamp.NodeId,
+                SequenceNumber = e.SequenceNumber
             });
         }
 
@@ -236,6 +238,51 @@ public class TcpPeerClient : IDisposable
         var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
         if (type != MessageType.AckRes) throw new Exception("Push failed");
     }
+
+    /// <summary>
+    /// Gets the sequence numbers from the remote peer for gap detection.
+    /// </summary>
+    public async Task<Dictionary<string, long>> GetSequenceNumbersAsync(CancellationToken token)
+    {
+        var req = new GetSequenceNumbersRequest();
+        await _protocol.SendMessageAsync(_stream!, MessageType.GetSequenceNumbersReq, req, _useCompression, _cipherState, token);
+
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        if (type != MessageType.SequenceNumbersRes) throw new Exception("Unexpected response");
+
+        var res = SequenceNumbersResponse.Parser.ParseFrom(payload);
+        return new Dictionary<string, long>(res.NodeSequences);
+    }
+
+    /// <summary>
+    /// Requests specific oplog entries by sequence numbers for gap filling.
+    /// </summary>
+    public async Task<List<OplogEntry>> GetMissingEntriesAsync(string nodeId, IEnumerable<long> sequenceNumbers, CancellationToken token)
+    {
+        var req = new GetMissingEntriesRequest
+        {
+            NodeId = nodeId
+        };
+        req.SequenceNumbers.AddRange(sequenceNumbers);
+
+        await _protocol.SendMessageAsync(_stream!, MessageType.GetMissingEntriesReq, req, _useCompression, _cipherState, token);
+
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        if (type != MessageType.ChangeSetRes) throw new Exception("Unexpected response");
+
+        var res = ChangeSetResponse.Parser.ParseFrom(payload);
+
+        return res.Entries.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            ParseOp(e.Operation),
+            string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.SequenceNumber
+        )).ToList();
+    }
+
+
 
     private bool _useCompression = false; // Negotiated after handshake
 

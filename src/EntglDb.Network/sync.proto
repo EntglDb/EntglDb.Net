@@ -51,6 +51,20 @@ message ProtoOplogEntry {
   int64 hlc_wall = 5;
   int32 hlc_logic = 6;
   string hlc_node = 7;
+  int64 sequence_number = 8; // Gap detection support
+}
+
+// Gap Detection Messages
+message GetSequenceNumbersRequest {
+}
+
+message SequenceNumbersResponse {
+  map<string, int64> node_sequences = 1; // NodeId -> Latest Sequence Number
+}
+
+message GetMissingEntriesRequest {
+  string node_id = 1;
+  repeated int64 sequence_numbers = 2; // Specific sequence numbers to retrieve
 }
 
 // Enum for wire framing (1 byte)
@@ -65,6 +79,9 @@ enum MessageType {
   PushChangesReq = 7;
   AckRes = 8;
   SecureEnv = 9;
+  GetSequenceNumbersReq = 10;  // Gap detection
+  SequenceNumbersRes = 11;     // Gap detection
+  GetMissingEntriesReq = 12;   // Gap detection
 }
 
 message SecureEnvelope {

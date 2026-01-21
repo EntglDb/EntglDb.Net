@@ -28,6 +28,7 @@ public class SqlitePeerStore : IPeerStore
     private readonly ILogger<SqlitePeerStore> _logger;
     private readonly IConflictResolver _conflictResolver;
     private readonly SqlitePersistenceOptions? _options;
+    private readonly IPeerNodeConfigurationProvider? _peerNodeConfigurationProvider;
     private readonly HashSet<string> _createdTables = new HashSet<string>();
     private readonly object _tableLock = new object();
     private readonly object _cacheLock = new object();
@@ -57,6 +58,7 @@ public class SqlitePeerStore : IPeerStore
         IConflictResolver? conflictResolver = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _peerNodeConfigurationProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
         _logger = logger ?? NullLogger<SqlitePeerStore>.Instance;
         _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
         _connectionString = BuildConnectionString(configProvider, options).GetAwaiter().GetResult();
@@ -97,6 +99,18 @@ public class SqlitePeerStore : IPeerStore
 
             _logger.LogInformation("Initializing SQLite database with WAL mode");
 
+            // ========== AUTOMATIC MIGRATION ==========
+            var migrator = new Migrations.DatabaseMigrator(_connectionString, _logger);
+            var needsMigration = migrator.NeedsMigrationAsync().GetAwaiter().GetResult();
+            
+            if (needsMigration)
+            {
+                _logger.LogWarning("Database schema migration required. Applying migrations...");
+                migrator.MigrateAsync().GetAwaiter().GetResult();
+                _logger.LogInformation("Database migrations applied successfully");
+            }
+            // ==========================================
+
             // Only create legacy tables if not using per-collection mode
             if (_options == null || !_options.UsePerCollectionTables)
             {
@@ -122,7 +136,8 @@ public class SqlitePeerStore : IPeerStore
                         IsDeleted INTEGER NOT NULL,
                         HlcWall INTEGER NOT NULL,
                         HlcLogic INTEGER NOT NULL,
-                        HlcNode TEXT NOT NULL
+                        HlcNode TEXT NOT NULL,
+                        SequenceNumber INTEGER NOT NULL DEFAULT 0
                     );
 
                     CREATE TABLE IF NOT EXISTS RemotePeers (
@@ -133,7 +148,13 @@ public class SqlitePeerStore : IPeerStore
                         IsEnabled INTEGER NOT NULL
                     );
 
+                    CREATE TABLE IF NOT EXISTS NodeSequenceCounters (
+                        NodeId TEXT PRIMARY KEY,
+                        CurrentSequence INTEGER NOT NULL DEFAULT 0
+                    );
+
                     CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
+                    CREATE INDEX IF NOT EXISTS IDX_Oplog_NodeSeq ON Oplog(HlcNode, SequenceNumber);
                 ");
                 _logger.LogInformation("Initialized with legacy single-table mode");
             }
@@ -147,6 +168,11 @@ public class SqlitePeerStore : IPeerStore
                         Type INTEGER NOT NULL,
                         OAuth2Json TEXT,
                         IsEnabled INTEGER NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS NodeSequenceCounters (
+                        NodeId TEXT PRIMARY KEY,
+                        CurrentSequence INTEGER NOT NULL DEFAULT 0
                     );
                 ");
                 _logger.LogInformation("Initialized with per-collection table mode");
@@ -217,10 +243,12 @@ public class SqlitePeerStore : IPeerStore
                 IsDeleted INTEGER NOT NULL,
                 HlcWall INTEGER NOT NULL,
                 HlcLogic INTEGER NOT NULL,
-                HlcNode TEXT NOT NULL
+                HlcNode TEXT NOT NULL,
+                SequenceNumber INTEGER NOT NULL DEFAULT 0
             );
             
             CREATE INDEX IF NOT EXISTS IDX_{oplogTable}_HlcWall ON {oplogTable}(HlcWall);
+            CREATE INDEX IF NOT EXISTS IDX_{oplogTable}_NodeSeq ON {oplogTable}(HlcNode, SequenceNumber);
         ");
         
         lock (_tableLock)
@@ -405,12 +433,20 @@ public class SqlitePeerStore : IPeerStore
         var tableName = GetOplogTableName(entry.Collection);
         var usePerCollection = _options?.UsePerCollectionTables == true;
 
+        // Get sequence number for this entry (only if enabled)
+        long sequenceNumber = entry.SequenceNumber;
+        if (sequenceNumber == 0 && _peerNodeConfigurationProvider != null)
+        {
+            // Entry doesn't have sequence number yet - assign one from local node
+            sequenceNumber = await GetAndIncrementSequenceNumberAsync(connection, entry.Timestamp.NodeId);
+        }
+
         if (usePerCollection)
         {
             // Per-collection mode: no Collection column
             await connection.ExecuteAsync($@"
-                INSERT INTO {tableName} (Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                VALUES (@Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
+                INSERT INTO {tableName} (Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode, SequenceNumber)
+                VALUES (@Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode, @SequenceNumber)",
                 new
                 {
                     entry.Key,
@@ -419,15 +455,16 @@ public class SqlitePeerStore : IPeerStore
                     IsDeleted = entry.Operation == OperationType.Delete,
                     HlcWall = entry.Timestamp.PhysicalTime,
                     HlcLogic = entry.Timestamp.LogicalCounter,
-                    HlcNode = entry.Timestamp.NodeId
+                    HlcNode = entry.Timestamp.NodeId,
+                    SequenceNumber = sequenceNumber
                 });
         }
         else
         {
             // Legacy mode: include Collection column
             await connection.ExecuteAsync(@"
-                INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
+                INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode, SequenceNumber)
+                VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode, @SequenceNumber)",
                 new
                 {
                     entry.Collection,
@@ -437,10 +474,24 @@ public class SqlitePeerStore : IPeerStore
                     IsDeleted = entry.Operation == OperationType.Delete,
                     HlcWall = entry.Timestamp.PhysicalTime,
                     HlcLogic = entry.Timestamp.LogicalCounter,
-                    HlcNode = entry.Timestamp.NodeId
+                    HlcNode = entry.Timestamp.NodeId,
+                    SequenceNumber = sequenceNumber
                 });
         }
+
+        // Update cached timestamp
+        if (entry.Timestamp.CompareTo(_cachedTimestamp) > 0)
+        {
+            lock (_cacheLock)
+            {
+                if (entry.Timestamp.CompareTo(_cachedTimestamp) > 0)
+                {
+                    _cachedTimestamp = entry.Timestamp;
+                }
+            }
+        }
     }
+
 
     /// <summary>
     /// Retrieves all oplog entries with timestamps greater than the specified timestamp.
@@ -679,11 +730,19 @@ public class SqlitePeerStore : IPeerStore
                      }
                 }
                 
+                // Get sequence number for this entry (only if enabled)
+                long sequenceNumber = entry.SequenceNumber;
+                if (sequenceNumber == 0 && _peerNodeConfigurationProvider != null)
+                {
+                    // Entry doesn't have sequence number yet - assign one from local node
+                    sequenceNumber = await GetAndIncrementSequenceNumberAsync(connection, entry.Timestamp.NodeId);
+                }
+
                 if (usePerCollection)
                 {
                     await connection.ExecuteAsync($@"
-                        INSERT INTO {oplogTableName} (Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                        VALUES (@Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
+                        INSERT INTO {oplogTableName} (Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode, SequenceNumber)
+                        VALUES (@Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode, @SequenceNumber)",
                         new
                         {
                             entry.Key,
@@ -692,14 +751,15 @@ public class SqlitePeerStore : IPeerStore
                             IsDeleted = entry.Operation == OperationType.Delete,
                             HlcWall = entry.Timestamp.PhysicalTime,
                             HlcLogic = entry.Timestamp.LogicalCounter,
-                            HlcNode = entry.Timestamp.NodeId
+                            HlcNode = entry.Timestamp.NodeId,
+                            SequenceNumber = sequenceNumber
                         }, transaction);
                 }
                 else
                 {
                     await connection.ExecuteAsync(@"
-                        INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                        VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
+                        INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode, SequenceNumber)
+                        VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode, @SequenceNumber)",
                         new
                         {
                             entry.Collection,
@@ -709,7 +769,8 @@ public class SqlitePeerStore : IPeerStore
                             IsDeleted = entry.Operation == OperationType.Delete,
                             HlcWall = entry.Timestamp.PhysicalTime,
                             HlcLogic = entry.Timestamp.LogicalCounter,
-                            HlcNode = entry.Timestamp.NodeId
+                            HlcNode = entry.Timestamp.NodeId,
+                            SequenceNumber = sequenceNumber
                         }, transaction);
                 }
             }
@@ -1008,5 +1069,168 @@ public class SqlitePeerStore : IPeerStore
         public long HlcWall { get; set; }
         public int HlcLogic { get; set; }
         public string? HlcNode { get; set; }
+    }
+
+    // ========== Gap Detection Support ==========
+
+    private async Task<long> GetAndIncrementSequenceNumberAsync(SqliteConnection connection, string nodeId)
+    {
+        // Atomic increment using SQLite's INSERT OR REPLACE with computed values
+        await connection.ExecuteAsync(@"
+            INSERT INTO NodeSequenceCounters (NodeId, CurrentSequence)
+            VALUES (@NodeId, 1)
+            ON CONFLICT(NodeId) DO UPDATE SET 
+                CurrentSequence = CurrentSequence + 1
+            WHERE NodeId = @NodeId",
+            new { NodeId = nodeId });
+
+        var result = await connection.QuerySingleAsync<long>(@"
+            SELECT CurrentSequence 
+            FROM NodeSequenceCounters 
+            WHERE NodeId = @NodeId",
+            new { NodeId = nodeId });
+
+        return result;
+    }
+
+    public async Task<long> GetCurrentSequenceNumberAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        if (_peerNodeConfigurationProvider == null)
+        {
+            _logger.LogWarning("PeerNodeConfigurationProvider not available - cannot get sequence number");
+            return 0;
+        }
+
+        var config = await _peerNodeConfigurationProvider.GetConfiguration();
+        var nodeId = config.NodeId;
+
+        var result = await connection.QuerySingleOrDefaultAsync<long?>(@"
+            SELECT CurrentSequence 
+            FROM NodeSequenceCounters 
+            WHERE NodeId = @NodeId",
+            new { NodeId = nodeId });
+
+        return result ?? 0;
+    }
+
+    public async Task<Dictionary<string, long>> GetPeerSequenceNumbersAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var usePerCollection = _options?.UsePerCollectionTables == true;
+        var result = new Dictionary<string, long>();
+
+        if (!usePerCollection)
+        {
+            // Legacy mode: query single Oplog table
+            var rows = await connection.QueryAsync<(string NodeId, long MaxSeq)>(@"
+                SELECT HlcNode as NodeId, MAX(SequenceNumber) as MaxSeq
+                FROM Oplog
+                WHERE SequenceNumber > 0
+                GROUP BY HlcNode");
+
+            foreach (var (nodeId, maxSeq) in rows)
+            {
+                if (!string.IsNullOrEmpty(nodeId))
+                {
+                    result[nodeId] = maxSeq;
+                }
+            }
+        }
+        else
+        {
+            // Per-collection mode: union across all oplog tables
+            var collections = GetKnownCollections(connection);
+
+            foreach (var collection in collections)
+            {
+                var oplogTable = GetOplogTableName(collection);
+                var rows = await connection.QueryAsync<(string NodeId, long MaxSeq)>($@"
+                    SELECT HlcNode as NodeId, MAX(SequenceNumber) as MaxSeq
+                    FROM {oplogTable}
+                    WHERE SequenceNumber > 0
+                    GROUP BY HlcNode");
+
+                foreach (var (nodeId, maxSeq) in rows)
+                {
+                    if (!string.IsNullOrEmpty(nodeId))
+                    {
+                        if (!result.ContainsKey(nodeId) || result[nodeId] < maxSeq)
+                        {
+                            result[nodeId] = maxSeq;
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetOplogBySequenceNumbersAsync(
+        string nodeId, 
+        IEnumerable<long> sequenceNumbers, 
+        CancellationToken cancellationToken = default)
+    {
+        if (!sequenceNumbers.Any())
+            return Enumerable.Empty<OplogEntry>();
+
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var usePerCollection = _options?.UsePerCollectionTables == true;
+        var seqList = string.Join(",", sequenceNumbers);
+
+        if (!usePerCollection)
+        {
+            // Legacy mode: single Oplog table
+            var rows = await connection.QueryAsync<OplogRow>($@"
+                SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode
+                FROM Oplog
+                WHERE HlcNode = @NodeId AND SequenceNumber IN ({seqList})
+                ORDER BY SequenceNumber ASC",
+                new { NodeId = nodeId });
+
+            return rows.Select(r => new OplogEntry(
+                r.Collection ?? "unknown",
+                r.Key ?? "unknown",
+                (OperationType)r.Operation,
+                r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
+                new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? ""),
+                0 // SequenceNumber will be in row if needed
+            ));
+        }
+        else
+        {
+            // Per-collection mode: union across all oplog tables
+            var collections = GetKnownCollections(connection);
+            var allEntries = new List<OplogEntry>();
+
+            foreach (var collection in collections)
+            {
+                var oplogTable = GetOplogTableName(collection);
+                
+                var rows = await connection.QueryAsync<OplogRowPerCollection>($@"
+                    SELECT Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode
+                    FROM {oplogTable}
+                    WHERE HlcNode = @NodeId AND SequenceNumber IN ({seqList})",
+                    new { NodeId = nodeId });
+
+                allEntries.AddRange(rows.Select(r => new OplogEntry(
+                    collection,
+                    r.Key ?? "unknown",
+                    (OperationType)r.Operation,
+                    r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
+                    new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? ""),
+                    0 // SequenceNumber will be in row if needed
+                )));
+            }
+
+            return allEntries.OrderBy(e => e.Timestamp.PhysicalTime).ThenBy(e => e.Timestamp.LogicalCounter);
+        }
     }
 }

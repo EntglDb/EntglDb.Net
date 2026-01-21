@@ -363,4 +363,23 @@ public class EfCorePeerStore : IPeerStore
             _logger.LogWarning("Attempted to remove non-existent remote peer: {NodeId}", nodeId);
         }
     }
+
+    // Gap Detection Support (not yet implemented for EF Core)
+    public Task<long> GetCurrentSequenceNumberAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("Gap detection not yet implemented for EF Core provider");
+        return Task.FromResult(0L);
+    }
+
+    public Task<Dictionary<string, long>> GetPeerSequenceNumbersAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("Gap detection not yet implemented for EF Core provider");
+        return Task.FromResult(new Dictionary<string, long>());
+    }
+
+    public Task<IEnumerable<OplogEntry>> GetOplogBySequenceNumbersAsync(string nodeId, IEnumerable<long> sequenceNumbers, CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("Gap detection not yet implemented for EF Core provider");
+        return Task.FromResult(Enumerable.Empty<OplogEntry>());
+    }
 }

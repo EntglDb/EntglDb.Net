@@ -104,6 +104,11 @@ namespace EntglDb.Network.Tests
             public Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task<bool> CheckIntegrityAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
             public Task BackupAsync(string backupPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            
+            // Gap Detection Support
+            public Task<long> GetCurrentSequenceNumberAsync(CancellationToken cancellationToken = default) => Task.FromResult(0L);
+            public Task<Dictionary<string, long>> GetPeerSequenceNumbersAsync(CancellationToken cancellationToken = default) => Task.FromResult(new Dictionary<string, long>());
+            public Task<IEnumerable<OplogEntry>> GetOplogBySequenceNumbersAsync(string nodeId, IEnumerable<long> sequenceNumbers, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
         }
 
         private class StubAuthenticator : IAuthenticator
