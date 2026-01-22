@@ -9,6 +9,33 @@ public enum OperationType
     Delete
 }
 
+public static class OplogEntryExtensions
+{
+    public static string ComputeHash(this OplogEntry entry)
+    {
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var sb = new System.Text.StringBuilder();
+
+        sb.Append(entry.Collection);
+        sb.Append('|');
+        sb.Append(entry.Key);
+        sb.Append('|');
+        sb.Append(entry.Operation);
+        sb.Append('|');
+        if (entry.Payload.HasValue) sb.Append(entry.Payload.Value.GetRawText());
+        sb.Append('|');
+        sb.Append(entry.Timestamp.ToString()); // Ensure consistent string representation
+        sb.Append('|');
+        sb.Append(entry.PreviousHash);
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+        var hashBytes = sha256.ComputeHash(bytes);
+
+        // Convert to hex string
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+    }
+}
+
 public class OplogEntry
 {
     public string Collection { get; }
@@ -27,10 +54,7 @@ public class OplogEntry
         Payload = payload;
         Timestamp = timestamp;
         PreviousHash = previousHash ?? string.Empty;
-        
-        // If hash is provided (e.g. from DB or Network), use it.
-        // Otherwise (new local entry), compute it.
-        Hash = hash ?? ComputeHash();
+        Hash = hash ?? this.ComputeHash();
     }
 
     /// <summary>
@@ -38,30 +62,6 @@ public class OplogEntry
     /// </summary>
     public bool IsValid()
     {
-        return Hash == ComputeHash();
-    }
-
-    private string ComputeHash()
-    {
-        using var sha256 = System.Security.Cryptography.SHA256.Create();
-        var sb = new System.Text.StringBuilder();
-        
-        sb.Append(Collection);
-        sb.Append('|');
-        sb.Append(Key);
-        sb.Append('|');
-        sb.Append(Operation);
-        sb.Append('|');
-        if (Payload.HasValue) sb.Append(Payload.Value.GetRawText());
-        sb.Append('|');
-        sb.Append(Timestamp.ToString()); // Ensure consistent string representation
-        sb.Append('|');
-        sb.Append(PreviousHash);
-
-        var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
-        var hashBytes = sha256.ComputeHash(bytes);
-        
-        // Convert to hex string
-        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+        return Hash == this.ComputeHash();
     }
 }

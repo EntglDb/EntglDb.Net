@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Threading.Tasks;
+using EntglDb.Core;
 
 namespace EntglDb.Network;
 
@@ -11,6 +12,8 @@ namespace EntglDb.Network;
 /// </summary>
 public class EntglDbNode : IEntglDbNode
 {
+    public IPeerDatabase PeerDatabase { get; }
+
     /// <summary>
     /// Gets the Sync Server instance.
     /// </summary>
@@ -36,11 +39,13 @@ public class EntglDbNode : IEntglDbNode
     /// <param name="orchestrator">The orchestrator for managing outgoing sync operations.</param>
     /// <param name="logger">The logger instance.</param>
     public EntglDbNode(
+        IPeerDatabase peerDatabase,
         ISyncServer server,
         IDiscoveryService discovery,
         ISyncOrchestrator orchestrator,
         ILogger<EntglDbNode> logger)
     {
+        PeerDatabase = peerDatabase;
         Server = server;
         Discovery = discovery;
         Orchestrator = orchestrator;
@@ -53,6 +58,7 @@ public class EntglDbNode : IEntglDbNode
     public async Task Start()
     {
         _logger.LogInformation("Starting EntglDb Node...");
+        await PeerDatabase.InitializeAsync();
 
         await Task.WhenAll(
             Server.Start(),

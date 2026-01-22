@@ -18,9 +18,32 @@ public class PeerDatabase : IPeerDatabase
 {
     private readonly IPeerNodeConfigurationProvider _peerNodeConfigurationProvider;
     private readonly IPeerStore _store;
-    private HlcTimestamp? _localClock;
     private readonly ConcurrentDictionary<string, PeerCollection> _collections = new ConcurrentDictionary<string, PeerCollection>();
     private readonly object _clockLock = new object();
+
+    private object _hashLock = new object();
+    internal object CentralizedHashUpdateLock => new object();
+
+    private string? _lastHash;
+    public string? LastHash
+    {
+        get
+        {
+            lock (_hashLock)
+            {
+                return _lastHash;
+            }
+        }
+        internal set
+        {
+            lock (_hashLock)
+            {
+                _lastHash = value;
+            }
+        }
+    }
+
+    private HlcTimestamp? _localClock;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PeerDatabase"/> class.
@@ -50,25 +73,11 @@ public class PeerDatabase : IPeerDatabase
 
         lock (_clockLock)
         {
-            if (_localClock == null) return; // Not initialized yet
+            if (_localClock == null) return;
 
             foreach (var change in e.Changes)
             {
                 var changeHlc = change.Timestamp;
-                
-                // Hybrid Logical Clock "Receive" event logic:
-                // max(old_physical, new_physical, now_physical)
-                // usually we just want to ensure our clock is ahead of the received event.
-                
-                // If the received physical time is greater than our current physical time,
-                // we should push our clock forward (or at least be aware of it).
-                
-                // Standard HLC update on receive:
-                // l.j = max(l.j, m.j, pt.j)
-                // l.c = (l.j == l.j && l.j == m.j) ? max(l.c, m.c) + 1 : (l.j == l.j) ? l.c + 1 : (l.j == m.j) ? m.c + 1 : 0
-                
-                // Simplified for this implementation:
-                // We just want to make sure _localClock is greater than what we saw.
                 
                 if (changeHlc.PhysicalTime > _localClock.Value.PhysicalTime)
                 {
@@ -92,8 +101,9 @@ public class PeerDatabase : IPeerDatabase
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        var storedInfo = await _store.GetLatestTimestampAsync(cancellationToken);
         var config = await _peerNodeConfigurationProvider.GetConfiguration();
+        var storedInfo = await _store.GetLatestTimestampAsync(cancellationToken);
+        _lastHash = await _store.GetLastEntryHashAsync(config.NodeId, cancellationToken);
         lock (_clockLock)
         {
             if (_localClock == null || storedInfo.CompareTo(_localClock!.Value) > 0)
@@ -176,207 +186,6 @@ public class PeerDatabase : IPeerDatabase
             }
             return _localClock!.Value;
         }
-    }
-}
-
-/// <summary>
-/// Represents a collection of documents within a <see cref="PeerDatabase"/>.
-/// </summary>
-internal class PeerCollection : IPeerCollection
-{
-    private readonly string _name;
-    private readonly PeerDatabase _db;
-
-    public PeerCollection(string name, PeerDatabase db)
-    {
-        _name = name;
-        _db = db;
-    }
-
-    public string Name => _name;
-
-    public async Task Put(string key, object document, CancellationToken cancellationToken = default)
-    {
-        var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
-        var timestamp = await _db.Tick();
-        
-        // Fetch last hash for my node to build the chain
-        var previousHash = await _db.Store.GetLastEntryHashAsync(timestamp.NodeId, cancellationToken);
-
-        var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
-        var paramsContainer = new Document(_name, key, json, timestamp, false);
-
-        await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
-        await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
-    }
-
-    public async Task PutMany(IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken = default)
-    {
-        var docList = new List<Document>();
-        var oplogList = new List<OplogEntry>();
-        
-        // 1. Get NodeId from config (same for all)
-        // 2. We need to serialize this operation to ensure chain integrity
-        // OR: We pre-fetch last hash, then chain them in memory.
-        
-        // Optimizing for batch insert (chaining in-memory)
-        var firstTimestamp = await _db.Tick(); // This ticks logic+1
-        var nodeId = firstTimestamp.NodeId;
-        var previousHash = await _db.Store.GetLastEntryHashAsync(nodeId, cancellationToken);
-
-        foreach (var kvp in documents)
-        {
-            var key = kvp.Key;
-            var document = kvp.Value;
-            var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
-            
-            // We need unique logical timestamps for each entry in the batch
-            // The first one is already ticked. Subsequent ones increment logic counter.
-            var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
-
-            var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
-            previousHash = oplog.Hash; // Update for next item in batch
-
-            var paramsContainer = new Document(_name, key, json, timestamp, false);
-
-            docList.Add(paramsContainer);
-            oplogList.Add(oplog);
-        }
-
-        if (docList.Count > 0)
-        {
-            await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
-            
-            // Sync local clock to the last used timestamp
-            // (Actually Tick() handles state, but we manually incremented. We should probably accept this slight drift or expose AdvanceClock)
-            // But _db.Tick() uses system time, so next tick will catch up anyway.
-        }
-    }
-
-    public async Task<T> Get<T>(string key, CancellationToken cancellationToken = default)
-    {
-        var doc = await _db.Store.GetDocumentAsync(_name, key, cancellationToken);
-        if (doc == null || doc.IsDeleted) return default;
-
-        return JsonSerializer.Deserialize<T>(doc.Content, _db.JsonOptions);
-    }
-
-    public async Task Delete(string key, CancellationToken cancellationToken = default)
-    {
-        var timestamp = await _db.Tick();
-        var previousHash = await _db.Store.GetLastEntryHashAsync(timestamp.NodeId, cancellationToken);
-        
-        var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
-        var empty = default(JsonElement);
-        var paramsContainer = new Document(_name, key, empty, timestamp, true);
-
-        await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
-        await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
-    }
-
-    public async Task DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken = default)
-    {
-        var docList = new List<Document>();
-        var oplogList = new List<OplogEntry>();
-        var empty = default(JsonElement);
-        
-        var firstTimestamp = await _db.Tick();
-        var nodeId = firstTimestamp.NodeId;
-        var previousHash = await _db.Store.GetLastEntryHashAsync(nodeId, cancellationToken);
-
-        foreach (var key in keys)
-        {
-            var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
-            
-            var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
-            previousHash = oplog.Hash;
-            
-            var paramsContainer = new Document(_name, key, empty, timestamp, true);
-
-            docList.Add(paramsContainer);
-            oplogList.Add(oplog);
-        }
-
-        if (docList.Count > 0)
-        {
-            await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
-        }
-    }
-
-    public async Task<IEnumerable<T>> Find<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
-    {
-        return await Find(predicate, null, null, null, true, cancellationToken);
-    }
-
-    public async Task<IEnumerable<T>> Find<T>(Expression<Func<T, bool>> predicate, int? skip, int? take, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
-    {
-        QueryNode queryNode = null;
-        try
-        {
-            queryNode = ExpressionToQueryNodeTranslator.Translate(predicate, _db.JsonOptions);
-        }
-        catch (Exception ex)
-        {
-            System.Console.WriteLine($"[Warning] Query translation failed: {ex.Message}. Fetching all documents and filtering in memory.");
-            // Passing null to store returns "1=1" (All documents)
-        }
-
-        var docs = await _db.Store.QueryDocumentsAsync(_name, queryNode, skip, take, orderBy, ascending, cancellationToken);
-        var list = new List<T>();
-
-        var compiledPredicate = queryNode == null && predicate != null ? predicate.Compile() : null;
-
-        foreach (var d in docs)
-        {
-            if (!d.IsDeleted)
-            {
-                try
-                {
-                    var item = JsonSerializer.Deserialize<T>(d.Content, _db.JsonOptions);
-
-                    // If query translation failed, we perform fallback filtering in memory.
-                    // If translation succeeded, the Store has already filtered the content.
-                    if (compiledPredicate != null)
-                    {
-                        if (compiledPredicate(item))
-                        {
-                            list.Add(item);
-                        }
-                    }
-                    else
-                    {
-                        list.Add(item);
-                    }
-                }
-                catch { /* deserialization error */ }
-            }
-        }
-        return list;
-    }
-
-    public async Task<int> Count<T>(Expression<Func<T, bool>>? predicate, CancellationToken cancellationToken = default)
-    {
-        QueryNode? queryNode = null;
-        if (predicate != null)
-        {
-            try
-            {
-                queryNode = ExpressionToQueryNodeTranslator.Translate(predicate, _db.JsonOptions);
-            }
-            catch (Exception ex)
-            {
-                System.Console.WriteLine($"[Warning] Query translation failed for Count: {ex.Message}. Falling back to counting in memory (inefficient).");
-                var all = await Find(predicate, cancellationToken);
-                return all.Count();
-            }
-        }
-
-        return await _db.Store.CountDocumentsAsync(_name, queryNode, cancellationToken);
-    }
-
-    public Task<int> Count(Expression<Func<object, bool>>? predicate = null, CancellationToken cancellationToken = default)
-    {
-        return Count<object>(predicate, cancellationToken);
     }
 }
 
