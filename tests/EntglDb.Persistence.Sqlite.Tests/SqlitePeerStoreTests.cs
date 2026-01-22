@@ -64,7 +64,7 @@ public class SqlitePeerStoreTests : IDisposable
         // Arrange
         var json = JsonSerializer.Serialize(new { Name = "Bob" });
         var jsonElement = JsonDocument.Parse(json).RootElement;
-        var entry = new OplogEntry("users", "user1", OperationType.Put, jsonElement, new HlcTimestamp(2000, 0, "test-node"));
+        var entry = new OplogEntry("users", "user1", OperationType.Put, jsonElement, new HlcTimestamp(2000, 0, "test-node"), string.Empty);
 
         // Act
         await _store.AppendOplogEntryAsync(entry);
@@ -79,8 +79,8 @@ public class SqlitePeerStoreTests : IDisposable
     public async Task GetLatestTimestampAsync_ShouldReturnLatest()
     {
         // Arrange
-        var entry1 = new OplogEntry("users", "user1", OperationType.Put, null, new HlcTimestamp(1000, 0, "node1"));
-        var entry2 = new OplogEntry("users", "user2", OperationType.Put, null, new HlcTimestamp(3000, 5, "node2"));
+        var entry1 = new OplogEntry("users", "user1", OperationType.Put, null, new HlcTimestamp(1000, 0, "node1"), string.Empty);
+        var entry2 = new OplogEntry("users", "user2", OperationType.Put, null, new HlcTimestamp(3000, 5, "node2"), string.Empty);
 
         await _store.AppendOplogEntryAsync(entry1);
         await _store.AppendOplogEntryAsync(entry2);
@@ -104,7 +104,7 @@ public class SqlitePeerStoreTests : IDisposable
         var newerDoc = CreateDocument("users", "user1", new { Name = "Alice Updated", Age = 31 }, new HlcTimestamp(2000, 0, "node2"));
         var json = JsonSerializer.Serialize(new { Name = "Alice Updated", Age = 31 });
         var jsonElement = JsonDocument.Parse(json).RootElement;
-        var oplogEntry = new OplogEntry("users", "user1", OperationType.Put, jsonElement, new HlcTimestamp(2000, 0, "node2"));
+        var oplogEntry = new OplogEntry("users", "user1", OperationType.Put, jsonElement, new HlcTimestamp(2000, 0, "node2"), string.Empty);
 
         // Act
         await _store.ApplyBatchAsync(new[] { newerDoc }, new[] { oplogEntry });

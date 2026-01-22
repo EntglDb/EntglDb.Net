@@ -10,13 +10,13 @@
             <CollectionView x:Name="DocsCollectionView" ItemsSource="{Binding Documents}" SelectionMode="Single" SelectionChanged="OnDocumentSelected">
                 <CollectionView.ItemTemplate>
                     <DataTemplate>
-                        <Frame Padding="10" Margin="5" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
+                        <Border Padding="10" Margin="5" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
                             <VerticalStackLayout>
                                 <Label Text="{Binding Key}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
                                 <Label Text="{Binding ShortPayload}" LineBreakMode="TailTruncation" TextColor="Gray" FontSize="Small" />
                                 <Label Text="{Binding Timestamp}" FontSize="Micro" TextColor="LightGray" HorizontalOptions="End" />
                             </VerticalStackLayout>
-                        </Frame>
+                        </Border>
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
                 <CollectionView.EmptyView>

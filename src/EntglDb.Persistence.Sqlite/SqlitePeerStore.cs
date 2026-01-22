@@ -30,6 +30,16 @@ public class SqlitePeerStore : IPeerStore
     private readonly SqlitePersistenceOptions? _options;
     private readonly HashSet<string> _createdTables = new HashSet<string>();
     private readonly object _tableLock = new object();
+    private readonly object _cacheLock = new object();
+    
+    // Per-node cache: tracks latest timestamp and hash for each node
+    private readonly Dictionary<string, NodeCacheEntry> _nodeCache = new Dictionary<string, NodeCacheEntry>(StringComparer.Ordinal);
+    
+    private class NodeCacheEntry
+    {
+        public HlcTimestamp Timestamp { get; set; }
+        public string Hash { get; set; } = "";
+    }
 
     public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
@@ -95,10 +105,36 @@ public class SqlitePeerStore : IPeerStore
 
             _logger.LogInformation("Initializing SQLite database with WAL mode");
 
-            // Only create legacy tables if not using per-collection mode
+            // Unified Oplog and RemotePeers (Always created)
+            connection.Execute(@"
+                CREATE TABLE IF NOT EXISTS Oplog (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Collection TEXT NOT NULL,
+                    Key TEXT NOT NULL,
+                    Operation INTEGER NOT NULL,
+                    JsonData TEXT,
+                    HlcWall INTEGER NOT NULL,
+                    HlcLogic INTEGER NOT NULL,
+                    HlcNode TEXT NOT NULL,
+                    Hash TEXT,
+                    PreviousHash TEXT
+                );
+                
+                CREATE TABLE IF NOT EXISTS RemotePeers (
+                    NodeId TEXT PRIMARY KEY,
+                    Address TEXT NOT NULL,
+                    Type INTEGER NOT NULL,
+                    OAuth2Json TEXT,
+                    IsEnabled INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
+                CREATE INDEX IF NOT EXISTS IDX_Oplog_Hash ON Oplog(Hash);
+            ");
+
+            // Documents Table (Legacy Mode Only)
             if (_options == null || !_options.UsePerCollectionTables)
             {
-                // Legacy single-table mode
                 connection.Execute(@"
                     CREATE TABLE IF NOT EXISTS Documents (
                         Collection TEXT NOT NULL,
@@ -110,45 +146,17 @@ public class SqlitePeerStore : IPeerStore
                         HlcNode TEXT NOT NULL,
                         PRIMARY KEY (Collection, Key)
                     );
-
-                    CREATE TABLE IF NOT EXISTS Oplog (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        Collection TEXT NOT NULL,
-                        Key TEXT NOT NULL,
-                        Operation INTEGER NOT NULL,
-                        JsonData TEXT,
-                        IsDeleted INTEGER NOT NULL,
-                        HlcWall INTEGER NOT NULL,
-                        HlcLogic INTEGER NOT NULL,
-                        HlcNode TEXT NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS RemotePeers (
-                        NodeId TEXT PRIMARY KEY,
-                        Address TEXT NOT NULL,
-                        Type INTEGER NOT NULL,
-                        OAuth2Json TEXT,
-                        IsEnabled INTEGER NOT NULL
-                    );
-
-                    CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
                 ");
                 _logger.LogInformation("Initialized with legacy single-table mode");
             }
             else
             {
-                // Even in per-collection mode, we need RemotePeers table (it's global, not per-collection)
-                connection.Execute(@"
-                    CREATE TABLE IF NOT EXISTS RemotePeers (
-                        NodeId TEXT PRIMARY KEY,
-                        Address TEXT NOT NULL,
-                        Type INTEGER NOT NULL,
-                        OAuth2Json TEXT,
-                        IsEnabled INTEGER NOT NULL
-                    );
-                ");
                 _logger.LogInformation("Initialized with per-collection table mode");
             }
+            
+            // Initialize node cache from database
+            InitializeNodeCache(connection);
+            _logger.LogInformation("Node cache initialized with {Count} nodes", _nodeCache.Count);
         }
         catch (Exception ex)
         {
@@ -164,6 +172,33 @@ public class SqlitePeerStore : IPeerStore
         {
             connection.Execute("PRAGMA journal_mode=WAL");
             _logger.LogInformation("Enabled WAL mode for database");
+        }
+    }
+
+    private void InitializeNodeCache(SqliteConnection connection)
+    {
+        // Query latest entry per node
+        var rows = connection.Query<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
+            SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
+            FROM Oplog o1
+            WHERE (HlcWall, HlcLogic) = (
+                SELECT MAX(HlcWall), MAX(HlcLogic)
+                FROM Oplog o2
+                WHERE o2.HlcNode = o1.HlcNode
+            )
+            GROUP BY HlcNode");
+
+        lock (_cacheLock)
+        {
+            _nodeCache.Clear();
+            foreach (var row in rows)
+            {
+                _nodeCache[row.NodeId] = new NodeCacheEntry
+                {
+                    Timestamp = new HlcTimestamp(row.HlcWall, row.HlcLogic, row.NodeId),
+                    Hash = row.Hash ?? ""
+                };
+            }
         }
     }
 
@@ -208,7 +243,6 @@ public class SqlitePeerStore : IPeerStore
                 Key TEXT NOT NULL,
                 Operation INTEGER NOT NULL,
                 JsonData TEXT,
-                IsDeleted INTEGER NOT NULL,
                 HlcWall INTEGER NOT NULL,
                 HlcLogic INTEGER NOT NULL,
                 HlcNode TEXT NOT NULL
@@ -321,6 +355,20 @@ public class SqlitePeerStore : IPeerStore
         }
         else
         {
+            // Create legacy table if needed (since we removed it from Initialize)
+            await connection.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS Documents (
+                    Collection TEXT NOT NULL,
+                    Key TEXT NOT NULL,
+                    JsonData TEXT,
+                    IsDeleted INTEGER NOT NULL,
+                    HlcWall INTEGER NOT NULL,
+                    HlcLogic INTEGER NOT NULL,
+                    HlcNode TEXT NOT NULL,
+                    PRIMARY KEY (Collection, Key)
+                );
+            ");
+
             // Legacy mode: include Collection column
             await connection.ExecuteAsync(@"
                 INSERT OR REPLACE INTO Documents (Collection, Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
@@ -335,6 +383,23 @@ public class SqlitePeerStore : IPeerStore
                     HlcLogic = document.UpdatedAt.LogicalCounter,
                     HlcNode = document.UpdatedAt.NodeId
                 });
+        }
+
+        // Note: This method only saves the document, not the oplog entry
+        // The hash will be updated when AppendOplogEntryAsync is called
+        lock (_cacheLock)
+        {
+            var nodeId = document.UpdatedAt.NodeId;
+            if (!_nodeCache.TryGetValue(nodeId, out var entry) || document.UpdatedAt.CompareTo(entry.Timestamp) > 0)
+            {
+                // Update timestamp but keep existing hash (will be updated by AppendOplogEntryAsync)
+                var existingHash = _nodeCache.TryGetValue(nodeId, out var e) ? e.Hash : "";
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = document.UpdatedAt,
+                    Hash = existingHash
+                };
+            }
         }
     }
 
@@ -383,45 +448,35 @@ public class SqlitePeerStore : IPeerStore
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         
-        await EnsureCollectionTablesAsync(connection, entry.Collection);
-
-        var tableName = GetOplogTableName(entry.Collection);
-        var usePerCollection = _options?.UsePerCollectionTables == true;
-
-        if (usePerCollection)
+        // Unified Oplog Table: Always use single Oplog table regardless of per-collection setting
+        await connection.ExecuteAsync(@"
+            INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
+            VALUES (@Collection, @Key, @Operation, @JsonData, @HlcWall, @HlcLogic, @HlcNode, @Hash, @PreviousHash)",
+            new
+            {
+                entry.Collection,
+                entry.Key,
+                Operation = (int)entry.Operation,
+                JsonData = entry.Payload.HasValue && entry.Payload.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
+                HlcWall = entry.Timestamp.PhysicalTime,
+                HlcLogic = entry.Timestamp.LogicalCounter,
+                HlcNode = entry.Timestamp.NodeId,
+                entry.Hash,
+                entry.PreviousHash
+            });
+            
+        // Update node cache with both timestamp and hash
+        lock (_cacheLock)
         {
-            // Per-collection mode: no Collection column
-            await connection.ExecuteAsync($@"
-                INSERT INTO {tableName} (Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                VALUES (@Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
-                new
+            var nodeId = entry.Timestamp.NodeId;
+            if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
                 {
-                    entry.Key,
-                    Operation = (int)entry.Operation,
-                    JsonData = entry.Payload != null && entry.Payload!.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
-                    IsDeleted = entry.Operation == OperationType.Delete,
-                    HlcWall = entry.Timestamp.PhysicalTime,
-                    HlcLogic = entry.Timestamp.LogicalCounter,
-                    HlcNode = entry.Timestamp.NodeId
-                });
-        }
-        else
-        {
-            // Legacy mode: include Collection column
-            await connection.ExecuteAsync(@"
-                INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
-                new
-                {
-                    entry.Collection,
-                    entry.Key,
-                    Operation = (int)entry.Operation,
-                    JsonData = entry.Payload != null && entry.Payload!.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
-                    IsDeleted = entry.Operation == OperationType.Delete,
-                    HlcWall = entry.Timestamp.PhysicalTime,
-                    HlcLogic = entry.Timestamp.LogicalCounter,
-                    HlcNode = entry.Timestamp.NodeId
-                });
+                    Timestamp = entry.Timestamp,
+                    Hash = entry.Hash ?? ""
+                };
+            }
         }
     }
 
@@ -437,59 +492,142 @@ public class SqlitePeerStore : IPeerStore
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        var usePerCollection = _options?.UsePerCollectionTables == true;
+        // Unified query: We now only use the single Oplog table for sync
+        var rows = await connection.QueryAsync<OplogRow>(@"
+            SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash
+            FROM Oplog
+            WHERE (HlcWall > @Wall) OR (HlcWall = @Wall AND HlcLogic > @Logic)
+            ORDER BY HlcWall ASC, HlcLogic ASC",
+            new { Wall = timestamp.PhysicalTime, Logic = timestamp.LogicalCounter });
 
-        if (!usePerCollection)
+        return rows.Select(r => new OplogEntry(
+            r.Collection ?? "",
+            r.Key ?? "",
+            (OperationType)r.Operation,
+            r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
+            new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? ""),
+            r.PreviousHash ?? "",
+            r.Hash
+        ));
+    }
+
+    public async Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        // Try cache first
+        lock (_cacheLock)
         {
-            // Legacy mode: single Oplog table
-            var rows = await connection.QueryAsync<OplogRow>(@"
-                SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode
-                FROM Oplog
-                WHERE HlcWall > @HlcWall OR (HlcWall = @HlcWall AND HlcLogic > @HlcLogic)
-                ORDER BY HlcWall ASC, HlcLogic ASC",
-                new { HlcWall = timestamp.PhysicalTime, HlcLogic = timestamp.LogicalCounter });
-
-            return rows.Select(r => new OplogEntry(
-                r.Collection ?? "unknown",
-                r.Key ?? "unknown",
-                (OperationType)r.Operation,
-                r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
-                new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? "")
-            ));
-        }
-        else
-        {
-            // Per-collection mode: union across all oplog tables
-            var collections = GetKnownCollections(connection);
-            var allEntries = new List<OplogEntry>();
-
-            foreach (var collection in collections)
+            if (_nodeCache.TryGetValue(nodeId, out var entry))
             {
-                var oplogTable = GetOplogTableName(collection);
-                
-                var rows = await connection.QueryAsync<OplogRowPerCollection>($@"
-                    SELECT Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode
-                    FROM {oplogTable}
-                    WHERE HlcWall > @HlcWall OR (HlcWall = @HlcWall AND HlcLogic > @HlcLogic)",
-                    new { HlcWall = timestamp.PhysicalTime, HlcLogic = timestamp.LogicalCounter });
-
-                allEntries.AddRange(rows.Select(r => new OplogEntry(
-                    collection,
-                    r.Key ?? "unknown",
-                    (OperationType)r.Operation,
-                    r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
-                    new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? "")
-                )));
+                return entry.Hash;
             }
-
-            return allEntries.OrderBy(e => e.Timestamp.PhysicalTime).ThenBy(e => e.Timestamp.LogicalCounter);
         }
+
+        // Cache miss - query database
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        var hash = await connection.QuerySingleOrDefaultAsync<string>(@"
+            SELECT Hash 
+            FROM Oplog 
+            WHERE HlcNode = @NodeId 
+            ORDER BY HlcWall DESC, HlcLogic DESC 
+            LIMIT 1", new { NodeId = nodeId });
+
+        // Update cache if found
+        if (hash != null)
+        {
+            var row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)>(@"
+                SELECT HlcWall as Wall, HlcLogic as Logic
+                FROM Oplog 
+                WHERE Hash = @Hash", new { Hash = hash });
+
+            lock (_cacheLock)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = new HlcTimestamp(row.Wall, row.Logic, nodeId),
+                    Hash = hash
+                };
+            }
+        }
+
+        return hash;
+    }
+
+    public async Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        var row = await connection.QuerySingleOrDefaultAsync<OplogRow>(@"
+            SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, PreviousHash, Hash 
+            FROM Oplog 
+            WHERE Hash = @Hash", new { Hash = hash });
+            
+        if (row == null) return null;
+        
+        return new OplogEntry(
+            row.Collection ?? "unknown",
+            row.Key ?? "unknown",
+            (OperationType)row.Operation,
+            row.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(row.JsonData) : (JsonElement?)null,
+            new HlcTimestamp(row.HlcWall, row.HlcLogic, row.HlcNode ?? ""),
+            row.PreviousHash ?? ""
+        );
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        // 1. Fetch range bounds
+        var startRow = await connection.QuerySingleOrDefaultAsync<OplogRow>(
+            "SELECT HlcWall, HlcLogic, HlcNode FROM Oplog WHERE Hash = @Hash", new { Hash = startHash });
+        var endRow = await connection.QuerySingleOrDefaultAsync<OplogRow>(
+            "SELECT HlcWall, HlcLogic, HlcNode FROM Oplog WHERE Hash = @Hash", new { Hash = endHash });
+            
+        if (startRow == null || endRow == null) return Enumerable.Empty<OplogEntry>();
+        if (startRow.HlcNode != endRow.HlcNode) return Enumerable.Empty<OplogEntry>(); // Must be same chain
+        
+        // 2. Fetch range (Start < Entry <= End)
+        var rows = await connection.QueryAsync<OplogRow>(@"
+            SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, PreviousHash, Hash 
+            FROM Oplog
+            WHERE HlcNode = @NodeId
+              AND ( (HlcWall > @StartWall) OR (HlcWall = @StartWall AND HlcLogic > @StartLogic) )
+              AND ( (HlcWall < @EndWall) OR (HlcWall = @EndWall AND HlcLogic <= @EndLogic) )
+            ORDER BY HlcWall ASC, HlcLogic ASC",
+            new { 
+                NodeId = startRow.HlcNode,
+                StartWall = startRow.HlcWall, StartLogic = startRow.HlcLogic,
+                EndWall = endRow.HlcWall, EndLogic = endRow.HlcLogic
+            });
+            
+        return rows.Select(r => new OplogEntry(
+            r.Collection ?? "unknown",
+            r.Key ?? "unknown",
+            (OperationType)r.Operation,
+            r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
+            new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? ""),
+            r.PreviousHash ?? ""
+        ));
     }
 
 
     private List<string> GetKnownCollections(SqliteConnection connection)
     {
-        // Get all known collections from the cache
+        // If we are using per-collection tables, we should query the database for tables that match the pattern,
+        // because _createdTables memory cache might be empty after restart.
+        if (_options?.UsePerCollectionTables == true)
+        {
+            var tables = connection.Query<string>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Oplog_%'");
+            
+            return tables.Select(t => t.Substring(6)).ToList(); // Remove "Oplog_" prefix
+        }
+
+        // Fallback to cache or single table mode logic (though this method is mostly used for per-collection)
         lock (_tableLock)
         {
             return _createdTables.ToList();
@@ -497,52 +635,60 @@ public class SqlitePeerStore : IPeerStore
     }
 
 
-    public async Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
+    public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
     {
-         using var connection = new SqliteConnection(_connectionString);
-         await connection.OpenAsync(cancellationToken);
+        // Return the maximum timestamp from cache
+        lock (_cacheLock)
+        {
+            if (_nodeCache.Count == 0)
+            {
+                return Task.FromResult(new HlcTimestamp(0, 0, ""));
+            }
 
-         var usePerCollection = _options?.UsePerCollectionTables == true;
+            var maxTimestamp = _nodeCache.Values
+                .Select(e => e.Timestamp)
+                .OrderByDescending(t => t)
+                .First();
 
-         if (!usePerCollection)
-         {
-             // Legacy mode: single Oplog table
-             var row = await connection.QuerySingleOrDefaultAsync<MaxHlcResult>(@"
-                 SELECT MAX(HlcWall) as Wall, MAX(HlcLogic) as Logic, HlcNode 
-                 FROM Oplog
-                 ORDER BY HlcWall DESC, HlcLogic DESC LIMIT 1");
-             
-             if (row == null || row.Wall == null) return new HlcTimestamp(0, 0, "");
-             
-             string nodeId = row.HlcNode ?? "";
-             return new HlcTimestamp(row.Wall.Value, row.Logic ?? 0, nodeId);
-         }
-         else
-         {
-             // Per-collection mode: find max across all oplog tables
-             var collections = GetKnownCollections(connection);
-             HlcTimestamp maxTimestamp = new HlcTimestamp(0, 0, "");
+            return Task.FromResult(maxTimestamp);
+        }
+    }
 
-             foreach (var collection in collections)
-             {
-                 var oplogTable = GetOplogTableName(collection);
-                 var row = await connection.QuerySingleOrDefaultAsync<MaxHlcResult>($@"
-                     SELECT MAX(HlcWall) as Wall, MAX(HlcLogic) as Logic, HlcNode 
-                     FROM {oplogTable}
-                     ORDER BY HlcWall DESC, HlcLogic DESC LIMIT 1");
+    public Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default)
+    {
+        // Return cached vector clock
+        lock (_cacheLock)
+        {
+            var vectorClock = new VectorClock();
+            foreach (var kvp in _nodeCache)
+            {
+                vectorClock.SetTimestamp(kvp.Key, kvp.Value.Timestamp);
+            }
+            return Task.FromResult(vectorClock);
+        }
+    }
 
-                 if (row != null && row.Wall != null)
-                 {
-                     var timestamp = new HlcTimestamp(row.Wall.Value, row.Logic ?? 0, row.HlcNode ?? "");
-                     if (timestamp.CompareTo(maxTimestamp) > 0)
-                     {
-                         maxTimestamp = timestamp;
-                     }
-                 }
-             }
+    public async Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
 
-             return maxTimestamp;
-         }
+        var rows = await connection.QueryAsync<OplogRow>(@"
+            SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, PreviousHash, Hash 
+            FROM Oplog
+            WHERE HlcNode = @NodeId
+              AND ( (HlcWall > @Wall) OR (HlcWall = @Wall AND HlcLogic > @Logic) )
+            ORDER BY HlcWall ASC, HlcLogic ASC",
+            new { NodeId = nodeId, Wall = since.PhysicalTime, Logic = since.LogicalCounter });
+
+        return rows.Select(r => new OplogEntry(
+            r.Collection ?? "unknown",
+            r.Key ?? "unknown",
+            (OperationType)r.Operation,
+            r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
+            new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? ""),
+            r.PreviousHash ?? ""
+        ));
     }
 
     private class MaxHlcResult
@@ -574,8 +720,7 @@ public class SqlitePeerStore : IPeerStore
                 await EnsureCollectionTablesAsync(connection, entry.Collection);
 
                 var docTableName = GetDocumentTableName(entry.Collection);
-                var oplogTableName = GetOplogTableName(entry.Collection);
-
+                
                 Document? localDoc = null;
                 
                 if (usePerCollection)
@@ -652,39 +797,22 @@ public class SqlitePeerStore : IPeerStore
                      }
                 }
                 
-                if (usePerCollection)
-                {
-                    await connection.ExecuteAsync($@"
-                        INSERT INTO {oplogTableName} (Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                        VALUES (@Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
-                        new
-                        {
-                            entry.Key,
-                            Operation = (int)entry.Operation,
-                            JsonData = entry.Payload != null && entry.Payload!.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
-                            IsDeleted = entry.Operation == OperationType.Delete,
-                            HlcWall = entry.Timestamp.PhysicalTime,
-                            HlcLogic = entry.Timestamp.LogicalCounter,
-                            HlcNode = entry.Timestamp.NodeId
-                        }, transaction);
-                }
-                else
-                {
-                    await connection.ExecuteAsync(@"
-                        INSERT INTO Oplog (Collection, Key, Operation, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
-                        VALUES (@Collection, @Key, @Operation, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
-                        new
-                        {
-                            entry.Collection,
-                            entry.Key,
-                            Operation = (int)entry.Operation,
-                            JsonData = entry.Payload != null && entry.Payload!.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
-                            IsDeleted = entry.Operation == OperationType.Delete,
-                            HlcWall = entry.Timestamp.PhysicalTime,
-                            HlcLogic = entry.Timestamp.LogicalCounter,
-                            HlcNode = entry.Timestamp.NodeId
-                        }, transaction);
-                }
+                // Unified Oplog Table: Always use single Oplog table regardless of per-collection setting
+                await connection.ExecuteAsync(@"
+                    INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
+                    VALUES (@Collection, @Key, @Operation, @JsonData, @HlcWall, @HlcLogic, @HlcNode, @Hash, @PreviousHash)",
+                    new
+                    {
+                        entry.Collection,
+                        entry.Key,
+                        Operation = (int)entry.Operation,
+                        JsonData = entry.Payload != null && entry.Payload!.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
+                        HlcWall = entry.Timestamp.PhysicalTime,
+                        HlcLogic = entry.Timestamp.LogicalCounter,
+                        HlcNode = entry.Timestamp.NodeId,
+                        entry.Hash,
+                        entry.PreviousHash
+                    }, transaction);
             }
             
             transaction.Commit();
@@ -692,10 +820,27 @@ public class SqlitePeerStore : IPeerStore
             try 
             {
                 ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
+
+                // Update node cache for all entries
+                lock (_cacheLock)
+                {
+                    foreach (var entry in oplogEntries)
+                    {
+                        var nodeId = entry.Timestamp.NodeId;
+                        if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
+                        {
+                            _nodeCache[nodeId] = new NodeCacheEntry
+                            {
+                                Timestamp = entry.Timestamp,
+                                Hash = entry.Hash ?? ""
+                            };
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling ChangesApplied event");
+                _logger.LogError(ex, "Error handling ChangesApplied event or updating cache");
             }
         }
         catch
@@ -958,6 +1103,8 @@ public class SqlitePeerStore : IPeerStore
         public long HlcWall { get; set; }
         public int HlcLogic { get; set; }
         public string? HlcNode { get; set; }
+        public string? Hash { get; set; }
+        public string? PreviousHash { get; set; }
     }
 
     private class OplogRowPerCollection

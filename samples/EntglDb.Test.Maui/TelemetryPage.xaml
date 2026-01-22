@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="EntglDb.Test.Maui.TelemetryPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Network Telemetry">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="10">
+            <Label
+                FontSize="Title"
+                HorizontalOptions="Center"
+                Text="Live Network Metrics" />
+
+            <Grid
+                ColumnDefinitions="*,*,*,*,*"
+                ColumnSpacing="10"
+                RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                RowSpacing="10">
+                <!--  Headers  -->
+                <Label
+                    Grid.Row="0"
+                    Grid.Column="0"
+                    FontAttributes="Bold"
+                    Text="Metric" />
+                <Label
+                    Grid.Row="0"
+                    Grid.Column="1"
+                    FontAttributes="Bold"
+                    Text="1m" />
+                <Label
+                    Grid.Row="0"
+                    Grid.Column="2"
+                    FontAttributes="Bold"
+                    Text="5m" />
+                <Label
+                    Grid.Row="0"
+                    Grid.Column="3"
+                    FontAttributes="Bold"
+                    Text="10m" />
+                <Label
+                    Grid.Row="0"
+                    Grid.Column="4"
+                    FontAttributes="Bold"
+                    Text="30m" />
+
+                <!--  Compression Ratio  -->
+                <Label
+                    Grid.Row="1"
+                    Grid.Column="0"
+                    Text="Compression Ratio" />
+                <Label
+                    x:Name="LblComp1m"
+                    Grid.Row="1"
+                    Grid.Column="1"
+                    Text="-" />
+                <Label
+                    x:Name="LblComp5m"
+                    Grid.Row="1"
+                    Grid.Column="2"
+                    Text="-" />
+                <Label
+                    x:Name="LblComp10m"
+                    Grid.Row="1"
+                    Grid.Column="3"
+                    Text="-" />
+                <Label
+                    x:Name="LblComp30m"
+                    Grid.Row="1"
+                    Grid.Column="4"
+                    Text="-" />
+
+                <!--  Encryption Time  -->
+                <Label
+                    Grid.Row="2"
+                    Grid.Column="0"
+                    Text="Encryption Time (ms)" />
+                <Label
+                    x:Name="LblEnc1m"
+                    Grid.Row="2"
+                    Grid.Column="1"
+                    Text="-" />
+                <Label
+                    x:Name="LblEnc5m"
+                    Grid.Row="2"
+                    Grid.Column="2"
+                    Text="-" />
+                <Label
+                    x:Name="LblEnc10m"
+                    Grid.Row="2"
+                    Grid.Column="3"
+                    Text="-" />
+                <Label
+                    x:Name="LblEnc30m"
+                    Grid.Row="2"
+                    Grid.Column="4"
+                    Text="-" />
+
+                <!--  Decryption Time  -->
+                <Label
+                    Grid.Row="3"
+                    Grid.Column="0"
+                    Text="Decryption Time (ms)" />
+                <Label
+                    x:Name="LblDec1m"
+                    Grid.Row="3"
+                    Grid.Column="1"
+                    Text="-" />
+                <Label
+                    x:Name="LblDec5m"
+                    Grid.Row="3"
+                    Grid.Column="2"
+                    Text="-" />
+                <Label
+                    x:Name="LblDec10m"
+                    Grid.Row="3"
+                    Grid.Column="3"
+                    Text="-" />
+                <Label
+                    x:Name="LblDec30m"
+                    Grid.Row="3"
+                    Grid.Column="4"
+                    Text="-" />
+
+                <!--  Round Trip Time  -->
+                <Label
+                    Grid.Row="4"
+                    Grid.Column="0"
+                    Text="Round Trip Time (ms)" />
+                <Label
+                    x:Name="LblRtt1m"
+                    Grid.Row="4"
+                    Grid.Column="1"
+                    Text="-" />
+                <Label
+                    x:Name="LblRtt5m"
+                    Grid.Row="4"
+                    Grid.Column="2"
+                    Text="-" />
+                <Label
+                    x:Name="LblRtt10m"
+                    Grid.Row="4"
+                    Grid.Column="3"
+                    Text="-" />
+                <Label
+                    x:Name="LblRtt30m"
+                    Grid.Row="4"
+                    Grid.Column="4"
+                    Text="-" />
+            </Grid>
+
+            <Button Clicked="Button_Clicked" Text="Refresh Now" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

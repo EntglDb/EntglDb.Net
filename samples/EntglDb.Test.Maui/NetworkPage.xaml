@@ -3,39 +3,39 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="EntglDb.Test.Maui.NetworkPage"
              Title="Network">
-    <Grid RowDefinitions="Auto, *">
-        <!-- Node Info -->
-        <Frame Grid.Row="0" Margin="10" Padding="15" BackgroundColor="{AppThemeBinding Light=#f0f0f0, Dark=#1e1e1e}">
-            <VerticalStackLayout Spacing="5">
-                <Label Text="Local Node" FontAttributes="Bold" FontSize="18" />
-                <Label x:Name="NodeIdLabel" Text="ID: Loading..." LineBreakMode="TailTruncation" />
-                <Label x:Name="AddressLabel" Text="Address: Loading..." />
-            </VerticalStackLayout>
-        </Frame>
+  <Grid RowDefinitions="Auto, *">
+    <!-- Node Info -->
+    <Border Grid.Row="0" Margin="10" Padding="15" BackgroundColor="{AppThemeBinding Light=#f0f0f0, Dark=#1e1e1e}">
+      <VerticalStackLayout Spacing="5">
+        <Label Text="Local Node" FontAttributes="Bold" FontSize="18" />
+        <Label x:Name="NodeIdLabel" Text="ID: Loading..." LineBreakMode="TailTruncation" />
+        <Label x:Name="AddressLabel" Text="Address: Loading..." />
+      </VerticalStackLayout>
+    </Border>
 
-        <!-- Peers List -->
-        <RefreshView Grid.Row="1" x:Name="PeersRefreshView" Command="{Binding RefreshPeersCommand}">
-            <ScrollView>
-                <VerticalStackLayout Padding="10" Spacing="10">
-                    <Label Text="Active Peers" FontAttributes="Bold" Margin="0,10,0,5"/>
-                    <CollectionView x:Name="PeersCollectionView" ItemsSource="{Binding Peers}">
-                        <CollectionView.ItemTemplate>
-                            <DataTemplate>
-                                <Frame Padding="10" Margin="0,0,0,8" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
-                                    <VerticalStackLayout>
-                                        <Label Text="{Binding NodeId}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
-                                        <Label Text="{Binding Address}" FontSize="Small" TextColor="Gray" />
-                                        <Label Text="{Binding LastSeen, StringFormat='Last Seen: {0:HH:mm:ss}'}" FontSize="Micro" />
-                                    </VerticalStackLayout>
-                                </Frame>
-                            </DataTemplate>
-                        </CollectionView.ItemTemplate>
-                        <CollectionView.EmptyView>
-                            <Label Text="No peers discovered yet." HorizontalOptions="Center" VerticalOptions="Center" TextColor="Gray" Margin="0,20,0,0" />
-                        </CollectionView.EmptyView>
-                    </CollectionView>
-                </VerticalStackLayout>
-            </ScrollView>
-        </RefreshView>
-    </Grid>
+    <!-- Peers List -->
+    <RefreshView Grid.Row="1" x:Name="PeersRefreshView" Command="{Binding RefreshPeersCommand}">
+      <ScrollView>
+        <VerticalStackLayout Padding="10" Spacing="10">
+          <Label Text="Active Peers" FontAttributes="Bold" Margin="0,10,0,5"/>
+          <CollectionView x:Name="PeersCollectionView" ItemsSource="{Binding Peers}">
+            <CollectionView.ItemTemplate>
+              <DataTemplate>
+                <Frame Padding="10" Margin="0,0,0,8" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
+                  <VerticalStackLayout>
+                    <Label Text="{Binding NodeId}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                    <Label Text="{Binding Address}" FontSize="Small" TextColor="Gray" />
+                    <Label Text="{Binding LastSeen, StringFormat='Last Seen: {0:HH:mm:ss}'}" FontSize="Micro" />
+                  </VerticalStackLayout>
+                </Frame>
+              </DataTemplate>
+            </CollectionView.ItemTemplate>
+            <CollectionView.EmptyView>
+              <Label Text="No peers discovered yet." HorizontalOptions="Center" VerticalOptions="Center" TextColor="Gray" Margin="0,20,0,0" />
+            </CollectionView.EmptyView>
+          </CollectionView>
+        </VerticalStackLayout>
+      </ScrollView>
+    </RefreshView>
+  </Grid>
 </ContentPage>

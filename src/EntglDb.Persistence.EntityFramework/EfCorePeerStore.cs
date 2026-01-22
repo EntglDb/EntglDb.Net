@@ -24,6 +24,17 @@ public class EfCorePeerStore : IPeerStore
     protected readonly EntglDbContext _context;
     protected readonly ILogger<EfCorePeerStore> _logger;
     protected readonly IConflictResolver _conflictResolver;
+    
+    // Per-node cache: tracks latest timestamp and hash for each node
+    private readonly object _cacheLock = new object();
+    private readonly Dictionary<string, NodeCacheEntry> _nodeCache = new Dictionary<string, NodeCacheEntry>(StringComparer.Ordinal);
+    private bool _cacheInitialized = false;
+    
+    private class NodeCacheEntry
+    {
+        public HlcTimestamp Timestamp { get; set; }
+        public string Hash { get; set; } = "";
+    }
 
     public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
@@ -38,6 +49,48 @@ public class EfCorePeerStore : IPeerStore
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _logger = logger ?? NullLogger<EfCorePeerStore>.Instance;
         _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
+    }
+
+    private async Task EnsureCacheInitializedAsync(CancellationToken cancellationToken = default)
+    {
+        if (_cacheInitialized) return;
+
+        lock (_cacheLock)
+        {
+            if (_cacheInitialized) return;
+
+            // Query latest entry per node
+            var latestPerNode = _context.Oplog
+                .GroupBy(o => o.TimestampNodeId)
+                .Select(g => new
+                {
+                    NodeId = g.Key,
+                    MaxEntry = g.OrderByDescending(o => o.TimestampPhysicalTime)
+                                .ThenByDescending(o => o.TimestampLogicalCounter)
+                                .FirstOrDefault()
+                })
+                .Where(x => x.MaxEntry != null)
+                .ToList();
+
+            _nodeCache.Clear();
+            foreach (var node in latestPerNode)
+            {
+                if (node.MaxEntry != null)
+                {
+                    _nodeCache[node.NodeId] = new NodeCacheEntry
+                    {
+                        Timestamp = new HlcTimestamp(
+                            node.MaxEntry.TimestampPhysicalTime,
+                            node.MaxEntry.TimestampLogicalCounter,
+                            node.MaxEntry.TimestampNodeId),
+                        Hash = node.MaxEntry.Hash ?? ""
+                    };
+                }
+            }
+
+            _cacheInitialized = true;
+            _logger.LogInformation("Node cache initialized with {Count} nodes", _nodeCache.Count);
+        }
     }
 
     public async Task SaveDocumentAsync(Document document, CancellationToken cancellationToken = default)
@@ -96,11 +149,27 @@ public class EfCorePeerStore : IPeerStore
             PayloadJson = entry.Payload?.GetRawText(),
             TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
             TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
-            TimestampNodeId = entry.Timestamp.NodeId
+            TimestampNodeId = entry.Timestamp.NodeId,
+            Hash = entry.Hash,
+            PreviousHash = entry.PreviousHash
         };
 
         _context.Oplog.Add(entity);
         await _context.SaveChangesAsync(cancellationToken);
+
+        // Update cache
+        lock (_cacheLock)
+        {
+            var nodeId = entry.Timestamp.NodeId;
+            if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = entry.Timestamp,
+                    Hash = entry.Hash ?? ""
+                };
+            }
+        }
     }
 
     public async Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, CancellationToken cancellationToken = default)
@@ -118,24 +187,161 @@ public class EfCorePeerStore : IPeerStore
             e.Key,
             (OperationType)e.Operation,
             string.IsNullOrEmpty(e.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
-            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId)
+            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId),
+            e.PreviousHash ?? "",
+            e.Hash
         ));
     }
 
     public async Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
     {
+        await EnsureCacheInitializedAsync(cancellationToken);
+
+        lock (_cacheLock)
+        {
+            if (_nodeCache.Count == 0)
+            {
+                return new HlcTimestamp(0, 0, "");
+            }
+
+            var maxTimestamp = _nodeCache.Values
+                .Select(e => e.Timestamp)
+                .OrderByDescending(t => t)
+                .First();
+
+            return maxTimestamp;
+        }
+    }
+
+    public async Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheInitializedAsync(cancellationToken);
+
+        lock (_cacheLock)
+        {
+            var vectorClock = new VectorClock();
+            foreach (var kvp in _nodeCache)
+            {
+                vectorClock.SetTimestamp(kvp.Key, kvp.Value.Timestamp);
+            }
+            return vectorClock;
+        }
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default)
+    {
+        var entities = await _context.Oplog
+            .Where(o => o.TimestampNodeId == nodeId &&
+                       ((o.TimestampPhysicalTime > since.PhysicalTime) ||
+                        (o.TimestampPhysicalTime == since.PhysicalTime && o.TimestampLogicalCounter > since.LogicalCounter)))
+            .OrderBy(o => o.TimestampPhysicalTime)
+            .ThenBy(o => o.TimestampLogicalCounter)
+            .ToListAsync(cancellationToken);
+
+        return entities.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            (OperationType)e.Operation,
+            string.IsNullOrEmpty(e.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
+            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId),
+            e.PreviousHash ?? "",
+            e.Hash
+        ));
+    }
+
+    public async Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheInitializedAsync(cancellationToken);
+
+        // Try cache first
+        lock (_cacheLock)
+        {
+            if (_nodeCache.TryGetValue(nodeId, out var entry))
+            {
+                return entry.Hash;
+            }
+        }
+
+        // Cache miss - query database
         var latest = await _context.Oplog
+            .Where(o => o.TimestampNodeId == nodeId)
             .OrderByDescending(o => o.TimestampPhysicalTime)
             .ThenByDescending(o => o.TimestampLogicalCounter)
+            .Select(o => new { o.Hash, o.TimestampPhysicalTime, o.TimestampLogicalCounter })
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (latest == null)
-            return new HlcTimestamp(0, 0, "");
+        if (latest != null)
+        {
+            // Update cache
+            lock (_cacheLock)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = new HlcTimestamp(latest.TimestampPhysicalTime, latest.TimestampLogicalCounter, nodeId),
+                    Hash = latest.Hash ?? ""
+                };
+            }
+        }
+            
+        return latest?.Hash;
+    }
 
-        return new HlcTimestamp(
-            latest.TimestampPhysicalTime,
-            latest.TimestampLogicalCounter,
-            latest.TimestampNodeId);
+    public async Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        var entity = await _context.Oplog
+            .FirstOrDefaultAsync(o => o.Hash == hash, cancellationToken);
+            
+        if (entity == null) return null;
+        
+        return new OplogEntry(
+            entity.Collection,
+            entity.Key,
+            (OperationType)entity.Operation,
+            string.IsNullOrEmpty(entity.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(entity.PayloadJson),
+            new HlcTimestamp(entity.TimestampPhysicalTime, entity.TimestampLogicalCounter, entity.TimestampNodeId),
+            entity.PreviousHash ?? "",
+            entity.Hash
+        );
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default)
+    {
+        // 1. Fetch bounds to identify the chain and range
+        var startRow = await _context.Oplog
+            .Where(o => o.Hash == startHash)
+            .Select(o => new { o.TimestampPhysicalTime, o.TimestampLogicalCounter, o.TimestampNodeId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var endRow = await _context.Oplog
+            .Where(o => o.Hash == endHash)
+            .Select(o => new { o.TimestampPhysicalTime, o.TimestampLogicalCounter, o.TimestampNodeId })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (startRow == null || endRow == null) return Enumerable.Empty<OplogEntry>();
+        if (startRow.TimestampNodeId != endRow.TimestampNodeId) return Enumerable.Empty<OplogEntry>();
+        
+        var nodeId = startRow.TimestampNodeId;
+
+        // 2. Fetch range (Start < Entry <= End)
+        var entities = await _context.Oplog
+            .Where(o => o.TimestampNodeId == nodeId &&
+                       ((o.TimestampPhysicalTime > startRow.TimestampPhysicalTime) ||
+                        (o.TimestampPhysicalTime == startRow.TimestampPhysicalTime && o.TimestampLogicalCounter > startRow.TimestampLogicalCounter)) &&
+                       ((o.TimestampPhysicalTime < endRow.TimestampPhysicalTime) ||
+                        (o.TimestampPhysicalTime == endRow.TimestampPhysicalTime && o.TimestampLogicalCounter <= endRow.TimestampLogicalCounter)))
+            .OrderBy(o => o.TimestampPhysicalTime)
+            .ThenBy(o => o.TimestampLogicalCounter)
+            .ToListAsync(cancellationToken);
+
+        return entities.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            (OperationType)e.Operation,
+            string.IsNullOrEmpty(e.PayloadJson) ? null : JsonSerializer.Deserialize<JsonElement>(e.PayloadJson),
+            new HlcTimestamp(e.TimestampPhysicalTime, e.TimestampLogicalCounter, e.TimestampNodeId),
+            e.PreviousHash ?? "",
+            e.Hash
+        ));
     }
 
     public async Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
@@ -197,7 +403,9 @@ public class EfCorePeerStore : IPeerStore
                     PayloadJson = entry.Payload?.GetRawText(),
                     TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
                     TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
-                    TimestampNodeId = entry.Timestamp.NodeId
+                    TimestampNodeId = entry.Timestamp.NodeId,
+                    Hash = entry.Hash,
+                    PreviousHash = entry.PreviousHash
                 };
                 _context.Oplog.Add(oplogEntity);
             }
@@ -208,10 +416,27 @@ public class EfCorePeerStore : IPeerStore
             try
             {
                 ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
+
+                // Update cache for all entries
+                lock (_cacheLock)
+                {
+                    foreach (var entry in oplogEntries)
+                    {
+                        var nodeId = entry.Timestamp.NodeId;
+                        if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
+                        {
+                            _nodeCache[nodeId] = new NodeCacheEntry
+                            {
+                                Timestamp = entry.Timestamp,
+                                Hash = entry.Hash ?? ""
+                            };
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling ChangesApplied event");
+                _logger.LogError(ex, "Error handling ChangesApplied event or updating cache");
             }
         }
         catch

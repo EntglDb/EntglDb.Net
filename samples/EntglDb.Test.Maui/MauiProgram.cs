@@ -46,6 +46,8 @@ public static class MauiProgram
         builder.Services.AddTransient<NetworkPage>();
         builder.Services.AddTransient<DatabasePage>();
         builder.Services.AddTransient<LogsPage>();
+        builder.Services.AddTransient<PayloadExchangePage>();
+        builder.Services.AddTransient<TelemetryPage>();
 
         // Logging
         var logs = new System.Collections.Concurrent.ConcurrentQueue<LogEntry>();
@@ -60,11 +62,19 @@ public static class MauiProgram
 			builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
 		}
 
+        // Create/Retrieve Persistent Node Id
+        var nodeId = Preferences.Default.Get("NodeId", string.Empty);
+        if (string.IsNullOrEmpty(nodeId) || nodeId.StartsWith("Maui"))
+        {
+            nodeId = Guid.NewGuid().ToString();
+            Preferences.Default.Set("NodeId", nodeId);
+        }
+
 		IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
 		{
-			NodeId = "MauiAppNode",
+			NodeId = $"CHANGEME-{nodeId}",
             TcpPort = 5001,
-			AuthToken = "RK544E50Q4HR43ECA2D6YXC4KC"
+			AuthToken = "Test-Cluster-Key"
         });	
 
 		builder.Services.AddSingleton(peerNodeConfigurationProvider);

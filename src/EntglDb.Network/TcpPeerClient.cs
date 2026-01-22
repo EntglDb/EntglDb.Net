@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using EntglDb.Core;
 using EntglDb.Network.Proto;
 using EntglDb.Network.Security;
+using EntglDb.Network.Protocol;
+using EntglDb.Network.Telemetry;
 
 namespace EntglDb.Network;
 
@@ -29,6 +31,8 @@ public class TcpPeerClient : IDisposable
     private const int ConnectionTimeoutMs = 5000;
     private const int OperationTimeoutMs = 30000;
 
+    private readonly ProtocolHandler _protocol;
+
     public bool IsConnected
     {
         get
@@ -42,12 +46,16 @@ public class TcpPeerClient : IDisposable
     
     public bool HasHandshaked { get; private set; }
 
-    public TcpPeerClient(string peerAddress, ILogger logger, IPeerHandshakeService? handshakeService = null)
+    private readonly INetworkTelemetryService? _telemetry;
+
+    public TcpPeerClient(string peerAddress, ILogger logger, IPeerHandshakeService? handshakeService = null, INetworkTelemetryService? telemetry = null)
     {
         _client = new TcpClient();
         _peerAddress = peerAddress;
         _logger = logger;
         _handshakeService = handshakeService;
+        _telemetry = telemetry;
+        _protocol = new ProtocolHandler(logger, telemetry);
     }
 
     public async Task ConnectAsync(CancellationToken token)
@@ -135,9 +143,12 @@ public class TcpPeerClient : IDisposable
             req.SupportedCompression.Add("brotli");
         }
 
-        await SendMessageAsync(MessageType.HandshakeReq, req);
+        _logger.LogDebug("Sending HandshakeReq to {Address}", _peerAddress);
+        await _protocol.SendMessageAsync(_stream!, MessageType.HandshakeReq, req, false, _cipherState, token);
 
-        var (type, payload) = await ReadMessageAsync(token);
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        _logger.LogDebug("Received Handshake response type: {Type}", type);
+        
         if (type != MessageType.HandshakeRes) return false;
 
         var res = HandshakeResponse.Parser.ParseFrom(payload);
@@ -158,13 +169,40 @@ public class TcpPeerClient : IDisposable
     /// </summary>
     public async Task<HlcTimestamp> GetClockAsync(CancellationToken token)
     {
-        await SendMessageAsync(MessageType.GetClockReq, new GetClockRequest());
+        using (_telemetry?.StartMetric(MetricType.RoundTripTime))
+        {
+            await _protocol.SendMessageAsync(_stream!, MessageType.GetClockReq, new GetClockRequest(), _useCompression, _cipherState, token);
 
-        var (type, payload) = await ReadMessageAsync(token);
-        if (type != MessageType.ClockRes) throw new Exception("Unexpected response");
+            var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+            if (type != MessageType.ClockRes) throw new Exception("Unexpected response");
 
-        var res = ClockResponse.Parser.ParseFrom(payload);
-        return new HlcTimestamp(res.HlcWall, res.HlcLogic, res.HlcNode);
+            var res = ClockResponse.Parser.ParseFrom(payload);
+            return new HlcTimestamp(res.HlcWall, res.HlcLogic, res.HlcNode);
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the remote peer's vector clock (latest timestamp per node).
+    /// </summary>
+    public async Task<VectorClock> GetVectorClockAsync(CancellationToken token)
+    {
+        using (_telemetry?.StartMetric(MetricType.RoundTripTime))
+        {
+            await _protocol.SendMessageAsync(_stream!, MessageType.GetVectorClockReq, new GetVectorClockRequest(), _useCompression, _cipherState, token);
+
+            var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+            if (type != MessageType.VectorClockRes) throw new Exception("Unexpected response");
+
+            var res = VectorClockResponse.Parser.ParseFrom(payload);
+            var vectorClock = new VectorClock();
+
+            foreach (var entry in res.Entries)
+            {
+                vectorClock.SetTimestamp(entry.NodeId, new HlcTimestamp(entry.HlcWall, entry.HlcLogic, entry.NodeId));
+            }
+
+            return vectorClock;
+        }
     }
 
     /// <summary>
@@ -178,9 +216,9 @@ public class TcpPeerClient : IDisposable
             SinceLogic = since.LogicalCounter,
             SinceNode = since.NodeId
         };
-        await SendMessageAsync(MessageType.PullChangesReq, req);
+        await _protocol.SendMessageAsync(_stream!, MessageType.PullChangesReq, req, _useCompression, _cipherState, token);
 
-        var (type, payload) = await ReadMessageAsync(token);
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
         if (type != MessageType.ChangeSetRes) throw new Exception("Unexpected response");
 
         var res = ChangeSetResponse.Parser.ParseFrom(payload);
@@ -190,7 +228,62 @@ public class TcpPeerClient : IDisposable
             e.Key,
             ParseOp(e.Operation),
             string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode)
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.PreviousHash,
+            e.Hash // Pass the received hash to preserve integrity reference
+        )).ToList();
+    }
+
+    /// <summary>
+    /// Pulls oplog changes for a specific node from the remote peer since the specified timestamp.
+    /// </summary>
+    public async Task<List<OplogEntry>> PullChangesFromNodeAsync(string nodeId, HlcTimestamp since, CancellationToken token)
+    {
+        var req = new PullChangesRequest
+        {
+            SinceNode = nodeId,
+            SinceWall = since.PhysicalTime,
+            SinceLogic = since.LogicalCounter
+        };
+        await _protocol.SendMessageAsync(_stream!, MessageType.PullChangesReq, req, _useCompression, _cipherState, token);
+
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        if (type != MessageType.ChangeSetRes) throw new Exception("Unexpected response");
+
+        var res = ChangeSetResponse.Parser.ParseFrom(payload);
+
+        return res.Entries.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            ParseOp(e.Operation),
+            string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.PreviousHash,
+            e.Hash
+        )).ToList();
+    }
+
+    /// <summary>
+    /// Retrieves a range of oplog entries connecting two hashes (Gap Recovery).
+    /// </summary>
+    public async Task<List<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken token)
+    {
+        var req = new GetChainRangeRequest { StartHash = startHash, EndHash = endHash };
+        await _protocol.SendMessageAsync(_stream!, MessageType.GetChainRangeReq, req, _useCompression, _cipherState, token);
+
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        if (type != MessageType.ChainRangeRes) throw new Exception($"Unexpected response for ChainRange: {type}");
+
+        var res = ChainRangeResponse.Parser.ParseFrom(payload);
+
+        return res.Entries.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            ParseOp(e.Operation),
+            string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.PreviousHash,
+            e.Hash
         )).ToList();
     }
 
@@ -213,141 +306,19 @@ public class TcpPeerClient : IDisposable
                 JsonData = e.Payload?.GetRawText() ?? "",
                 HlcWall = e.Timestamp.PhysicalTime,
                 HlcLogic = e.Timestamp.LogicalCounter,
-                HlcNode = e.Timestamp.NodeId
+                HlcNode = e.Timestamp.NodeId,
+                Hash = e.Hash,
+                PreviousHash = e.PreviousHash
             });
         }
 
-        await SendMessageAsync(MessageType.PushChangesReq, req);
+        await _protocol.SendMessageAsync(_stream!, MessageType.PushChangesReq, req, _useCompression, _cipherState, token);
 
-        var (type, payload) = await ReadMessageAsync(token);
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
         if (type != MessageType.AckRes) throw new Exception("Push failed");
     }
 
     private bool _useCompression = false; // Negotiated after handshake
-
-    private async Task SendMessageAsync(MessageType type, IMessage message)
-    {
-        if (_stream == null) throw new InvalidOperationException("Not connected");
-
-        byte[] payloadBytes = message.ToByteArray();
-        byte compressionFlag = 0x00; // None
-
-        // 1. Compress (if enabled and large)
-        // Note: We don't compress Handshake/SecureEnv messages themselves, only the inner payload if feasible.
-        // But here 'type' is the logical type.
-        // If we are about to Encrypt, we compress FIRST.
-
-        if (_useCompression && payloadBytes.Length > CompressionHelper.THRESHOLD && type != MessageType.SecureEnv)
-        {
-            payloadBytes = CompressionHelper.Compress(payloadBytes);
-            compressionFlag = 0x01; // Brotli
-        }
-
-        // 2. Encrypt
-        if (_cipherState != null)
-        {
-            // Inner format: [Type (1)] [Compression (1)] [Payload (N)]
-            var dataToEncrypt = new byte[2 + payloadBytes.Length];
-            dataToEncrypt[0] = (byte)type;
-            dataToEncrypt[1] = compressionFlag;
-            Buffer.BlockCopy(payloadBytes, 0, dataToEncrypt, 2, payloadBytes.Length);
-
-            var (ciphertext, iv, tag) = CryptoHelper.Encrypt(dataToEncrypt, _cipherState.EncryptKey);
-
-            var env = new SecureEnvelope
-            {
-                Ciphertext = ByteString.CopyFrom(ciphertext),
-                Nonce = ByteString.CopyFrom(iv),
-                AuthTag = ByteString.CopyFrom(tag)
-            };
-
-            payloadBytes = env.ToByteArray();
-            type = MessageType.SecureEnv;
-            compressionFlag = 0x00; // Outer envelope is not compressed
-        }
-
-        // 3. Framing: [Length (4)] [Type (1)] [Compression (1)] [Payload (N)]
-        // We are adding Compression byte to the wire frame as well for symmetry/unencrypted scenarios.
-
-        var length = BitConverter.GetBytes(payloadBytes.Length);
-
-        await _stream.WriteAsync(length, 0, 4);
-        _stream.WriteByte((byte)type);
-        _stream.WriteByte(compressionFlag); // v0.7.0 addition
-        await _stream.WriteAsync(payloadBytes, 0, payloadBytes.Length);
-    }
-
-    private async Task<(MessageType, byte[])> ReadMessageAsync(CancellationToken token)
-    {
-        if (_stream == null) throw new InvalidOperationException("Not connected");
-
-        var lenBuf = new byte[4];
-        int read = await ReadExactAsync(lenBuf, 0, 4, token);
-        if (read == 0) throw new Exception("Connection closed");
-
-        int length = BitConverter.ToInt32(lenBuf, 0);
-
-        int typeByte = _stream.ReadByte();
-        if (typeByte == -1) throw new Exception("Connection closed");
-
-        int compByte = _stream.ReadByte(); // v0.7.0
-        if (compByte == -1) throw new Exception("Connection closed (missing comp flag)");
-
-        var payload = new byte[length];
-        await ReadExactAsync(payload, 0, length, token);
-
-        var msgType = (MessageType)typeByte;
-
-        // Handle Secure Envelope
-        if (msgType == MessageType.SecureEnv)
-        {
-            if (_cipherState == null) throw new Exception("Received encrypted message but no cipher state established");
-
-            var env = SecureEnvelope.Parser.ParseFrom(payload);
-            var decrypted = CryptoHelper.Decrypt(
-                env.Ciphertext.ToByteArray(),
-                env.Nonce.ToByteArray(),
-                env.AuthTag.ToByteArray(),
-                _cipherState.DecryptKey);
-
-            // Decrypted data format: [Type (1)] [Compression (1)] [Payload (N)]
-            if (decrypted.Length < 2) throw new Exception("Decrypted payload too short");
-
-            msgType = (MessageType)decrypted[0];
-            int innerComp = decrypted[1];
-
-            var innerPayload = new byte[decrypted.Length - 2];
-            Buffer.BlockCopy(decrypted, 2, innerPayload, 0, innerPayload.Length);
-
-            // Decompress inner payload if needed
-            if (innerComp == 0x01)
-            {
-                innerPayload = CompressionHelper.Decompress(innerPayload);
-            }
-
-            return (msgType, innerPayload);
-        }
-
-        // Handle Unencrypted Compression (unlikely for business data but possible for handshake/errors)
-        if (compByte == 0x01)
-        {
-            payload = CompressionHelper.Decompress(payload);
-        }
-
-        return (msgType, payload);
-    }
-
-    private async Task<int> ReadExactAsync(byte[] buffer, int offset, int count, CancellationToken token)
-    {
-        int total = 0;
-        while (total < count)
-        {
-            int read = await _stream!.ReadAsync(buffer, offset + total, count - total, token);
-            if (read == 0) return 0; // EOF
-            total += read;
-        }
-        return total;
-    }
 
     private OperationType ParseOp(string op) => Enum.TryParse<OperationType>(op, out var val) ? val : OperationType.Put;
 

@@ -16,7 +16,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings Condition="'$(TargetFramework)' == 'net6.0'">enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.8.1</Version>
+    <Version>0.8.3</Version>
     <Authors>MrDevRobot</Authors>
     <Description>SQLite persistence provider for EntglDb.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

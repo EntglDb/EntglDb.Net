@@ -29,7 +29,7 @@ public class ConflictResolutionBenchmarks
 
         // Simple Case
         _docSimple = new Document("c", "k1", JsonDocument.Parse("{\"name\":\"A\", \"val\":1}").RootElement, ts1, false);
-        _opSimple = new OplogEntry("c", "k1", OperationType.Put, JsonDocument.Parse("{\"name\":\"A\", \"val\":2}").RootElement, ts2);
+        _opSimple = new OplogEntry("c", "k1", OperationType.Put, JsonDocument.Parse("{\"name\":\"A\", \"val\":2}").RootElement, ts2, string.Empty);
 
         // Large Array (Object Keyed)
         var items1 = new List<object>();
@@ -50,7 +50,7 @@ public class ConflictResolutionBenchmarks
         var json2 = JsonSerializer.Serialize(new { items = items2 });
 
         _docArray1000 = new Document("c", "k2", JsonDocument.Parse(json1).RootElement, ts1, false);
-        _opArray1000 = new OplogEntry("c", "k2", OperationType.Put, JsonDocument.Parse(json2).RootElement, ts2);
+        _opArray1000 = new OplogEntry("c", "k2", OperationType.Put, JsonDocument.Parse(json2).RootElement, ts2, string.Empty);
     }
 
     [Benchmark]

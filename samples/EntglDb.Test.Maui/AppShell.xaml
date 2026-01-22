@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:EntglDb.Test.Maui"
     Title="EntglDb Mobile">
-    
+
     <TabBar>
         <Tab Title="Network">
             <ShellContent ContentTemplate="{DataTemplate local:NetworkPage}" Route="NetworkPage" />
@@ -15,6 +15,12 @@
         </Tab>
         <Tab Title="Logs">
             <ShellContent ContentTemplate="{DataTemplate local:LogsPage}" Route="LogsPage" />
+        </Tab>
+        <Tab Title="Payload">
+            <ShellContent ContentTemplate="{DataTemplate local:PayloadExchangePage}" Route="PayloadExchangePage" />
+        </Tab>
+        <Tab Title="Telemetry">
+            <ShellContent ContentTemplate="{DataTemplate local:TelemetryPage}" Route="TelemetryPage" />
         </Tab>
     </TabBar>
 
