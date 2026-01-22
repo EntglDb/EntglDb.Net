@@ -59,6 +59,27 @@ public class PeerCollectionTests
             return Task.FromResult(_latestTimestamp);
         }
 
+        public Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default)
+        {
+            var vectorClock = new VectorClock();
+            var nodeGroups = _oplog.GroupBy(e => e.Timestamp.NodeId);
+            
+            foreach (var group in nodeGroups)
+            {
+                var latest = group.OrderByDescending(e => e.Timestamp).First();
+                vectorClock.SetTimestamp(group.Key, latest.Timestamp);
+            }
+            
+            return Task.FromResult(vectorClock);
+        }
+
+        public async Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default)
+        {
+            return [.. _oplog
+                .Where(e => e.Timestamp.NodeId == nodeId && e.Timestamp.CompareTo(since) > 0)
+                .OrderBy(e => e.Timestamp)];
+        }
+
         public Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
         {
             var last = _oplog

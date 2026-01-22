@@ -298,6 +298,23 @@ internal class TcpSyncServer : ISyncServer
                             resType = MessageType.ClockRes;
                             break;
 
+                        case MessageType.GetVectorClockReq:
+                            var vectorClock = await _store.GetVectorClockAsync(token);
+                            var vcRes = new VectorClockResponse();
+                            foreach (var nodeId in vectorClock.NodeIds)
+                            {
+                                var ts = vectorClock.GetTimestamp(nodeId);
+                                vcRes.Entries.Add(new VectorClockEntry
+                                {
+                                    NodeId = nodeId,
+                                    HlcWall = ts.PhysicalTime,
+                                    HlcLogic = ts.LogicalCounter
+                                });
+                            }
+                            response = vcRes;
+                            resType = MessageType.VectorClockRes;
+                            break;
+
                         case MessageType.PullChangesReq:
                             var pReq = PullChangesRequest.Parser.ParseFrom(payload);
                             var since = new HlcTimestamp(pReq.SinceWall, pReq.SinceLogic, pReq.SinceNode);

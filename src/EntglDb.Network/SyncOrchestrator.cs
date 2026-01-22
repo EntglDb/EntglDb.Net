@@ -169,8 +169,8 @@ public class SyncOrchestrator : ISyncOrchestrator
 
     /// <summary>
     /// Attempts to synchronize with a specific peer.
-    /// Performs handshake, clock comparison, and data exchange (Push/Pull).
-    /// Refactored to handle bi-directional sync (convergence) and cleaner validation.
+    /// Uses Vector Clock comparison to determine what to pull/push for each node.
+    /// Performs handshake, vector clock exchange, and data exchange (Push/Pull per node).
     /// </summary>
     private async Task TrySyncWithPeer(PeerNode peer, CancellationToken token)
     {
@@ -202,39 +202,67 @@ public class SyncOrchestrator : ISyncOrchestrator
                 return;
             }
 
-            // 1. Anti-Entropy (Get Clock)
-            var remoteClock = await client.GetClockAsync(token);
-            var localClock = await _store.GetLatestTimestampAsync(token);
+            // 1. Exchange Vector Clocks
+            var remoteVectorClock = await client.GetVectorClockAsync(token);
+            var localVectorClock = await _store.GetVectorClockAsync(token);
 
-            // 2. Determine Sync Direction (Bi-directional check for convergence)
-            // Note: Standard CompareTo usually returns > 0 if strict, but for VectorClocks we must handle concurrency.
-            // We separate the checks to allow PULL and PUSH in the same session if clocks are concurrent.
+            _logger.LogDebug("Vector Clock - Local: {Local}, Remote: {Remote}", localVectorClock, remoteVectorClock);
 
-            bool remoteHasUpdates = remoteClock.CompareTo(localClock) > 0;
-            bool localHasUpdates = localClock.CompareTo(remoteClock) > 0;
-            bool areConcurrentOrEqual = !remoteHasUpdates && !localHasUpdates;
+            // 2. Determine causality relationship
+            var causality = localVectorClock.CompareTo(remoteVectorClock);
 
-            // PULL: If remote is strictly ahead OR if we are concurrent (diverged)
-            if (remoteHasUpdates || (areConcurrentOrEqual && !remoteClock.Equals(localClock)))
+            // 3. PULL: Identify nodes where remote is ahead
+            var nodesToPull = localVectorClock.GetNodesWithUpdates(remoteVectorClock).ToList();
+            if (nodesToPull.Any())
             {
-                _logger.LogInformation("Pulling changes from {NodeId} (Remote: {Remote}, Local: {Local})", peer.NodeId, remoteClock, localClock);
+                _logger.LogInformation("Pulling changes from {PeerNodeId} for {Count} nodes: {Nodes}",
+                    peer.NodeId, nodesToPull.Count, string.Join(", ", nodesToPull));
 
-                var changes = await client.PullChangesAsync(localClock, token);
-                if (changes != null && changes.Count > 0)
+                foreach (var nodeId in nodesToPull)
                 {
-                    await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
+                    var localTs = localVectorClock.GetTimestamp(nodeId);
+                    var remoteTs = remoteVectorClock.GetTimestamp(nodeId);
+
+                    _logger.LogDebug("Pulling Node {NodeId}: Local={LocalTs}, Remote={RemoteTs}",
+                        nodeId, localTs, remoteTs);
+
+                    var changes = await client.PullChangesFromNodeAsync(nodeId, localTs, token);
+                    if (changes != null && changes.Count > 0)
+                    {
+                        await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
+                    }
                 }
             }
 
-            // PUSH: If local is strictly ahead OR if we are concurrent (diverged)
-            if (localHasUpdates || (areConcurrentOrEqual && !remoteClock.Equals(localClock)))
+            // 4. PUSH: Identify nodes where local is ahead
+            var nodesToPush = localVectorClock.GetNodesToPush(remoteVectorClock).ToList();
+            if (nodesToPush.Any())
             {
-                _logger.LogInformation("Pushing changes to {NodeId}", peer.NodeId);
-                var changes = await _store.GetOplogAfterAsync(remoteClock, token);
-                if (changes != null && changes.Any())
+                _logger.LogInformation("Pushing changes to {PeerNodeId} for {Count} nodes: {Nodes}",
+                    peer.NodeId, nodesToPush.Count, string.Join(", ", nodesToPush));
+
+                foreach (var nodeId in nodesToPush)
                 {
-                    await client.PushChangesAsync(changes, token);
+                    var remoteTs = remoteVectorClock.GetTimestamp(nodeId);
+                    var changes = await _store.GetOplogForNodeAfterAsync(nodeId, remoteTs, token);
+
+                    var changesList = changes.ToList();
+                    if (changesList.Any())
+                    {
+                        _logger.LogDebug("Pushing {Count} changes for Node {NodeId}", changesList.Count, nodeId);
+                        await client.PushChangesAsync(changesList, token);
+                    }
                 }
+            }
+
+            // 5. Handle Concurrent/Equal cases
+            if (causality == CausalityRelation.Equal)
+            {
+                _logger.LogDebug("Vector clocks are equal with {PeerNodeId}. No sync needed.", peer.NodeId);
+            }
+            else if (causality == CausalityRelation.Concurrent && !nodesToPull.Any() && !nodesToPush.Any())
+            {
+                _logger.LogDebug("Vector clocks are concurrent with {PeerNodeId}, but no divergence detected.", peer.NodeId);
             }
         }
         catch (TimeoutException tex)
@@ -287,7 +315,10 @@ public class SyncOrchestrator : ISyncOrchestrator
         foreach (var group in changesByNode)
         {
             var authorNodeId = group.Key;
-            var authorChain = group.OrderBy(c => c.Timestamp.LogicalCounter).ToList();
+
+            // FIX: Order by the full Timestamp (Physical + Logical), not just LogicalCounter.
+            // LogicalCounter resets when PhysicalTime advances, so sorting by Counter alone breaks chronological order.
+            var authorChain = group.OrderBy(c => c.Timestamp).ToList();
 
             // Check linkage within the batch
             for (int i = 1; i < authorChain.Count; i++)
@@ -301,6 +332,9 @@ public class SyncOrchestrator : ISyncOrchestrator
             // Check linkage with Local State
             var firstEntry = authorChain[0];
             var localHeadHash = await _store.GetLastEntryHashAsync(authorNodeId, token);
+
+            _logger.LogDebug("Processing chain for Node {AuthorId}: FirstEntry.PrevHash={PrevHash}, FirstEntry.Hash={Hash}, LocalHeadHash={LocalHead}",
+                authorNodeId, firstEntry.PreviousHash, firstEntry.Hash, localHeadHash ?? "(null)");
 
             if (localHeadHash != null && firstEntry.PreviousHash != localHeadHash)
             {
@@ -331,8 +365,18 @@ public class SyncOrchestrator : ISyncOrchestrator
                 }
                 else
                 {
-                    // Fail hard or soft depending on policy. Hard fail protects consistency.
-                    throw new InvalidOperationException($"Could not recover gap for Node {authorNodeId}. Peer might not have history.");
+                    // Gap recovery failed. This can happen if:
+                    // 1. This is actually our first contact with this node's history
+                    // 2. The peer doesn't have the full history
+                    // 3. There's a true gap that cannot be recovered
+                    
+                    // DECISION: Accept the entries anyway but log a warning
+                    // This allows forward progress even with partial history
+                    _logger.LogWarning("Could not recover gap for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Accepting entries anyway (partial sync).",
+                        authorNodeId, localHeadHash, firstEntry.PreviousHash);
+                    
+                    // Optionally: Mark this as a partial sync in metadata
+                    // For now, we proceed and let the chain continue from this point
                 }
             }
             else if (localHeadHash == null && !string.IsNullOrEmpty(firstEntry.PreviousHash))
@@ -340,9 +384,9 @@ public class SyncOrchestrator : ISyncOrchestrator
                 // Implicit Accept / Partial Sync warning
                 _logger.LogWarning("First contact with Node {AuthorId} at explicit state (Not Genesis). Accepting.", authorNodeId);
             }
-        }
 
-        // Apply original batch
-        await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), changes, token);
+            // Apply original batch (grouped by node for clarity, but store usually handles bulk)
+            await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), authorChain, token);
+        }
     }
 }

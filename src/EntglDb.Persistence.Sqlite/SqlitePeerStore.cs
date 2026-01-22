@@ -31,7 +31,15 @@ public class SqlitePeerStore : IPeerStore
     private readonly HashSet<string> _createdTables = new HashSet<string>();
     private readonly object _tableLock = new object();
     private readonly object _cacheLock = new object();
-    private HlcTimestamp _cachedTimestamp = new HlcTimestamp(0, 0, "");
+    
+    // Per-node cache: tracks latest timestamp and hash for each node
+    private readonly Dictionary<string, NodeCacheEntry> _nodeCache = new Dictionary<string, NodeCacheEntry>(StringComparer.Ordinal);
+    
+    private class NodeCacheEntry
+    {
+        public HlcTimestamp Timestamp { get; set; }
+        public string Hash { get; set; } = "";
+    }
 
     public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
@@ -146,9 +154,9 @@ public class SqlitePeerStore : IPeerStore
                 _logger.LogInformation("Initialized with per-collection table mode");
             }
             
-            // Initialize cached timestamp
-            _cachedTimestamp = GetLatestTimestampInternal(connection);
-            _logger.LogInformation("Cached HLC Timestamp initialized to: {Timestamp}", _cachedTimestamp);
+            // Initialize node cache from database
+            InitializeNodeCache(connection);
+            _logger.LogInformation("Node cache initialized with {Count} nodes", _nodeCache.Count);
         }
         catch (Exception ex)
         {
@@ -164,6 +172,33 @@ public class SqlitePeerStore : IPeerStore
         {
             connection.Execute("PRAGMA journal_mode=WAL");
             _logger.LogInformation("Enabled WAL mode for database");
+        }
+    }
+
+    private void InitializeNodeCache(SqliteConnection connection)
+    {
+        // Query latest entry per node
+        var rows = connection.Query<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
+            SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
+            FROM Oplog o1
+            WHERE (HlcWall, HlcLogic) = (
+                SELECT MAX(HlcWall), MAX(HlcLogic)
+                FROM Oplog o2
+                WHERE o2.HlcNode = o1.HlcNode
+            )
+            GROUP BY HlcNode");
+
+        lock (_cacheLock)
+        {
+            _nodeCache.Clear();
+            foreach (var row in rows)
+            {
+                _nodeCache[row.NodeId] = new NodeCacheEntry
+                {
+                    Timestamp = new HlcTimestamp(row.HlcWall, row.HlcLogic, row.NodeId),
+                    Hash = row.Hash ?? ""
+                };
+            }
         }
     }
 
@@ -350,14 +385,20 @@ public class SqlitePeerStore : IPeerStore
                 });
         }
 
-        if (document.UpdatedAt.CompareTo(_cachedTimestamp) > 0)
+        // Note: This method only saves the document, not the oplog entry
+        // The hash will be updated when AppendOplogEntryAsync is called
+        lock (_cacheLock)
         {
-            lock (_cacheLock)
+            var nodeId = document.UpdatedAt.NodeId;
+            if (!_nodeCache.TryGetValue(nodeId, out var entry) || document.UpdatedAt.CompareTo(entry.Timestamp) > 0)
             {
-                if (document.UpdatedAt.CompareTo(_cachedTimestamp) > 0)
+                // Update timestamp but keep existing hash (will be updated by AppendOplogEntryAsync)
+                var existingHash = _nodeCache.TryGetValue(nodeId, out var e) ? e.Hash : "";
+                _nodeCache[nodeId] = new NodeCacheEntry
                 {
-                    _cachedTimestamp = document.UpdatedAt;
-                }
+                    Timestamp = document.UpdatedAt,
+                    Hash = existingHash
+                };
             }
         }
     }
@@ -424,13 +465,18 @@ public class SqlitePeerStore : IPeerStore
                 entry.PreviousHash
             });
             
-        // Update local cache
+        // Update node cache with both timestamp and hash
         lock (_cacheLock)
         {
-             if (entry.Timestamp.CompareTo(_cachedTimestamp) > 0)
-             {
-                 _cachedTimestamp = entry.Timestamp;
-             }
+            var nodeId = entry.Timestamp.NodeId;
+            if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = entry.Timestamp,
+                    Hash = entry.Hash ?? ""
+                };
+            }
         }
     }
 
@@ -467,15 +513,45 @@ public class SqlitePeerStore : IPeerStore
 
     public async Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
     {
+        // Try cache first
+        lock (_cacheLock)
+        {
+            if (_nodeCache.TryGetValue(nodeId, out var entry))
+            {
+                return entry.Hash;
+            }
+        }
+
+        // Cache miss - query database
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
         
-        return await connection.QuerySingleOrDefaultAsync<string>(@"
+        var hash = await connection.QuerySingleOrDefaultAsync<string>(@"
             SELECT Hash 
             FROM Oplog 
             WHERE HlcNode = @NodeId 
             ORDER BY HlcWall DESC, HlcLogic DESC 
             LIMIT 1", new { NodeId = nodeId });
+
+        // Update cache if found
+        if (hash != null)
+        {
+            var row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)>(@"
+                SELECT HlcWall as Wall, HlcLogic as Logic
+                FROM Oplog 
+                WHERE Hash = @Hash", new { Hash = hash });
+
+            lock (_cacheLock)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = new HlcTimestamp(row.Wall, row.Logic, nodeId),
+                    Hash = hash
+                };
+            }
+        }
+
+        return hash;
     }
 
     public async Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default)
@@ -561,10 +637,58 @@ public class SqlitePeerStore : IPeerStore
 
     public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
     {
-         lock (_cacheLock)
-         {
-             return Task.FromResult(_cachedTimestamp);
-         }
+        // Return the maximum timestamp from cache
+        lock (_cacheLock)
+        {
+            if (_nodeCache.Count == 0)
+            {
+                return Task.FromResult(new HlcTimestamp(0, 0, ""));
+            }
+
+            var maxTimestamp = _nodeCache.Values
+                .Select(e => e.Timestamp)
+                .OrderByDescending(t => t)
+                .First();
+
+            return Task.FromResult(maxTimestamp);
+        }
+    }
+
+    public Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default)
+    {
+        // Return cached vector clock
+        lock (_cacheLock)
+        {
+            var vectorClock = new VectorClock();
+            foreach (var kvp in _nodeCache)
+            {
+                vectorClock.SetTimestamp(kvp.Key, kvp.Value.Timestamp);
+            }
+            return Task.FromResult(vectorClock);
+        }
+    }
+
+    public async Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var rows = await connection.QueryAsync<OplogRow>(@"
+            SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, PreviousHash, Hash 
+            FROM Oplog
+            WHERE HlcNode = @NodeId
+              AND ( (HlcWall > @Wall) OR (HlcWall = @Wall AND HlcLogic > @Logic) )
+            ORDER BY HlcWall ASC, HlcLogic ASC",
+            new { NodeId = nodeId, Wall = since.PhysicalTime, Logic = since.LogicalCounter });
+
+        return rows.Select(r => new OplogEntry(
+            r.Collection ?? "unknown",
+            r.Key ?? "unknown",
+            (OperationType)r.Operation,
+            r.JsonData != null ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) : (JsonElement?)null,
+            new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode ?? ""),
+            r.PreviousHash ?? ""
+        ));
     }
 
     private class MaxHlcResult
@@ -572,18 +696,6 @@ public class SqlitePeerStore : IPeerStore
         public long? Wall { get; set; }
         public int? Logic { get; set; }
         public string? HlcNode { get; set; }
-    }
-
-    private HlcTimestamp GetLatestTimestampInternal(SqliteConnection connection)
-    {
-         // Unified Oplog: Always query the single Oplog table
-         var row = connection.QuerySingleOrDefault<MaxHlcResult>(@"
-             SELECT MAX(HlcWall) as Wall, MAX(HlcLogic) as Logic, HlcNode 
-             FROM Oplog
-             ORDER BY HlcWall DESC, HlcLogic DESC LIMIT 1");
-         
-         if (row == null || row.Wall == null) return new HlcTimestamp(0, 0, "");
-         return new HlcTimestamp(row.Wall.Value, row.Logic ?? 0, row.HlcNode ?? "");
     }
 
     /// <summary>
@@ -709,22 +821,26 @@ public class SqlitePeerStore : IPeerStore
             {
                 ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
 
-                // Update cache if we have new entries
-                var maxEntry = oplogEntries.OrderByDescending(e => e.Timestamp).FirstOrDefault();
-                if (maxEntry != null && maxEntry.Timestamp.CompareTo(_cachedTimestamp) > 0)
+                // Update node cache for all entries
+                lock (_cacheLock)
                 {
-                    lock (_cacheLock)
+                    foreach (var entry in oplogEntries)
                     {
-                        if (maxEntry.Timestamp.CompareTo(_cachedTimestamp) > 0)
+                        var nodeId = entry.Timestamp.NodeId;
+                        if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
                         {
-                            _cachedTimestamp = maxEntry.Timestamp;
+                            _nodeCache[nodeId] = new NodeCacheEntry
+                            {
+                                Timestamp = entry.Timestamp,
+                                Hash = entry.Hash ?? ""
+                            };
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling ChangesApplied event");
+                _logger.LogError(ex, "Error handling ChangesApplied event or updating cache");
             }
         }
         catch

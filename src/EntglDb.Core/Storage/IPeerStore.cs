@@ -32,6 +32,16 @@ public interface IPeerStore
     Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retrieves a vector clock representing the latest known timestamp for each node.
+    /// </summary>
+    Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retrieves oplog entries for a specific node after a given timestamp.
+    /// </summary>
+    Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Retrieves the hash of the last oplog entry for a specific node.
     /// Used to build the chain when appending new entries or validating sync.
     /// </summary>

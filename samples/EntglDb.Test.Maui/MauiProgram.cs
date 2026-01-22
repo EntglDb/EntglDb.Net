@@ -72,7 +72,7 @@ public static class MauiProgram
 
 		IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
 		{
-			NodeId = $"NODO-{nodeId}",
+			NodeId = $"CHANGEME-{nodeId}",
             TcpPort = 5001,
 			AuthToken = "Test-Cluster-Key"
         });	

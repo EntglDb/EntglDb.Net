@@ -182,6 +182,30 @@ public class TcpPeerClient : IDisposable
     }
 
     /// <summary>
+    /// Retrieves the remote peer's vector clock (latest timestamp per node).
+    /// </summary>
+    public async Task<VectorClock> GetVectorClockAsync(CancellationToken token)
+    {
+        using (_telemetry?.StartMetric(MetricType.RoundTripTime))
+        {
+            await _protocol.SendMessageAsync(_stream!, MessageType.GetVectorClockReq, new GetVectorClockRequest(), _useCompression, _cipherState, token);
+
+            var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+            if (type != MessageType.VectorClockRes) throw new Exception("Unexpected response");
+
+            var res = VectorClockResponse.Parser.ParseFrom(payload);
+            var vectorClock = new VectorClock();
+
+            foreach (var entry in res.Entries)
+            {
+                vectorClock.SetTimestamp(entry.NodeId, new HlcTimestamp(entry.HlcWall, entry.HlcLogic, entry.NodeId));
+            }
+
+            return vectorClock;
+        }
+    }
+
+    /// <summary>
     /// Pulls oplog changes from the remote peer since the specified timestamp.
     /// </summary>
     public async Task<List<OplogEntry>> PullChangesAsync(HlcTimestamp since, CancellationToken token)
@@ -207,6 +231,35 @@ public class TcpPeerClient : IDisposable
             new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
             e.PreviousHash,
             e.Hash // Pass the received hash to preserve integrity reference
+        )).ToList();
+    }
+
+    /// <summary>
+    /// Pulls oplog changes for a specific node from the remote peer since the specified timestamp.
+    /// </summary>
+    public async Task<List<OplogEntry>> PullChangesFromNodeAsync(string nodeId, HlcTimestamp since, CancellationToken token)
+    {
+        var req = new PullChangesRequest
+        {
+            SinceNode = nodeId,
+            SinceWall = since.PhysicalTime,
+            SinceLogic = since.LogicalCounter
+        };
+        await _protocol.SendMessageAsync(_stream!, MessageType.PullChangesReq, req, _useCompression, _cipherState, token);
+
+        var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+        if (type != MessageType.ChangeSetRes) throw new Exception("Unexpected response");
+
+        var res = ChangeSetResponse.Parser.ParseFrom(payload);
+
+        return res.Entries.Select(e => new OplogEntry(
+            e.Collection,
+            e.Key,
+            ParseOp(e.Operation),
+            string.IsNullOrEmpty(e.JsonData) ? default : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
+            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+            e.PreviousHash,
+            e.Hash
         )).ToList();
     }
 

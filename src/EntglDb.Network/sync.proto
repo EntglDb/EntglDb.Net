@@ -25,6 +25,19 @@ message ClockResponse {
   string hlc_node = 3;
 }
 
+message GetVectorClockRequest {
+}
+
+message VectorClockResponse {
+  repeated VectorClockEntry entries = 1;
+}
+
+message VectorClockEntry {
+  string node_id = 1;
+  int64 hlc_wall = 2;
+  int32 hlc_logic = 3;
+}
+
 message PullChangesRequest {
   int64 since_wall = 1;
   int32 since_logic = 2;
@@ -78,6 +91,8 @@ enum MessageType {
   SecureEnv = 9;
   GetChainRangeReq = 10;
   ChainRangeRes = 11;
+  GetVectorClockReq = 12;
+  VectorClockRes = 13;
 }
 
 message SecureEnvelope {
