@@ -1012,7 +1012,7 @@ public class SqlitePeerStore : IPeerStore
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
-             _logger.LogCritical(ex, "Database corruption detected during ApplyBatchAsync!");
+             _logger.LogCritical(ex, "Database corruption detected during oplog pruning (PruneOplogAsync).");
              try { transaction.Rollback(); } catch { }
              throw new CorruptDatabaseException("SQLite database is corrupt", ex);
         }
