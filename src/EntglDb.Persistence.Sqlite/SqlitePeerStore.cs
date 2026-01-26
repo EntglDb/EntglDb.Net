@@ -932,10 +932,18 @@ public class SqlitePeerStore : IPeerStore
         });
     }
 
-    public Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
+    public async Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
     {
-        // Not implemented (Placeholder)
-        return Task.FromResult(0);
+        // Delegate to QueryDocumentsAsync to ensure identical filtering semantics,
+        // then count the resulting documents.
+        var documents = await QueryDocumentsAsync(collection, queryExpression, null, null, null, true, cancellationToken);
+
+        if (documents is ICollection<Document> collectionDocuments)
+        {
+            return collectionDocuments.Count;
+        }
+
+        return documents.Count();
     }
 
     public Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
