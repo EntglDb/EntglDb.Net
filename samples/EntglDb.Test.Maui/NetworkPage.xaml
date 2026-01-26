@@ -21,13 +21,13 @@
           <CollectionView x:Name="PeersCollectionView" ItemsSource="{Binding Peers}">
             <CollectionView.ItemTemplate>
               <DataTemplate>
-                <Frame Padding="10" Margin="0,0,0,8" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
+                <Border Padding="10" Margin="0,0,0,8" BackgroundColor="{AppThemeBinding Light=White, Dark=#2d2d2d}">
                   <VerticalStackLayout>
                     <Label Text="{Binding NodeId}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
                     <Label Text="{Binding Address}" FontSize="Small" TextColor="Gray" />
                     <Label Text="{Binding LastSeen, StringFormat='Last Seen: {0:HH:mm:ss}'}" FontSize="Micro" />
                   </VerticalStackLayout>
-                </Frame>
+                </Border>
               </DataTemplate>
             </CollectionView.ItemTemplate>
             <CollectionView.EmptyView>

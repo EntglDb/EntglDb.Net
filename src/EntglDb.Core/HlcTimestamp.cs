@@ -77,5 +77,5 @@ public readonly struct HlcTimestamp : IComparable<HlcTimestamp>, IComparable, IE
     public static bool operator >(HlcTimestamp left, HlcTimestamp right) => left.CompareTo(right) > 0;
     public static bool operator >=(HlcTimestamp left, HlcTimestamp right) => left.CompareTo(right) >= 0;
 
-    public override string ToString() => $"{PhysicalTime}:{LogicalCounter}:{NodeId}";
+    public override string ToString() => FormattableString.Invariant($"{PhysicalTime}:{LogicalCounter}:{NodeId}");
 }

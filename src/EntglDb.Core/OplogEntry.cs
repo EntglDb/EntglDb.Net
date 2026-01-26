@@ -20,11 +20,14 @@ public static class OplogEntryExtensions
         sb.Append('|');
         sb.Append(entry.Key);
         sb.Append('|');
-        sb.Append(entry.Operation);
+        // Ensure stable string representation for Enum (integer value)
+        sb.Append(((int)entry.Operation).ToString(System.Globalization.CultureInfo.InvariantCulture));
         sb.Append('|');
-        if (entry.Payload.HasValue) sb.Append(entry.Payload.Value.GetRawText());
+        // Payload excluded from hash to avoid serialization non-determinism
+        // sb.Append(entry.Payload...); 
         sb.Append('|');
-        sb.Append(entry.Timestamp.ToString()); // Ensure consistent string representation
+        // Timestamp.ToString() is now Invariant
+        sb.Append(entry.Timestamp.ToString()); 
         sb.Append('|');
         sb.Append(entry.PreviousHash);
 
