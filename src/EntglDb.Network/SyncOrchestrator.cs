@@ -391,6 +391,12 @@ public class SyncOrchestrator : ISyncOrchestrator
                     try { removedClient.Dispose(); } catch { /* Ignore disposal errors */ }
                 }
             }
+
+            // Log successful sync outcome (failures are already logged in catch blocks)
+            if (syncSuccessful)
+            {
+                _logger.LogInformation("Sync with {NodeId} completed successfully.", peer.NodeId);
+            }
         }
     }
     
