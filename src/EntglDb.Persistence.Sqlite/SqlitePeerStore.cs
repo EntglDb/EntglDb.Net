@@ -973,7 +973,7 @@ public class SqlitePeerStore : IPeerStore
             // Legacy mode: index with collection filter
             sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
                          ON Documents(json_extract(JsonData, '$.{safeProp}')) 
-                         WHERE Collection = '{collection}'";
+                         WHERE Collection = '{safeColl}'";
         }
 
         await connection.ExecuteAsync(sql);
