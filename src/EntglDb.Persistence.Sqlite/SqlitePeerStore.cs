@@ -942,11 +942,24 @@ public class SqlitePeerStore : IPeerStore
         return Task.CompletedTask;
     }
 
-    public Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
     {
         using var connection = new SqliteConnection(_connectionString);
-        connection.Open();
-        return Task.FromResult<IEnumerable<string>>(GetKnownCollections(connection));
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        if (UsePerCollectionTables)
+        {
+            // In per-collection mode, rely on known collection tables.
+            return GetKnownCollections(connection);
+        }
+
+        // In legacy single-table mode, enumerate distinct collection names from the Documents table
+        const string sql = "SELECT DISTINCT Collection FROM Documents";
+        var collections = await connection.QueryAsync<string>(
+            new CommandDefinition(sql, cancellationToken: cancellationToken)
+        ).ConfigureAwait(false);
+
+        return collections;
     }
 
     public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
