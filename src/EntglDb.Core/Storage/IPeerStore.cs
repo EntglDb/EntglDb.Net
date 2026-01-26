@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using EntglDb.Core; // Added for ChangesAppliedEventArgs
@@ -107,4 +108,40 @@ public interface IPeerStore
     /// <param name="nodeId">The unique identifier of the peer to remove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default);
+
+    // Snapshot & Maintenance routines
+
+    /// <summary>
+    /// Prunes the oplog, removing entries older than the specified timestamp.
+    /// Preserves the latest state in SnapshotMetadata to maintain chain continuity.
+    /// </summary>
+    Task PruneOplogAsync(HlcTimestamp cutoff, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a full snapshot of the underlying database and writes it to the destination stream.
+    /// </summary>
+    Task CreateSnapshotAsync(Stream destination, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces the underlying database with the provided stream.
+    /// This is used for full sync/snapshot recovery.
+    /// WARNING: This will overwrite all local data.
+    /// </summary>
+    Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Merges a remote snapshot into the local database without overwriting existing data.
+    /// Used for Split-Brain resolution.
+    /// </summary>
+    Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears all data from the store, resetting it to an empty state.
+    /// </summary>
+    Task ClearAllDataAsync(CancellationToken cancellationToken = default);
+}
+
+public class CorruptDatabaseException : Exception
+{
+    public CorruptDatabaseException(string message, Exception innerException) : base(message, innerException) { }
 }

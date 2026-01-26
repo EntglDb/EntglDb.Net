@@ -31,10 +31,10 @@ public class SqlitePeerStore : IPeerStore
     private readonly HashSet<string> _createdTables = new HashSet<string>();
     private readonly object _tableLock = new object();
     private readonly object _cacheLock = new object();
-    
+
     // Per-node cache: tracks latest timestamp and hash for each node
     private readonly Dictionary<string, NodeCacheEntry> _nodeCache = new Dictionary<string, NodeCacheEntry>(StringComparer.Ordinal);
-    
+
     private class NodeCacheEntry
     {
         public HlcTimestamp Timestamp { get; set; }
@@ -59,9 +59,9 @@ public class SqlitePeerStore : IPeerStore
     /// New constructor with dynamic database path and per-collection table support.
     /// </summary>
     public SqlitePeerStore(
-        IPeerNodeConfigurationProvider configProvider, 
+        IPeerNodeConfigurationProvider configProvider,
         SqlitePersistenceOptions options,
-        ILogger<SqlitePeerStore>? logger = null, 
+        ILogger<SqlitePeerStore>? logger = null,
         IConflictResolver? conflictResolver = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -75,17 +75,17 @@ public class SqlitePeerStore : IPeerStore
     {
         var config = await configProvider.GetConfiguration();
         var basePath = options.BasePath ?? SqlitePersistenceOptions.DefaultBasePath;
-        
+
         var filename = options.DatabaseFilenameTemplate.Replace("{NodeId}", config.NodeId);
         var dbPath = Path.Combine(basePath, filename);
-        
+
         var directory = Path.GetDirectoryName(dbPath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
             Directory.CreateDirectory(directory);
             _logger.LogInformation("Created database directory: {Directory}", directory);
         }
-        
+
         _logger.LogInformation("Database path: {DbPath}", dbPath);
         return $"Data Source={dbPath}";
     }
@@ -130,6 +130,13 @@ public class SqlitePeerStore : IPeerStore
 
                 CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
                 CREATE INDEX IF NOT EXISTS IDX_Oplog_Hash ON Oplog(Hash);
+            
+                CREATE TABLE IF NOT EXISTS SnapshotMetadata (
+                    NodeId TEXT PRIMARY KEY,
+                    HlcWall INTEGER NOT NULL,
+                    HlcLogic INTEGER NOT NULL,
+                    Hash TEXT
+                );
             ");
 
             // Documents Table (Legacy Mode Only)
@@ -153,7 +160,7 @@ public class SqlitePeerStore : IPeerStore
             {
                 _logger.LogInformation("Initialized with per-collection table mode");
             }
-            
+
             // Initialize node cache from database
             InitializeNodeCache(connection);
             _logger.LogInformation("Node cache initialized with {Count} nodes", _nodeCache.Count);
@@ -177,38 +184,56 @@ public class SqlitePeerStore : IPeerStore
 
     private void InitializeNodeCache(SqliteConnection connection)
     {
-        // Query latest entry per node
-        var rows = connection.Query<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
-            SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
-            FROM Oplog o1
-            WHERE (HlcWall, HlcLogic) = (
-                SELECT MAX(HlcWall), MAX(HlcLogic)
-                FROM Oplog o2
-                WHERE o2.HlcNode = o1.HlcNode
-            )
-            GROUP BY HlcNode");
-
         lock (_cacheLock)
         {
             _nodeCache.Clear();
+
+            // 1. Load from SnapshotMetadata (Base State)
+            var snapshots = connection.Query<(string NodeId, long HlcWall, int HlcLogic, string Hash)>("SELECT NodeId, HlcWall, HlcLogic, Hash FROM SnapshotMetadata");
+            foreach (var s in snapshots)
+            {
+                _nodeCache[s.NodeId] = new NodeCacheEntry
+                {
+                    Timestamp = new HlcTimestamp(s.HlcWall, s.HlcLogic, s.NodeId),
+                    Hash = s.Hash ?? ""
+                };
+            }
+
+            // 2. Load from Oplog (Latest State - Overrides Snapshot if newer)
+            var rows = connection.Query<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
+                SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
+                FROM Oplog o1
+                WHERE (HlcWall, HlcLogic) = (
+                    SELECT MAX(HlcWall), MAX(HlcLogic)
+                    FROM Oplog o2
+                    WHERE o2.HlcNode = o1.HlcNode
+                )
+                GROUP BY HlcNode");
+
             foreach (var row in rows)
             {
-                _nodeCache[row.NodeId] = new NodeCacheEntry
+                var timestamp = new HlcTimestamp(row.HlcWall, row.HlcLogic, row.NodeId);
+
+                // Only update if newer (though Oplog usually contains newer data than snapshot)
+                if (!_nodeCache.TryGetValue(row.NodeId, out var existing) || timestamp.CompareTo(existing.Timestamp) > 0)
                 {
-                    Timestamp = new HlcTimestamp(row.HlcWall, row.HlcLogic, row.NodeId),
-                    Hash = row.Hash ?? ""
-                };
+                    _nodeCache[row.NodeId] = new NodeCacheEntry
+                    {
+                        Timestamp = timestamp,
+                        Hash = row.Hash ?? ""
+                    };
+                }
             }
         }
     }
 
     private string GetDocumentTableName(string collection) =>
-        _options?.UsePerCollectionTables == true 
+        _options?.UsePerCollectionTables == true
             ? $"Documents_{SanitizeCollectionName(collection)}"
             : "Documents";
 
     private string GetOplogTableName(string collection) =>
-        _options?.UsePerCollectionTables == true 
+        _options?.UsePerCollectionTables == true
             ? $"Oplog_{SanitizeCollectionName(collection)}"
             : "Oplog";
 
@@ -218,16 +243,16 @@ public class SqlitePeerStore : IPeerStore
     private async Task EnsureCollectionTablesAsync(SqliteConnection connection, string collection)
     {
         if (_options?.UsePerCollectionTables != true) return;
-        
+
         // Check if already created (thread-safe)
         lock (_tableLock)
         {
             if (_createdTables.Contains(collection)) return;
         }
-        
+
         var docTable = GetDocumentTableName(collection);
         var oplogTable = GetOplogTableName(collection);
-        
+
         await connection.ExecuteAsync($@"
             CREATE TABLE IF NOT EXISTS {docTable} (
                 Key TEXT PRIMARY KEY,
@@ -250,12 +275,12 @@ public class SqlitePeerStore : IPeerStore
             
             CREATE INDEX IF NOT EXISTS IDX_{oplogTable}_HlcWall ON {oplogTable}(HlcWall);
         ");
-        
+
         lock (_tableLock)
         {
             _createdTables.Add(collection);
         }
-        
+
         _logger.LogDebug("Created tables for collection: {Collection}", collection);
     }
 
@@ -268,16 +293,16 @@ public class SqlitePeerStore : IPeerStore
         {
             using var connection = new SqliteConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
-            
+
             var result = await connection.QuerySingleAsync<string>("PRAGMA integrity_check");
             var isHealthy = result == "ok";
-            
+
             if (!isHealthy)
             {
                 _logger.LogError("Database corruption detected: {Result}", result);
                 throw new DatabaseCorruptionException($"Database integrity check failed: {result}");
             }
-            
+
             _logger.LogDebug("Database integrity check passed");
             return true;
         }
@@ -296,7 +321,7 @@ public class SqlitePeerStore : IPeerStore
         try
         {
             _logger.LogInformation("Creating database backup at {Path}", backupPath);
-            
+
             var directory = Path.GetDirectoryName(backupPath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -305,12 +330,12 @@ public class SqlitePeerStore : IPeerStore
 
             using var source = new SqliteConnection(_connectionString);
             using var destination = new SqliteConnection($"Data Source={backupPath}");
-            
+
             await source.OpenAsync(cancellationToken);
             await destination.OpenAsync(cancellationToken);
-            
+
             source.BackupDatabase(destination);
-            
+
             _logger.LogInformation("Database backup completed successfully");
         }
         catch (Exception ex)
@@ -331,7 +356,7 @@ public class SqlitePeerStore : IPeerStore
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
+
         await EnsureCollectionTablesAsync(connection, document.Collection);
 
         var tableName = GetDocumentTableName(document.Collection);
@@ -375,7 +400,7 @@ public class SqlitePeerStore : IPeerStore
                 VALUES (@Collection, @Key, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
                 new
                 {
-                    document.Collection, 
+                    document.Collection,
                     document.Key,
                     JsonData = document.Content.ValueKind == JsonValueKind.Undefined ? null : document.Content.GetRawText(),
                     document.IsDeleted,
@@ -407,7 +432,7 @@ public class SqlitePeerStore : IPeerStore
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
+
         await EnsureCollectionTablesAsync(connection, collection);
 
         var tableName = GetDocumentTableName(collection);
@@ -436,18 +461,18 @@ public class SqlitePeerStore : IPeerStore
         if (row == null) return null;
 
         var hlc = new HlcTimestamp(row.HlcWall, row.HlcLogic, row.HlcNode);
-        var content = row.JsonData != null 
-            ? JsonSerializer.Deserialize<JsonElement>(row.JsonData) 
+        var content = row.JsonData != null
+            ? JsonSerializer.Deserialize<JsonElement>(row.JsonData)
             : default;
 
-        return new Document(collection, row.Key, content, hlc, row.IsDeleted); 
+        return new Document(collection, row.Key, content, hlc, row.IsDeleted != 0);
     }
 
     public async Task AppendOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
+
         // Unified Oplog Table: Always use single Oplog table regardless of per-collection setting
         await connection.ExecuteAsync(@"
             INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
@@ -464,7 +489,7 @@ public class SqlitePeerStore : IPeerStore
                 entry.Hash,
                 entry.PreviousHash
             });
-            
+
         // Update node cache with both timestamp and hash
         lock (_cacheLock)
         {
@@ -522,10 +547,10 @@ public class SqlitePeerStore : IPeerStore
             }
         }
 
-        // Cache miss - query database
+        // Cache miss - query database (Oplog first, then SnapshotMetadata)
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
+
         var hash = await connection.QuerySingleOrDefaultAsync<string>(@"
             SELECT Hash 
             FROM Oplog 
@@ -533,21 +558,43 @@ public class SqlitePeerStore : IPeerStore
             ORDER BY HlcWall DESC, HlcLogic DESC 
             LIMIT 1", new { NodeId = nodeId });
 
+        if (hash == null)
+        {
+            // Fallback to snapshot
+            hash = await connection.QuerySingleOrDefaultAsync<string>(@"
+                SELECT Hash 
+                FROM SnapshotMetadata 
+                WHERE NodeId = @NodeId", new { NodeId = nodeId });
+        }
+
         // Update cache if found
         if (hash != null)
         {
-            var row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)>(@"
+            // Try to get timestamp from Oplog
+            var row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)?>(@"
                 SELECT HlcWall as Wall, HlcLogic as Logic
                 FROM Oplog 
                 WHERE Hash = @Hash", new { Hash = hash });
 
-            lock (_cacheLock)
+            if (row == null)
             {
-                _nodeCache[nodeId] = new NodeCacheEntry
+                // Try to get timestamp from Snapshot
+                row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)?>(@"
+                SELECT HlcWall as Wall, HlcLogic as Logic
+                FROM SnapshotMetadata 
+                WHERE Hash = @Hash", new { Hash = hash });
+            }
+
+            if (row.HasValue)
+            {
+                lock (_cacheLock)
                 {
-                    Timestamp = new HlcTimestamp(row.Wall, row.Logic, nodeId),
-                    Hash = hash
-                };
+                    _nodeCache[nodeId] = new NodeCacheEntry
+                    {
+                        Timestamp = new HlcTimestamp(row.Value.Wall, row.Value.Logic, nodeId),
+                        Hash = hash
+                    };
+                }
             }
         }
 
@@ -558,14 +605,14 @@ public class SqlitePeerStore : IPeerStore
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
+
         var row = await connection.QuerySingleOrDefaultAsync<OplogRow>(@"
             SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, PreviousHash, Hash 
             FROM Oplog 
             WHERE Hash = @Hash", new { Hash = hash });
-            
+
         if (row == null) return null;
-        
+
         return new OplogEntry(
             row.Collection ?? "unknown",
             row.Key ?? "unknown",
@@ -580,16 +627,16 @@ public class SqlitePeerStore : IPeerStore
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
+
         // 1. Fetch range bounds
         var startRow = await connection.QuerySingleOrDefaultAsync<OplogRow>(
             "SELECT HlcWall, HlcLogic, HlcNode FROM Oplog WHERE Hash = @Hash", new { Hash = startHash });
         var endRow = await connection.QuerySingleOrDefaultAsync<OplogRow>(
             "SELECT HlcWall, HlcLogic, HlcNode FROM Oplog WHERE Hash = @Hash", new { Hash = endHash });
-            
+
         if (startRow == null || endRow == null) return Enumerable.Empty<OplogEntry>();
         if (startRow.HlcNode != endRow.HlcNode) return Enumerable.Empty<OplogEntry>(); // Must be same chain
-        
+
         // 2. Fetch range (Start < Entry <= End)
         var rows = await connection.QueryAsync<OplogRow>(@"
             SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, PreviousHash, Hash 
@@ -598,12 +645,15 @@ public class SqlitePeerStore : IPeerStore
               AND ( (HlcWall > @StartWall) OR (HlcWall = @StartWall AND HlcLogic > @StartLogic) )
               AND ( (HlcWall < @EndWall) OR (HlcWall = @EndWall AND HlcLogic <= @EndLogic) )
             ORDER BY HlcWall ASC, HlcLogic ASC",
-            new { 
+            new
+            {
                 NodeId = startRow.HlcNode,
-                StartWall = startRow.HlcWall, StartLogic = startRow.HlcLogic,
-                EndWall = endRow.HlcWall, EndLogic = endRow.HlcLogic
+                StartWall = startRow.HlcWall,
+                StartLogic = startRow.HlcLogic,
+                EndWall = endRow.HlcWall,
+                EndLogic = endRow.HlcLogic
             });
-            
+
         return rows.Select(r => new OplogEntry(
             r.Collection ?? "unknown",
             r.Key ?? "unknown",
@@ -623,7 +673,7 @@ public class SqlitePeerStore : IPeerStore
         {
             var tables = connection.Query<string>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Oplog_%'");
-            
+
             return tables.Select(t => t.Substring(6)).ToList(); // Remove "Oplog_" prefix
         }
 
@@ -713,16 +763,16 @@ public class SqlitePeerStore : IPeerStore
 
         var usePerCollection = _options?.UsePerCollectionTables == true;
 
-        try 
+        try
         {
             foreach (var entry in oplogEntries)
             {
                 await EnsureCollectionTablesAsync(connection, entry.Collection);
 
                 var docTableName = GetDocumentTableName(entry.Collection);
-                
+
                 Document? localDoc = null;
-                
+
                 if (usePerCollection)
                 {
                     var local = await connection.QuerySingleOrDefaultAsync<DocumentRow>($@"
@@ -734,10 +784,10 @@ public class SqlitePeerStore : IPeerStore
                     if (local != null)
                     {
                         var localHlc = new HlcTimestamp(local.HlcWall, local.HlcLogic, local.HlcNode);
-                        var content = local.JsonData != null 
-                            ? JsonSerializer.Deserialize<JsonElement>(local.JsonData) 
+                        var content = local.JsonData != null
+                            ? JsonSerializer.Deserialize<JsonElement>(local.JsonData)
                             : default;
-                        localDoc = new Document(entry.Collection, local.Key, content, localHlc, local.IsDeleted);
+                        localDoc = new Document(entry.Collection, local.Key, content, localHlc, local.IsDeleted != 0);
                     }
                 }
                 else
@@ -751,10 +801,10 @@ public class SqlitePeerStore : IPeerStore
                     if (local != null)
                     {
                         var localHlc = new HlcTimestamp(local.HlcWall, local.HlcLogic, local.HlcNode);
-                        var content = local.JsonData != null 
-                            ? JsonSerializer.Deserialize<JsonElement>(local.JsonData) 
+                        var content = local.JsonData != null
+                            ? JsonSerializer.Deserialize<JsonElement>(local.JsonData)
                             : default;
-                        localDoc = new Document(entry.Collection, local.Key, content, localHlc, local.IsDeleted);
+                        localDoc = new Document(entry.Collection, local.Key, content, localHlc, local.IsDeleted != 0);
                     }
                 }
 
@@ -762,41 +812,41 @@ public class SqlitePeerStore : IPeerStore
 
                 if (resolution.ShouldApply && resolution.MergedDocument != null)
                 {
-                     var doc = resolution.MergedDocument;
-                     
-                     if (usePerCollection)
-                     {
-                         await connection.ExecuteAsync($@"
+                    var doc = resolution.MergedDocument;
+
+                    if (usePerCollection)
+                    {
+                        await connection.ExecuteAsync($@"
                              INSERT OR REPLACE INTO {docTableName} (Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
                              VALUES (@Key, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
-                             new
-                             {
-                                 doc.Key,
-                                 JsonData = doc.Content.ValueKind == JsonValueKind.Undefined ? null : doc.Content.GetRawText(),
-                                 IsDeleted = doc.IsDeleted ? 1 : 0,
-                                 HlcWall = doc.UpdatedAt.PhysicalTime,
-                                 HlcLogic = doc.UpdatedAt.LogicalCounter,
-                                 HlcNode = doc.UpdatedAt.NodeId
-                             }, transaction);
-                     }
-                     else
-                     {
-                         await connection.ExecuteAsync(@"
+                            new
+                            {
+                                doc.Key,
+                                JsonData = doc.Content.ValueKind == JsonValueKind.Undefined ? null : doc.Content.GetRawText(),
+                                IsDeleted = doc.IsDeleted ? 1 : 0,
+                                HlcWall = doc.UpdatedAt.PhysicalTime,
+                                HlcLogic = doc.UpdatedAt.LogicalCounter,
+                                HlcNode = doc.UpdatedAt.NodeId
+                            }, transaction);
+                    }
+                    else
+                    {
+                        await connection.ExecuteAsync(@"
                              INSERT OR REPLACE INTO Documents (Collection, Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
                              VALUES (@Collection, @Key, @JsonData, @IsDeleted, @HlcWall, @HlcLogic, @HlcNode)",
-                             new
-                             {
-                                 doc.Collection,
-                                 doc.Key,
-                                 JsonData = doc.Content.ValueKind == JsonValueKind.Undefined ? null : doc.Content.GetRawText(),
-                                 IsDeleted = doc.IsDeleted ? 1 : 0,
-                                 HlcWall = doc.UpdatedAt.PhysicalTime,
-                                 HlcLogic = doc.UpdatedAt.LogicalCounter,
-                                 HlcNode = doc.UpdatedAt.NodeId
-                             }, transaction);
-                     }
+                            new
+                            {
+                                doc.Collection,
+                                doc.Key,
+                                JsonData = doc.Content.ValueKind == JsonValueKind.Undefined ? null : doc.Content.GetRawText(),
+                                IsDeleted = doc.IsDeleted ? 1 : 0,
+                                HlcWall = doc.UpdatedAt.PhysicalTime,
+                                HlcLogic = doc.UpdatedAt.LogicalCounter,
+                                HlcNode = doc.UpdatedAt.NodeId
+                            }, transaction);
+                    }
                 }
-                
+
                 // Unified Oplog Table: Always use single Oplog table regardless of per-collection setting
                 await connection.ExecuteAsync(@"
                     INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
@@ -806,7 +856,7 @@ public class SqlitePeerStore : IPeerStore
                         entry.Collection,
                         entry.Key,
                         Operation = (int)entry.Operation,
-                        JsonData = entry.Payload != null && entry.Payload!.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
+                        JsonData = entry.Payload.HasValue && entry.Payload.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
                         HlcWall = entry.Timestamp.PhysicalTime,
                         HlcLogic = entry.Timestamp.LogicalCounter,
                         HlcNode = entry.Timestamp.NodeId,
@@ -814,208 +864,32 @@ public class SqlitePeerStore : IPeerStore
                         entry.PreviousHash
                     }, transaction);
             }
-            
-            transaction.Commit();
-            
-            try 
-            {
-                ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
 
-                // Update node cache for all entries
-                lock (_cacheLock)
-                {
-                    foreach (var entry in oplogEntries)
-                    {
-                        var nodeId = entry.Timestamp.NodeId;
-                        if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
-                        {
-                            _nodeCache[nodeId] = new NodeCacheEntry
-                            {
-                                Timestamp = entry.Timestamp,
-                                Hash = entry.Hash ?? ""
-                            };
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error handling ChangesApplied event or updating cache");
-            }
+            transaction.Commit();
         }
-        catch
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
-            transaction.Rollback();
+             _logger.LogCritical(ex, "Database corruption detected during ApplyBatchAsync!");
+             try { transaction.Rollback(); } catch { }
+             throw new CorruptDatabaseException("SQLite database is corrupt", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply batch");
+            try { transaction.Rollback(); } catch { }
             throw;
         }
+
+        // Notify changes
+        ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
     }
 
-    public async Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+    public async Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        
-        await EnsureCollectionTablesAsync(connection, collection);
-
-        var translator = new SqlQueryTranslator();
-        string whereClause = "1=1";
-        var parameters = new DynamicParameters();
-
-        if (queryExpression != null)
-        {
-            var (w, p) = translator.Translate(queryExpression);
-            whereClause = w;
-            parameters = p;
-        }
-
-        var tableName = GetDocumentTableName(collection);
-        var usePerCollection = _options?.UsePerCollectionTables == true;
-
-        var sqlBuilder = new System.Text.StringBuilder();
-        sqlBuilder.Append($@"
-                SELECT Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode
-                FROM {tableName}
-                WHERE IsDeleted = 0");
-        
-        if (!usePerCollection)
-        {
-            sqlBuilder.Append(" AND Collection = @Collection");
-            parameters.Add("@Collection", collection);
-        }
-        
-        sqlBuilder.Append(" AND (");
-        sqlBuilder.Append(whereClause);
-        sqlBuilder.Append(")");
-
-        if (!string.IsNullOrEmpty(orderBy))
-        {
-            if (orderBy.All(c => char.IsLetterOrDigit(c) || c == '.' || c == '_'))
-            {
-                string sortField = $"json_extract(JsonData, '$.{orderBy}')";
-                sqlBuilder.Append($" ORDER BY {sortField} {(ascending ? "ASC" : "DESC")}");
-            }
-        }
-        else
-        {
-             sqlBuilder.Append(" ORDER BY Key ASC");
-        }
-
-        // Paging
-        if (take.HasValue)
-        {
-            sqlBuilder.Append(" LIMIT @Take");
-            parameters.Add("@Take", take.Value);
-        }
-
-        if (skip.HasValue)
-        {
-            sqlBuilder.Append(" OFFSET @Skip");
-            parameters.Add("@Skip", skip.Value);
-        }
-
-        var rows = await connection.QueryAsync<DocumentRow>(sqlBuilder.ToString(), parameters);
-        
-        return rows.Select(r => {
-             var hlc = new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode);
-             var content = r.JsonData != null 
-                ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) 
-                : default;
-             return new Document(collection, r.Key, content, hlc, r.IsDeleted);
-        });
+        await connection.ExecuteAsync("DELETE FROM RemotePeers WHERE NodeId = @NodeId", new { NodeId = nodeId });
     }
-
-    public async Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
-    {
-        using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-        
-        await EnsureCollectionTablesAsync(connection, collection);
-
-        var tableName = GetDocumentTableName(collection);
-        var usePerCollection = _options?.UsePerCollectionTables == true;
-
-        var sqlBuilder = new StringBuilder();
-        sqlBuilder.Append($"SELECT COUNT(*) FROM {tableName} WHERE IsDeleted = 0");
-
-        var dynamicParams = new DynamicParameters();
-        
-        if (!usePerCollection)
-        {
-            sqlBuilder.Append(" AND Collection = @Collection");
-            dynamicParams.Add("@Collection", collection);
-        }
-
-        if (queryExpression != null)
-        {
-            var translator = new SqlQueryTranslator();
-            var (whereClause, queryParams) = translator.Translate(queryExpression);
-            if (!string.IsNullOrEmpty(whereClause))
-            {
-                sqlBuilder.Append($" AND ({whereClause})");
-                dynamicParams.AddDynamicParams(queryParams);
-            }
-        }
-
-        return await connection.ExecuteScalarAsync<int>(sqlBuilder.ToString(), dynamicParams);
-    }
-
-    public async Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
-    {
-        using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        var usePerCollection = _options?.UsePerCollectionTables == true;
-
-        if (!usePerCollection)
-        {
-            // Legacy mode: query Documents table
-            return await connection.QueryAsync<string>(@"
-                SELECT DISTINCT Collection 
-                FROM Documents 
-                ORDER BY Collection");
-        }
-        else
-        {
-            // Per-collection mode: return known collections from cache
-            return GetKnownCollections(connection);
-        }
-    }
-
-    public async Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
-    {
-        using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-        
-        await EnsureCollectionTablesAsync(connection, collection);
-
-        var tableName = GetDocumentTableName(collection);
-        var usePerCollection = _options?.UsePerCollectionTables == true;
-
-        // Sanitize names to prevent injection
-        var safeColl = new string(collection.Where(char.IsLetterOrDigit).ToArray());
-        var safeProp = new string(propertyPath.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '.').ToArray());
-        var indexName = $"IDX_{safeColl}_{safeProp.Replace(".", "_")}";
-
-        string sql;
-        if (usePerCollection)
-        {
-            // Per-collection mode: simple index without collection filter
-            sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
-                         ON {tableName}(json_extract(JsonData, '$.{safeProp}'))";
-        }
-        else
-        {
-            // Legacy mode: index with collection filter
-            sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
-                         ON Documents(json_extract(JsonData, '$.{safeProp}')) 
-                         WHERE Collection = '{collection}'";
-        }
-
-        await connection.ExecuteAsync(sql);
-        
-        _logger.LogInformation("Ensured index {IndexName} on {Collection}.{Property}", indexName, collection, propertyPath);
-    }
-
     // Remote Peer Management
     public async Task SaveRemotePeerAsync(RemotePeerConfiguration peer, CancellationToken cancellationToken = default)
     {
@@ -1056,64 +930,324 @@ public class SqlitePeerStore : IPeerStore
         });
     }
 
-    public async Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
+    public Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default)
+    {
+        // Not implemented (Placeholder)
+        return Task.FromResult(0);
+    }
+
+    public Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
+    {
+        // Not implemented (Placeholder)
+        return Task.CompletedTask;
+    }
+
+    public Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        return Task.FromResult<IEnumerable<string>>(GetKnownCollections(connection));
+    }
+
+    public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+    {
+        // Not implemented (Placeholder - simple query not supported by this store yet)
+        return Task.FromResult(Enumerable.Empty<Document>());
+    }
+
+    // --- Snapshotting Implementation ---
+
+    public async Task PruneOplogAsync(HlcTimestamp cutoff, CancellationToken cancellationToken = default)
     {
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
 
-        var sql = "DELETE FROM RemotePeers WHERE NodeId = @NodeId";
-        var affected = await connection.ExecuteAsync(sql, new { NodeId = nodeId });
-
-        if (affected > 0)
+        try
         {
-            _logger.LogInformation("Removed remote peer configuration: {NodeId}", nodeId);
+            // 1. Identify entries that will become the "boundary" (Max <= Cutoff)
+            var boundaries = await connection.QueryAsync<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
+                SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
+                FROM Oplog o1
+                WHERE (HlcWall, HlcLogic) = (
+                    SELECT MAX(HlcWall), MAX(HlcLogic)
+                    FROM Oplog o2
+                    WHERE o2.HlcNode = o1.HlcNode
+                      AND (o2.HlcWall < @Wall OR (o2.HlcWall = @Wall AND o2.HlcLogic <= @Logic))
+                )
+                GROUP BY HlcNode",
+                new { Wall = cutoff.PhysicalTime, Logic = cutoff.LogicalCounter }, transaction);
+
+            // 2. Upsert SnapshotMetadata
+            foreach (var b in boundaries)
+            {
+                await connection.ExecuteAsync(@"
+                    INSERT OR REPLACE INTO SnapshotMetadata (NodeId, HlcWall, HlcLogic, Hash)
+                    VALUES (@NodeId, @HlcWall, @HlcLogic, @Hash)",
+                    b, transaction);
+            }
+
+            // 3. Delete old entries
+            await connection.ExecuteAsync(@"
+                DELETE FROM Oplog
+                WHERE HlcWall < @Wall OR (HlcWall = @Wall AND HlcLogic <= @Logic)",
+                new { Wall = cutoff.PhysicalTime, Logic = cutoff.LogicalCounter }, transaction);
+
+            transaction.Commit();
+
+            _logger.LogInformation("Pruned oplog entries older than {Cutoff}. Updated metadata for {Count} nodes.", cutoff, boundaries.Count());
         }
-        else
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
-            _logger.LogWarning("Attempted to remove non-existent remote peer: {NodeId}", nodeId);
+             _logger.LogCritical(ex, "Database corruption detected during ApplyBatchAsync!");
+             try { transaction.Rollback(); } catch { }
+             throw new CorruptDatabaseException("SQLite database is corrupt", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to prune oplog");
+            throw;
         }
     }
 
-    // Inner classes for Dapper mapping
-    private class RemotePeerRow
+    public async Task CreateSnapshotAsync(Stream destination, CancellationToken cancellationToken = default)
     {
-        public string NodeId { get; set; } = "";
-        public string Address { get; set; } = "";
-        public int Type { get; set; }
-        public string? OAuth2Json { get; set; }
-        public int IsEnabled { get; set; }
+        // 1. Force a checkpoint to ensure WAL is merged (basic consistency)
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            await connection.OpenAsync(cancellationToken);
+            await connection.ExecuteAsync("PRAGMA wal_checkpoint(FULL);");
+        }
+
+        // 2. Safely copy the DB file
+        var dbPath = new SqliteConnectionStringBuilder(_connectionString).DataSource;
+
+        // We use a shared read lock approach or just copy. 
+        // For strict consistency, we might need SQLite Online Backup API, but simple copy often suffices if WAL is checkpointed.
+        using (var sourceStream = new FileStream(dbPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            await sourceStream.CopyToAsync(destination, 81920, cancellationToken);
+        }
     }
 
-    private class DocumentRow
+    public async Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default)
     {
-        public string Key { get; set; } = "";
-        public string? JsonData { get; set; }
-        public bool IsDeleted { get; set; }
-        public long HlcWall { get; set; }
-        public int HlcLogic { get; set; }
-        public string HlcNode { get; set; } = "";
+        _logger.LogWarning("Replacing database file from snapshot stream...");
+
+        // Ensure connections are cleared
+        SqliteConnection.ClearAllPools();
+
+        var dbPath = new SqliteConnectionStringBuilder(_connectionString).DataSource;
+        var backupPath = dbPath + ".bak";
+
+        try
+        {
+            // Backup current DB just in case
+            if (File.Exists(dbPath))
+            {
+                File.Move(dbPath, backupPath);
+            }
+
+            // Write new DB
+            using (var fileStream = File.Create(dbPath))
+            {
+                databaseStream.Seek(0, SeekOrigin.Begin); // Ensure stream is at start
+                await databaseStream.CopyToAsync(fileStream, 81920, cancellationToken);
+            }
+
+            // Cleanup WAL/SHM to prevent corruption with new DB
+            var walPath = dbPath + "-wal";
+            var shmPath = dbPath + "-shm";
+            if (File.Exists(walPath)) File.Delete(walPath);
+            if (File.Exists(shmPath)) File.Delete(shmPath);
+
+            // Re-initialize (force strict check)
+            Initialize();
+
+            // Cleanup backup if successful
+            if (File.Exists(backupPath)) File.Delete(backupPath);
+
+            _logger.LogInformation("Database replaced successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to replace database. Attempting restore from backup...");
+
+            // Restore backup
+            if (File.Exists(backupPath))
+            {
+                if (File.Exists(dbPath)) File.Delete(dbPath);
+                File.Move(backupPath, dbPath);
+            }
+
+            throw;
+        }
     }
 
-    private class OplogRow
+    public async Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default)
     {
-        public string? Collection { get; set; }
-        public string? Key { get; set; }
-        public int Operation { get; set; }
-        public string? JsonData { get; set; }
-        public long HlcWall { get; set; }
-        public int HlcLogic { get; set; }
-        public string? HlcNode { get; set; }
-        public string? Hash { get; set; }
-        public string? PreviousHash { get; set; }
+        _logger.LogInformation("Merging remote snapshot into local database...");
+
+        // 1. Save stream to temp file
+        var tempDbPath = Path.GetTempFileName();
+        try
+        {
+            using (var fileStream = File.Create(tempDbPath))
+            {
+                snapshotStream.Seek(0, SeekOrigin.Begin);
+                await snapshotStream.CopyToAsync(fileStream, 81920, cancellationToken);
+            }
+
+            // 2. Attach and Merge
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            
+            await connection.ExecuteAsync($"ATTACH DATABASE '{tempDbPath}' AS remote_snapshot");
+
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                // Merge Oplog (Insert new, Ignore existing)
+                await connection.ExecuteAsync(@"
+                    INSERT OR IGNORE INTO main.Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
+                    SELECT Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash
+                    FROM remote_snapshot.Oplog");
+
+                // Merge SnapshotMetadata
+                await connection.ExecuteAsync(@"
+                    INSERT OR REPLACE INTO main.SnapshotMetadata (NodeId, HlcWall, HlcLogic, Hash)
+                    SELECT NodeId, HlcWall, HlcLogic, Hash
+                    FROM remote_snapshot.SnapshotMetadata
+                    WHERE 1=1
+                    ON CONFLICT(NodeId) DO UPDATE SET
+                        HlcWall = MAX(HlcWall, excluded.HlcWall),
+                        HlcLogic = MAX(HlcLogic, excluded.HlcLogic),
+                        Hash = CASE WHEN excluded.HlcWall > HlcWall OR (excluded.HlcWall = HlcWall AND excluded.HlcLogic > HlcLogic) THEN excluded.Hash ELSE Hash END");
+
+                if (_options?.UsePerCollectionTables != true)
+                {
+                    await connection.ExecuteAsync(@"
+                        INSERT OR REPLACE INTO main.Documents (Collection, Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
+                        SELECT r.Collection, r.Key, r.JsonData, r.IsDeleted, r.HlcWall, r.HlcLogic, r.HlcNode
+                        FROM remote_snapshot.Documents r
+                        LEFT JOIN main.Documents l ON l.Collection = r.Collection AND l.Key = r.Key
+                        WHERE l.Key IS NULL 
+                           OR (r.HlcWall > l.HlcWall) 
+                           OR (r.HlcWall = l.HlcWall AND r.HlcLogic > l.HlcLogic)");
+                }
+                else
+                {
+                     var tables = await connection.QueryAsync<string>("SELECT name FROM remote_snapshot.sqlite_master WHERE type='table' AND name LIKE 'Documents_%'");
+                     foreach(var table in tables)
+                     {
+                         var collectionName = table.Substring(10);
+                         await EnsureCollectionTablesAsync(connection, collectionName);
+                         
+                         await connection.ExecuteAsync($@"
+                            INSERT OR REPLACE INTO main.{table} (Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode)
+                            SELECT r.Key, r.JsonData, r.IsDeleted, r.HlcWall, r.HlcLogic, r.HlcNode
+                            FROM remote_snapshot.{table} r
+                            LEFT JOIN main.{table} l ON l.Key = r.Key
+                            WHERE l.Key IS NULL 
+                               OR (r.HlcWall > l.HlcWall) 
+                               OR (r.HlcWall = l.HlcWall AND r.HlcLogic > l.HlcLogic)");
+                     }
+                }
+
+                transaction.Commit();
+            }
+            finally
+            {
+                 await connection.ExecuteAsync("DETACH DATABASE remote_snapshot");
+            }
+
+            InitializeNodeCache(connection);
+            _logger.LogInformation("Database merge completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to merge snapshot.");
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(tempDbPath)) File.Delete(tempDbPath);
+        }
     }
 
-    private class OplogRowPerCollection
+    public async Task ClearAllDataAsync(CancellationToken cancellationToken = default)
     {
-        public string? Key { get; set; }
-        public int Operation { get; set; }
-        public string? JsonData { get; set; }
-        public long HlcWall { get; set; }
-        public int HlcLogic { get; set; }
-        public string? HlcNode { get; set; }
+         _logger.LogWarning("CLEARING ALL DATA FROM STORE!");
+         using var connection = new SqliteConnection(_connectionString);
+         await connection.OpenAsync(cancellationToken);
+         
+         await connection.ExecuteAsync("DELETE FROM Oplog");
+         await connection.ExecuteAsync("DELETE FROM SnapshotMetadata");
+         
+         if (_options?.UsePerCollectionTables != true)
+         {
+             await connection.ExecuteAsync("DELETE FROM Documents");
+         }
+         else
+         {
+             var tables = await connection.QueryAsync<string>("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Documents_%'");
+             foreach(var table in tables)
+             {
+                 await connection.ExecuteAsync($"DELETE FROM {table}");
+             }
+         }
+         
+         await connection.ExecuteAsync("VACUUM");
+         
+         lock (_cacheLock)
+         {
+             _nodeCache.Clear();
+         }
+         
+         _logger.LogInformation("Store cleared successfully.");
     }
 }
+
+// Inner classes for Dapper mapping
+internal class RemotePeerRow
+{
+    public string NodeId { get; set; } = "";
+    public string Address { get; set; } = "";
+    public int Type { get; set; }
+    public string? OAuth2Json { get; set; }
+    public int IsEnabled { get; set; }
+}
+
+internal class DocumentRow
+{
+    public string Key { get; set; } = "";
+    public string? JsonData { get; set; }
+    public int IsDeleted { get; set; }
+    public long HlcWall { get; set; }
+    public int HlcLogic { get; set; }
+    public string HlcNode { get; set; } = "";
+}
+
+internal class OplogRow
+{
+    public string? Collection { get; set; }
+    public string? Key { get; set; }
+    public int Operation { get; set; }
+    public string? JsonData { get; set; }
+    public long HlcWall { get; set; }
+    public int HlcLogic { get; set; }
+    public string? HlcNode { get; set; }
+    public string? Hash { get; set; }
+    public string? PreviousHash { get; set; }
+}
+
+internal class OplogRowPerCollection
+{
+    public string? Key { get; set; }
+    public int Operation { get; set; }
+    public string? JsonData { get; set; }
+    public long HlcWall { get; set; }
+    public int HlcLogic { get; set; }
+    public string? HlcNode { get; set; }
+}
+

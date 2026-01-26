@@ -46,6 +46,16 @@ public class PeerNodeConfiguration
     public int RetryDelayMs { get; set; } = 1000;
 
     /// <summary>
+    /// Interval between periodic maintenance operations (Oplog pruning) in minutes. Default: 60 minutes.
+    /// </summary>
+    public int MaintenanceIntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// Oplog retention period in hours. Entries older than this will be pruned. Default: 24 hours.
+    /// </summary>
+    public int OplogRetentionHours { get; set; } = 24;
+
+    /// <summary>
     /// Gets the default configuration settings for a peer node.
     /// </summary>
     /// <remarks>Each access returns a new instance of the configuration with a unique node identifier. The

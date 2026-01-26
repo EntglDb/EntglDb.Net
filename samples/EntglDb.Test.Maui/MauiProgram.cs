@@ -74,7 +74,9 @@ public static class MauiProgram
 		{
 			NodeId = $"CHANGEME-{nodeId}",
             TcpPort = 5001,
-			AuthToken = "Test-Cluster-Key"
+			AuthToken = "Test-Cluster-Key",
+			OplogRetentionHours = 2,
+			MaintenanceIntervalMinutes = 5
         });	
 
 		builder.Services.AddSingleton(peerNodeConfigurationProvider);

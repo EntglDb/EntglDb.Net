@@ -588,4 +588,353 @@ public class EfCorePeerStore : IPeerStore
             _logger.LogWarning("Attempted to remove non-existent remote peer: {NodeId}", nodeId);
         }
     }
+
+    public async Task PruneOplogAsync(HlcTimestamp cutoff, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Pruning oplog entries older than {Cutoff}...", cutoff);
+
+        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Find entries to delete
+            var entriesToDelete = await _context.Oplog
+                .Where(o => o.TimestampPhysicalTime < cutoff.PhysicalTime ||
+                           (o.TimestampPhysicalTime == cutoff.PhysicalTime && o.TimestampLogicalCounter < cutoff.LogicalCounter))
+                .ToListAsync(cancellationToken);
+
+            if (!entriesToDelete.Any())
+            {
+                _logger.LogInformation("No oplog entries to prune.");
+                return;
+            }
+
+            // Update SnapshotMetadata with boundary entries (latest before cutoff per node)
+            var boundaryEntries = entriesToDelete
+                .GroupBy(o => o.TimestampNodeId)
+                .Select(g => g.OrderByDescending(o => o.TimestampPhysicalTime)
+                              .ThenByDescending(o => o.TimestampLogicalCounter)
+                              .First())
+                .ToList();
+
+            foreach (var entry in boundaryEntries)
+            {
+                var existingMeta = await _context.SnapshotMetadata
+                    .FirstOrDefaultAsync(s => s.NodeId == entry.TimestampNodeId, cancellationToken);
+
+                if (existingMeta == null)
+                {
+                    _context.SnapshotMetadata.Add(new SnapshotMetadataEntity
+                    {
+                        NodeId = entry.TimestampNodeId,
+                        TimestampPhysicalTime = entry.TimestampPhysicalTime,
+                        TimestampLogicalCounter = entry.TimestampLogicalCounter,
+                        Hash = entry.Hash ?? ""
+                    });
+                }
+                else
+                {
+                   existingMeta.TimestampPhysicalTime = entry.TimestampPhysicalTime;
+                    existingMeta.TimestampLogicalCounter = entry.TimestampLogicalCounter;
+                    existingMeta.Hash = entry.Hash ?? "";
+                }
+            }
+
+            // Delete old entries
+            _context.Oplog.RemoveRange(entriesToDelete);
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            _logger.LogInformation("Pruned {Count} oplog entries.", entriesToDelete.Count);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task CreateSnapshotAsync(Stream destination, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Creating EF Core snapshot (JSON format)...");
+
+        // Load all entities
+        var documents = await _context.Documents.ToListAsync(cancellationToken);
+        var oplog = await _context.Oplog.ToListAsync(cancellationToken);
+        var snapshotMetadata = await _context.SnapshotMetadata.ToListAsync(cancellationToken);
+        var remotePeers = await _context.RemotePeers.ToListAsync(cancellationToken);
+
+        // Build snapshot DTO
+        var snapshot = new Snapshot.SnapshotDto
+        {
+            Version = "1.0",
+            CreatedAt = DateTime.UtcNow.ToString("O"),
+            NodeId = "", // Will be set by caller if needed
+            Documents = documents.Select(d => new Snapshot.DocumentDto
+            {
+                Collection = d.Collection,
+                Key = d.Key,
+                JsonData = d.ContentJson,
+                IsDeleted = d.IsDeleted,
+                HlcWall = d.UpdatedAtPhysicalTime,
+                HlcLogic = d.UpdatedAtLogicalCounter,
+                HlcNode = d.UpdatedAtNodeId
+            }).ToList(),
+            Oplog = oplog.Select(o => new Snapshot.OplogDto
+            {
+                Collection = o.Collection,
+                Key = o.Key,
+                Operation = o.Operation,
+                JsonData = o.PayloadJson,
+                HlcWall = o.TimestampPhysicalTime,
+                HlcLogic = o.TimestampLogicalCounter,
+                HlcNode = o.TimestampNodeId,
+                Hash = o.Hash ?? "",
+                PreviousHash = o.PreviousHash
+            }).ToList(),
+            SnapshotMetadata = snapshotMetadata.Select(s => new Snapshot.SnapshotMetadataDto
+            {
+                NodeId = s.NodeId,
+                HlcWall = s.TimestampPhysicalTime,
+                HlcLogic = s.TimestampLogicalCounter,
+                Hash = s.Hash ?? ""
+            }).ToList(),
+            RemotePeers = remotePeers.Select(p => new Snapshot.RemotePeerDto
+            {
+                NodeId = p.NodeId,
+                Address = p.Address,
+                Type = p.Type,
+                OAuth2Json = p.OAuth2Json,
+                IsEnabled = p.IsEnabled
+            }).ToList()
+        };
+
+        // Serialize to JSON
+        await JsonSerializer.SerializeAsync(destination, snapshot, cancellationToken: cancellationToken);
+        _logger.LogInformation("Snapshot created: {DocCount} documents, {OplogCount} oplog entries", documents.Count, oplog.Count);
+    }
+
+    public async Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("Replacing EF Core database from snapshot stream...");
+
+        await ClearAllDataAsync(cancellationToken);
+
+        var snapshot = await JsonSerializer.DeserializeAsync<Snapshot.SnapshotDto>(databaseStream, cancellationToken: cancellationToken);
+        if (snapshot == null) throw new InvalidOperationException("Failed to deserialize snapshot");
+
+        await BulkInsertSnapshotAsync(snapshot, cancellationToken);
+
+        _logger.LogInformation("Database replaced successfully.");
+    }
+
+    public async Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Merging remote snapshot into local database...");
+
+        var snapshot = await JsonSerializer.DeserializeAsync<Snapshot.SnapshotDto>(snapshotStream, cancellationToken: cancellationToken);
+        if (snapshot == null) throw new InvalidOperationException("Failed to deserialize snapshot");
+
+        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var existingHashes = (await _context.Oplog.Select(o => o.Hash).ToListAsync(cancellationToken)).ToHashSet();
+            var newOplogEntries = snapshot.Oplog
+                .Where(o => !string.IsNullOrEmpty(o.Hash) && !existingHashes.Contains(o.Hash))
+                .Select(o => new OplogEntity
+                {
+                    Collection = o.Collection,
+                    Key = o.Key,
+                    Operation = o.Operation,
+                    PayloadJson = o.JsonData,
+                    TimestampPhysicalTime = o.HlcWall,
+                    TimestampLogicalCounter = o.HlcLogic,
+                    TimestampNodeId = o.HlcNode,
+                    Hash = o.Hash,
+                    PreviousHash = o.PreviousHash
+                }).ToList();
+
+            if (newOplogEntries.Any())
+            {
+                await _context.Oplog.AddRangeAsync(newOplogEntries, cancellationToken);
+            }
+
+            foreach (var remoteMeta in snapshot.SnapshotMetadata)
+            {
+                var localMeta = await _context.SnapshotMetadata
+                    .FirstOrDefaultAsync(s => s.NodeId == remoteMeta.NodeId, cancellationToken);
+
+                if (localMeta == null)
+                {
+                    _context.SnapshotMetadata.Add(new SnapshotMetadataEntity
+                    {
+                        NodeId = remoteMeta.NodeId,
+                        TimestampPhysicalTime = remoteMeta.HlcWall,
+                        TimestampLogicalCounter = remoteMeta.HlcLogic,
+                        Hash = remoteMeta.Hash
+                    });
+                }
+                else
+                {
+                    if (remoteMeta.HlcWall > localMeta.TimestampPhysicalTime ||
+                        (remoteMeta.HlcWall == localMeta.TimestampPhysicalTime && remoteMeta.HlcLogic > localMeta.TimestampLogicalCounter))
+                    {
+                        localMeta.TimestampPhysicalTime = remoteMeta.HlcWall;
+                        localMeta.TimestampLogicalCounter = remoteMeta.HlcLogic;
+                        localMeta.Hash = remoteMeta.Hash;
+                    }
+                }
+            }
+
+            foreach (var remoteDoc in snapshot.Documents)
+            {
+                var localDoc = await _context.Documents
+                    .FirstOrDefaultAsync(d => d.Collection == remoteDoc.Collection && d.Key == remoteDoc.Key, cancellationToken);
+
+                if (localDoc == null)
+                {
+                    _context.Documents.Add(new DocumentEntity
+                    {
+                        Collection = remoteDoc.Collection,
+                        Key = remoteDoc.Key,
+                        ContentJson = remoteDoc.JsonData ?? "{}",
+                        IsDeleted = remoteDoc.IsDeleted,
+                        UpdatedAtPhysicalTime = remoteDoc.HlcWall,
+                        UpdatedAtLogicalCounter = remoteDoc.HlcLogic,
+                        UpdatedAtNodeId = remoteDoc.HlcNode
+                    });
+                }
+                else
+                {
+                    if (remoteDoc.HlcWall > localDoc.UpdatedAtPhysicalTime ||
+                        (remoteDoc.HlcWall == localDoc.UpdatedAtPhysicalTime && remoteDoc.HlcLogic > localDoc.UpdatedAtLogicalCounter))
+                    {
+                        localDoc.ContentJson = remoteDoc.JsonData ?? "{}";
+                        localDoc.IsDeleted = remoteDoc.IsDeleted;
+                        localDoc.UpdatedAtPhysicalTime = remoteDoc.HlcWall;
+                        localDoc.UpdatedAtLogicalCounter = remoteDoc.HlcLogic;
+                        localDoc.UpdatedAtNodeId = remoteDoc.HlcNode;
+                    }
+                }
+            }
+
+            foreach (var remotePeer in snapshot.RemotePeers)
+            {
+                var localPeer = await _context.RemotePeers
+                    .FirstOrDefaultAsync(p => p.NodeId == remotePeer.NodeId, cancellationToken);
+
+                if (localPeer == null)
+                {
+                    _context.RemotePeers.Add(new RemotePeerEntity
+                    {
+                        NodeId = remotePeer.NodeId,
+                        Address = remotePeer.Address,
+                        Type = remotePeer.Type,
+                        OAuth2Json = remotePeer.OAuth2Json,
+                        IsEnabled = remotePeer.IsEnabled
+                    });
+                }
+                else
+                {
+                    localPeer.Address = remotePeer.Address;
+                    localPeer.Type = remotePeer.Type;
+                    localPeer.OAuth2Json = remotePeer.OAuth2Json;
+                    localPeer.IsEnabled = remotePeer.IsEnabled;
+                }
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            lock (_cacheLock)
+            {
+                _cacheInitialized = false;
+            }
+
+            _logger.LogInformation("Database merge completed successfully.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task ClearAllDataAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning("CLEARING ALL DATA FROM STORE!");
+
+        _context.Documents.RemoveRange(_context.Documents);
+        _context.Oplog.RemoveRange(_context.Oplog);
+        _context.SnapshotMetadata.RemoveRange(_context.SnapshotMetadata);
+        _context.RemotePeers.RemoveRange(_context.RemotePeers);
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        lock (_cacheLock)
+        {
+            _cacheInitialized = false;
+            _nodeCache.Clear();
+        }
+
+        _logger.LogInformation("Store cleared successfully.");
+    }
+
+    private async Task BulkInsertSnapshotAsync(Snapshot.SnapshotDto snapshot, CancellationToken cancellationToken)
+    {
+        var documents = snapshot.Documents.Select(d => new DocumentEntity
+        {
+            Collection = d.Collection,
+            Key = d.Key,
+            ContentJson = d.JsonData ?? "{}",
+            IsDeleted = d.IsDeleted,
+            UpdatedAtPhysicalTime = d.HlcWall,
+            UpdatedAtLogicalCounter = d.HlcLogic,
+            UpdatedAtNodeId = d.HlcNode
+        }).ToList();
+
+        if (documents.Any()) await _context.Documents.AddRangeAsync(documents, cancellationToken);
+
+        var oplogEntries = snapshot.Oplog.Select(o => new OplogEntity
+        {
+            Collection = o.Collection,
+            Key = o.Key,
+            Operation = o.Operation,
+            PayloadJson = o.JsonData,
+            TimestampPhysicalTime = o.HlcWall,
+            TimestampLogicalCounter = o.HlcLogic,
+            TimestampNodeId = o.HlcNode,
+            Hash = o.Hash,
+            PreviousHash = o.PreviousHash
+        }).ToList();
+
+        if (oplogEntries.Any()) await _context.Oplog.AddRangeAsync(oplogEntries, cancellationToken);
+
+        var metadata = snapshot.SnapshotMetadata.Select(s => new SnapshotMetadataEntity
+        {
+            NodeId = s.NodeId,
+            TimestampPhysicalTime = s.HlcWall,
+            TimestampLogicalCounter = s.HlcLogic,
+            Hash = s.Hash
+        }).ToList();
+
+        if (metadata.Any()) await _context.SnapshotMetadata.AddRangeAsync(metadata, cancellationToken);
+
+        var peers = snapshot.RemotePeers.Select(p => new RemotePeerEntity
+        {
+            NodeId = p.NodeId,
+            Address = p.Address,
+            Type = p.Type,
+            OAuth2Json = p.OAuth2Json,
+            IsEnabled = p.IsEnabled
+        }).ToList();
+
+        if (peers.Any()) await _context.RemotePeers.AddRangeAsync(peers, cancellationToken);
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        lock (_cacheLock)
+        {
+            _cacheInitialized = false;
+        }
+    }
 }

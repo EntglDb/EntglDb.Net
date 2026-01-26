@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
@@ -31,9 +32,17 @@ public class SyncOrchestrator : ISyncOrchestrator
 
     // Persistent clients pool
     private readonly ConcurrentDictionary<string, TcpPeerClient> _clients = new();
+    private readonly ConcurrentDictionary<string, PeerStatus> _peerStates = new();
 
     private readonly IPeerHandshakeService? _handshakeService;
-    private readonly EntglDb.Network.Telemetry.INetworkTelemetryService? _telemetry;
+    private readonly INetworkTelemetryService? _telemetry;
+    private class PeerStatus
+    {
+        public int FailureCount { get; set; }
+        public DateTime NextRetryTime { get; set; }
+    }
+
+    private DateTime _lastMaintenanceTime = DateTime.MinValue;
 
     public SyncOrchestrator(
         IDiscoveryService discovery,
@@ -41,7 +50,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
         ILoggerFactory loggerFactory,
         IPeerHandshakeService? handshakeService = null,
-        EntglDb.Network.Telemetry.INetworkTelemetryService? telemetry = null)
+        INetworkTelemetryService? telemetry = null)
     {
         _discovery = discovery;
         _store = store;
@@ -137,14 +146,44 @@ public class SyncOrchestrator : ISyncOrchestrator
             var config = await _peerNodeConfigurationProvider.GetConfiguration();
             try
             {
-                var peers = _discovery.GetActivePeers().Where(p => p.NodeId != config.NodeId).ToList();
+                var allPeers = _discovery.GetActivePeers().Where(p => p.NodeId != config.NodeId).ToList();
+                
+                // Filter peers based on backoff
+                var now = DateTime.UtcNow;
+                var eligiblePeers = allPeers.Where(p => 
+                {
+                    if (_peerStates.TryGetValue(p.NodeId, out var status))
+                    {
+                        return status.NextRetryTime <= now;
+                    }
+                    return true;
+                }).ToList();
 
-                // Gossip Fanout: Pick 3 random peers
-                var targets = peers.OrderBy(x => _random.Next()).Take(3).ToList();
+                // Gossip Fanout: Pick 3 random peers from eligible set
+                var targets = eligiblePeers.OrderBy(x => _random.Next()).Take(3).ToList();
 
                 // NetStandard 2.0 fallback: Use Task.WhenAll
                 var tasks = targets.Select(peer => TrySyncWithPeer(peer, token));
                 await Task.WhenAll(tasks);
+
+                // Periodic Maintenance: Prune Oplog based on configuration
+                var maintenanceInterval = TimeSpan.FromMinutes(config.MaintenanceIntervalMinutes);
+                if ((now - _lastMaintenanceTime) >= maintenanceInterval)
+                {
+                    _logger.LogInformation("Running periodic maintenance (Oplog pruning)...");
+                    try
+                    {
+                        var retentionHours = config.OplogRetentionHours;
+                        var cutoff = new HlcTimestamp(DateTimeOffset.UtcNow.AddHours(-retentionHours).ToUnixTimeMilliseconds(), 0, config.NodeId);
+                        await _store.PruneOplogAsync(cutoff, token);
+                        _lastMaintenanceTime = now;
+                        _logger.LogInformation("Maintenance completed successfully (Retention: {RetentionHours}h).", retentionHours);
+                    }
+                    catch (Exception maintenanceEx)
+                    {
+                        _logger.LogError(maintenanceEx, "Maintenance failed.");
+                    }
+                }
             }
             catch (OperationCanceledException)
             {
@@ -176,6 +215,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     {
         TcpPeerClient? client = null;
         bool shouldRemoveClient = false;
+        bool syncSuccessful = false;
 
         try
         {
@@ -199,7 +239,7 @@ public class SyncOrchestrator : ISyncOrchestrator
             {
                 _logger.LogWarning("Handshake rejected by {NodeId}", peer.NodeId);
                 shouldRemoveClient = true;
-                return;
+                throw new Exception("Handshake rejected");
             }
 
             // 1. Exchange Vector Clocks
@@ -229,7 +269,13 @@ public class SyncOrchestrator : ISyncOrchestrator
                     var changes = await client.PullChangesFromNodeAsync(nodeId, localTs, token);
                     if (changes != null && changes.Count > 0)
                     {
-                        await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
+                        var result = await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
+                        if (result != SyncBatchResult.Success)
+                        {
+                            _logger.LogWarning("Inbound batch processing failed with status {Status}. Aborting sync for this session.", result);
+                            RecordFailure(peer.NodeId);
+                            return;
+                        }
                     }
                 }
             }
@@ -264,21 +310,77 @@ public class SyncOrchestrator : ISyncOrchestrator
             {
                 _logger.LogDebug("Vector clocks are concurrent with {PeerNodeId}, but no divergence detected.", peer.NodeId);
             }
+            
+            syncSuccessful = true;
+            RecordSuccess(peer.NodeId);
+        }
+
+        catch (SnapshotRequiredException)
+        {
+            _logger.LogWarning("Snapshot required for peer {NodeId}. Initiating merge sync.", peer.NodeId);
+            if (client != null && client.IsConnected)
+            {
+                try 
+                {
+                    await PerformSnapshotSyncAsync(client, true, token);
+                    syncSuccessful = true;
+                    RecordSuccess(peer.NodeId);
+                }
+                catch
+                {
+                     RecordFailure(peer.NodeId);
+                     shouldRemoveClient = true;
+                }
+            }
+            else
+            {
+                 RecordFailure(peer.NodeId);
+                 shouldRemoveClient = true;
+            }
+        }
+        catch (CorruptDatabaseException cex)
+        {
+            _logger.LogCritical(cex, "Local database corruption detected during sync with {NodeId}. Initiating EMERGENCY SNAPSHOT RECOVERY.", peer.NodeId);
+            if (client != null && client.IsConnected)
+            {
+                try
+                {
+                    // EMERGENCY RECOVERY: Replace local DB with remote snapshot (mergeOnly: false)
+                    await PerformSnapshotSyncAsync(client, false, token);
+                    syncSuccessful = true;
+                    RecordSuccess(peer.NodeId);
+                    _logger.LogInformation("Emergency recovery successful. Local database replaced.");
+                }
+                catch (Exception recoveryEx)
+                {
+                    _logger.LogCritical(recoveryEx, "Emergency recovery failed. App state is critical.");
+                    RecordFailure(peer.NodeId);
+                    shouldRemoveClient = true;
+                }
+            }
+            else
+            {
+                 RecordFailure(peer.NodeId);
+                 shouldRemoveClient = true;
+            }
         }
         catch (TimeoutException tex)
         {
             _logger.LogWarning("Sync with {NodeId} timed out: {Message}. Will retry later.", peer.NodeId, tex.Message);
             shouldRemoveClient = true;
+            RecordFailure(peer.NodeId);
         }
         catch (SocketException sex)
         {
             _logger.LogWarning("Network error syncing with {NodeId}: {Message}. Will retry later.", peer.NodeId, sex.Message);
             shouldRemoveClient = true;
+            RecordFailure(peer.NodeId);
         }
         catch (Exception ex)
         {
             _logger.LogWarning("Sync failed with {NodeId}: {Message}. Resetting connection.", peer.NodeId, ex.Message);
             shouldRemoveClient = true;
+            RecordFailure(peer.NodeId);
         }
         finally
         {
@@ -291,12 +393,45 @@ public class SyncOrchestrator : ISyncOrchestrator
             }
         }
     }
+    
+    private void RecordSuccess(string nodeId)
+    {
+        _peerStates.AddOrUpdate(nodeId, 
+            new PeerStatus { FailureCount = 0, NextRetryTime = DateTime.MinValue },
+            (k, v) => { v.FailureCount = 0; v.NextRetryTime = DateTime.MinValue; return v; });
+    }
+
+    private void RecordFailure(string nodeId)
+    {
+        _peerStates.AddOrUpdate(nodeId,
+            new PeerStatus { FailureCount = 1, NextRetryTime = DateTime.UtcNow.AddSeconds(1) },
+            (k, v) => 
+            {
+                v.FailureCount++;
+                // Exponential backoff: 1s, 2s, 4s... max 60s
+                var delaySeconds = Math.Min(Math.Pow(2, v.FailureCount), 60);
+                v.NextRetryTime = DateTime.UtcNow.AddSeconds(delaySeconds);
+                return v;
+            });
+    }
 
     /// <summary>
     /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to store.
     /// Extracted to enforce Single Responsibility Principle.
     /// </summary>
-    private async Task ProcessInboundBatchAsync(TcpPeerClient client, string peerNodeId, IList<OplogEntry> changes, CancellationToken token)
+    private enum SyncBatchResult
+    {
+        Success,
+        GapDetected,
+        IntegrityError,
+        ChainBroken
+    }
+
+    /// <summary>
+    /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to store.
+    /// Extracted to enforce Single Responsibility Principle.
+    /// </summary>
+    private async Task<SyncBatchResult> ProcessInboundBatchAsync(TcpPeerClient client, string peerNodeId, IList<OplogEntry> changes, CancellationToken token)
     {
         _logger.LogInformation("Received {Count} changes from {NodeId}", changes.Count, peerNodeId);
 
@@ -328,7 +463,8 @@ public class SyncOrchestrator : ISyncOrchestrator
             {
                 if (authorChain[i].PreviousHash != authorChain[i - 1].Hash)
                 {
-                    throw new InvalidOperationException($"Chain Broken in Batch for Node {authorNodeId}");
+                    _logger.LogError("Chain Broken in Batch for Node {AuthorId}", authorNodeId);
+                    return SyncBatchResult.ChainBroken;
                 }
             }
 
@@ -345,22 +481,37 @@ public class SyncOrchestrator : ISyncOrchestrator
                 _logger.LogWarning("Gap Detected for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Initiating Recovery.", authorNodeId, localHeadHash, firstEntry.PreviousHash);
 
                 // Gap Recovery (Range Sync)
-                var missingChain = await client.GetChainRangeAsync(localHeadHash, firstEntry.PreviousHash, token);
+                List<OplogEntry>? missingChain = null;
+                try
+                {
+                     missingChain = await client.GetChainRangeAsync(localHeadHash, firstEntry.PreviousHash, token);
+                }
+                catch (SnapshotRequiredException)
+                {
+                    throw; // Propagate up to trigger full sync
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Gap Recovery failed.");
+                    /* Fallthrough to decision logic */
+                }
 
                 if (missingChain != null && missingChain.Any())
                 {
                     _logger.LogInformation("Gap Recovery: Retrieved {Count} missing entries.", missingChain.Count);
 
                     // Validate Recovery Chain Linkage
-                    if (missingChain[0].PreviousHash != localHeadHash)
-                        throw new InvalidOperationException("Recovery Chain does not link to Local Head");
-
+                    bool linkValid = true;
+                    if (missingChain[0].PreviousHash != localHeadHash) linkValid = false;
                     for (int i = 1; i < missingChain.Count; i++)
-                        if (missingChain[i].PreviousHash != missingChain[i - 1].Hash)
-                            throw new InvalidOperationException("Recovery Chain has internal breaks");
+                        if (missingChain[i].PreviousHash != missingChain[i - 1].Hash) linkValid = false;
+                    if (missingChain.Last().Hash != firstEntry.PreviousHash) linkValid = false;
 
-                    if (missingChain.Last().Hash != firstEntry.PreviousHash)
-                        throw new InvalidOperationException("Recovery Chain does not link to Batch Start");
+                    if (!linkValid)
+                    {
+                        _logger.LogError("Recovery Chain Invalid Linkage. Aborting Gap Recovery.");
+                        return SyncBatchResult.GapDetected;
+                    }
 
                     // Apply Missing Chain First
                     await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), missingChain, token);
@@ -390,6 +541,51 @@ public class SyncOrchestrator : ISyncOrchestrator
 
             // Apply original batch (grouped by node for clarity, but store usually handles bulk)
             await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), authorChain, token);
+        }
+
+        return SyncBatchResult.Success;
+    }
+
+    private async Task PerformSnapshotSyncAsync(TcpPeerClient client, bool mergeOnly, CancellationToken token)
+    {
+        _logger.LogInformation(mergeOnly ? "Starting Snapshot Merge..." : "Starting Full Database Replacement...");
+        
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            _logger.LogInformation("Downloading snapshot to {TempFile}...", tempFile);
+            using (var fs = File.Create(tempFile))
+            {
+                await client.GetSnapshotAsync(fs, token);
+            }
+            
+            _logger.LogInformation("Snapshot Downloaded. applying to store...");
+            
+            using (var fs = File.OpenRead(tempFile))
+            {
+                if (mergeOnly)
+                {
+                    await _store.MergeSnapshotAsync(fs, token);
+                }
+                else
+                {
+                    await _store.ReplaceDatabaseAsync(fs, token);
+                }
+            }
+            
+            _logger.LogInformation("Snapshot applied successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to perform snapshot sync");
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                try { File.Delete(tempFile); } catch { }
+            }
         }
     }
 }
