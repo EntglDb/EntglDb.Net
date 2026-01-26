@@ -870,13 +870,13 @@ public class SqlitePeerStore : IPeerStore
         catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
              _logger.LogCritical(ex, "Database corruption detected during ApplyBatchAsync!");
-             try { transaction.Rollback(); } catch { }
+             try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after database corruption"); }
              throw new CorruptDatabaseException("SQLite database is corrupt", ex);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to apply batch");
-            try { transaction.Rollback(); } catch { }
+            try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction"); }
             throw;
         }
 
@@ -1023,7 +1023,7 @@ public class SqlitePeerStore : IPeerStore
         catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
              _logger.LogCritical(ex, "Database corruption detected during oplog pruning (PruneOplogAsync).");
-             try { transaction.Rollback(); } catch { }
+             try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after database corruption"); }
              throw new CorruptDatabaseException("SQLite database is corrupt", ex);
         }
         catch (Exception ex)
