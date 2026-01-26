@@ -1029,6 +1029,7 @@ public class SqlitePeerStore : IPeerStore
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to prune oplog");
+            try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after oplog pruning failure"); }
             throw;
         }
     }
