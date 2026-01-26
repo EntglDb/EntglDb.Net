@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="0.8.5"></a>
+## [0.8.5](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.8.5) (2026-01-26)
+
+### Bug Fixes
+
+* **core:** atomic save and last hash update ([e9cf4b3](https://www.github.com/EntglDb/EntglDb.Net/commit/e9cf4b3f3738a725f7dbcbd79bb4c0f393203cbd))
+* **core:** makes hashing deterministric ([9400c73](https://www.github.com/EntglDb/EntglDb.Net/commit/9400c7334d6debf896a3c234b085a2e9f4222023))
+
 <a name="0.8.0"></a>
 ## [0.8.0] - 2026-01-20
 
