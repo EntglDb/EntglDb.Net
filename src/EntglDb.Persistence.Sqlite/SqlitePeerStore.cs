@@ -880,6 +880,8 @@ public class SqlitePeerStore : IPeerStore
             throw;
         }
 
+        // Invalidate node cache so vector clocks and last-entry hashes will be recomputed
+        _nodeCache?.Clear();
         // Notify changes
         ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(oplogEntries));
     }
