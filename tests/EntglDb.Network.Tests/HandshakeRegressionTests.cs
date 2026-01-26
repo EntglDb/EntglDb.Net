@@ -41,6 +41,31 @@ namespace EntglDb.Network.Tests
             public Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
             public Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default) => Task.FromResult<OplogEntry?>(null);
             public Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
+
+            public Task PruneOplogAsync(HlcTimestamp cutoff, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task CreateSnapshotAsync(Stream destination, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task ClearAllDataAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
         }
 
         class StubConfigProvider : IPeerNodeConfigurationProvider

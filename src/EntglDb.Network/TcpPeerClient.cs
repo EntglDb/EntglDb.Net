@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
@@ -276,6 +277,8 @@ public class TcpPeerClient : IDisposable
 
         var res = ChainRangeResponse.Parser.ParseFrom(payload);
 
+        if (res.SnapshotRequired) throw new SnapshotRequiredException();
+
         return res.Entries.Select(e => new OplogEntry(
             e.Collection,
             e.Key,
@@ -316,11 +319,34 @@ public class TcpPeerClient : IDisposable
 
         var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
         if (type != MessageType.AckRes) throw new Exception("Push failed");
+
+        var res = AckResponse.Parser.ParseFrom(payload);
+        if (res.SnapshotRequired) throw new SnapshotRequiredException();
+        if (!res.Success) throw new Exception("Push failed");
     }
 
     private bool _useCompression = false; // Negotiated after handshake
 
     private OperationType ParseOp(string op) => Enum.TryParse<OperationType>(op, out var val) ? val : OperationType.Put;
+
+    public async Task GetSnapshotAsync(Stream destination, CancellationToken token)
+    {
+        await _protocol.SendMessageAsync(_stream!, MessageType.GetSnapshotReq, new GetSnapshotRequest(), _useCompression, _cipherState, token);
+
+        while (true)
+        {
+             var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
+             if (type != MessageType.SnapshotChunkMsg) throw new Exception($"Unexpected message type during snapshot: {type}");
+
+             var chunk = SnapshotChunk.Parser.ParseFrom(payload);
+             if (chunk.Data.Length > 0)
+             {
+                 await destination.WriteAsync(chunk.Data.ToByteArray(), 0, chunk.Data.Length, token);
+             }
+
+             if (chunk.IsLast) break;
+        }
+    }
 
     public void Dispose()
     {
@@ -350,4 +376,9 @@ public class TcpPeerClient : IDisposable
         
         _logger.LogDebug("Disposed connection to peer: {Address}", _peerAddress);
     }
+}
+
+public class SnapshotRequiredException : Exception
+{
+    public SnapshotRequiredException() : base("Peer requires a full snapshot sync.") { }
 }

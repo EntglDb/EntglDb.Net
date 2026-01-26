@@ -25,6 +25,11 @@ public class EntglDbContext : DbContext
     public DbSet<RemotePeerEntity> RemotePeers { get; set; } = null!;
 
     /// <summary>
+    /// Gets or sets the SnapshotMetadata DbSet.
+    /// </summary>
+    public DbSet<SnapshotMetadataEntity> SnapshotMetadata { get; set; } = null!;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="EntglDbContext"/> class.
     /// </summary>
     /// <param name="options">The options to configure the context.</param>
@@ -63,6 +68,13 @@ public class EntglDbContext : DbContext
         {
             entity.HasKey(e => e.NodeId);
             entity.HasIndex(e => e.IsEnabled);
+        });
+
+        // Configure SnapshotMetadataEntity
+        modelBuilder.Entity<SnapshotMetadataEntity>(entity =>
+        {
+            entity.HasKey(e => e.NodeId);
+            entity.HasIndex(e => new { e.TimestampPhysicalTime, e.TimestampLogicalCounter });
         });
     }
 }

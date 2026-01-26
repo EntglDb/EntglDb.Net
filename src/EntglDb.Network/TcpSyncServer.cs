@@ -361,23 +361,67 @@ internal class TcpSyncServer : ISyncServer
                             var rangeReq = GetChainRangeRequest.Parser.ParseFrom(payload);
                             var rangeEntries = await _store.GetChainRangeAsync(rangeReq.StartHash, rangeReq.EndHash, token);
                             var rangeRes = new ChainRangeResponse();
-                            foreach (var e in rangeEntries)
+                            
+                            if (!rangeEntries.Any() && rangeReq.StartHash != rangeReq.EndHash)
                             {
-                                rangeRes.Entries.Add(new ProtoOplogEntry
+                                // Gap cannot be filled (likely pruned or unknown branch)
+                                rangeRes.SnapshotRequired = true;
+                            }
+                            else
+                            {
+                                foreach (var e in rangeEntries)
                                 {
-                                    Collection = e.Collection,
-                                    Key = e.Key,
-                                    Operation = e.Operation.ToString(),
-                                    JsonData = e.Payload?.GetRawText() ?? "",
-                                    HlcWall = e.Timestamp.PhysicalTime,
-                                    HlcLogic = e.Timestamp.LogicalCounter,
-                                    HlcNode = e.Timestamp.NodeId,
-                                    Hash = e.Hash,
-                                    PreviousHash = e.PreviousHash
-                                });
+                                    rangeRes.Entries.Add(new ProtoOplogEntry
+                                    {
+                                        Collection = e.Collection,
+                                        Key = e.Key,
+                                        Operation = e.Operation.ToString(),
+                                        JsonData = e.Payload?.GetRawText() ?? "",
+                                        HlcWall = e.Timestamp.PhysicalTime,
+                                        HlcLogic = e.Timestamp.LogicalCounter,
+                                        HlcNode = e.Timestamp.NodeId,
+                                        Hash = e.Hash,
+                                        PreviousHash = e.PreviousHash
+                                    });
+                                }
                             }
                             response = rangeRes;
                             resType = MessageType.ChainRangeRes;
+                            break;
+
+                        case MessageType.GetSnapshotReq:
+                            _logger.LogInformation("Processing GetSnapshotReq from {Endpoint}", remoteEp);
+                            var tempFile = Path.GetTempFileName();
+                            try 
+                            {
+                                // Create backup
+                                using (var fs = File.Create(tempFile))
+                                {
+                                    await _store.CreateSnapshotAsync(fs, token);
+                                }
+                                
+                                using (var fs = File.OpenRead(tempFile))
+                                {
+                                    byte[] buffer = new byte[80 * 1024]; // 80KB chunks
+                                    int bytesRead;
+                                    while ((bytesRead = await fs.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
+                                    {
+                                        var chunk = new SnapshotChunk 
+                                        { 
+                                            Data = ByteString.CopyFrom(buffer, 0, bytesRead),
+                                            IsLast = false 
+                                        };
+                                        await protocol.SendMessageAsync(stream, MessageType.SnapshotChunkMsg, chunk, false, cipherState, token);
+                                    }
+                                    
+                                    // Send End of Snapshot
+                                    await protocol.SendMessageAsync(stream, MessageType.SnapshotChunkMsg, new SnapshotChunk { IsLast = true }, false, cipherState, token);
+                                }
+                            }
+                            finally
+                            {
+                                if (File.Exists(tempFile)) File.Delete(tempFile);
+                            }
                             break;
                     }
 

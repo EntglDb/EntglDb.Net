@@ -59,10 +59,12 @@ message GetChainRangeRequest {
 
 message ChainRangeResponse { 
   repeated ProtoOplogEntry entries = 1; 
+  bool snapshot_required = 2;
 }
 
 message AckResponse {
   bool success = 1;
+  bool snapshot_required = 2;
 }
 
 message ProtoOplogEntry {
@@ -75,6 +77,14 @@ message ProtoOplogEntry {
   string hlc_node = 7;
   string hash = 8;
   string previous_hash = 9;
+}
+
+message GetSnapshotRequest {
+}
+
+message SnapshotChunk {
+    bytes data = 1;
+    bool is_last = 2;
 }
 
 // Enum for wire framing (1 byte)
@@ -93,6 +103,8 @@ enum MessageType {
   ChainRangeRes = 11;
   GetVectorClockReq = 12;
   VectorClockRes = 13;
+  GetSnapshotReq = 14;
+  SnapshotChunkMsg = 15;
 }
 
 message SecureEnvelope {
