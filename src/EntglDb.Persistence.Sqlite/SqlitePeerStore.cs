@@ -870,13 +870,27 @@ public class SqlitePeerStore : IPeerStore
         catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
              _logger.LogCritical(ex, "Database corruption detected during ApplyBatchAsync!");
-             try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after database corruption"); }
+             try
+             {
+                 transaction.Rollback();
+             }
+             catch (Exception rollbackEx)
+             {
+                 _logger.LogWarning(rollbackEx, "Failed to rollback transaction after database corruption");
+             }
              throw new CorruptDatabaseException("SQLite database is corrupt", ex);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to apply batch");
-            try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after batch failure"); }
+            try
+            {
+                transaction.Rollback();
+            }
+            catch (Exception rollbackEx)
+            {
+                _logger.LogWarning(rollbackEx, "Failed to rollback transaction after batch failure");
+            }
             throw;
         }
 
@@ -1023,13 +1037,27 @@ public class SqlitePeerStore : IPeerStore
         catch (SqliteException ex) when (ex.SqliteErrorCode == 11 || ex.SqliteErrorCode == 26) // SQLITE_CORRUPT or SQLITE_NOTADB
         {
              _logger.LogCritical(ex, "Database corruption detected during oplog pruning (PruneOplogAsync).");
-             try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after database corruption during oplog pruning"); }
+             try
+             {
+                 transaction.Rollback();
+             }
+             catch (Exception rollbackEx)
+             {
+                 _logger.LogWarning(rollbackEx, "Failed to rollback transaction after database corruption during oplog pruning");
+             }
              throw new CorruptDatabaseException("SQLite database is corrupt", ex);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to prune oplog");
-            try { transaction.Rollback(); } catch (Exception rollbackEx) { _logger.LogWarning(rollbackEx, "Failed to rollback transaction after oplog pruning failure"); }
+            try
+            {
+                transaction.Rollback();
+            }
+            catch (Exception rollbackEx)
+            {
+                _logger.LogWarning(rollbackEx, "Failed to rollback transaction after oplog pruning failure");
+            }
             throw;
         }
     }
