@@ -1001,10 +1001,78 @@ public class SqlitePeerStore : IPeerStore
         return collections;
     }
 
-    public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
     {
-        // Not implemented (Placeholder - simple query not supported by this store yet)
-        return Task.FromResult(Enumerable.Empty<Document>());
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        await EnsureCollectionTablesAsync(connection, collection);
+
+        var translator = new SqlQueryTranslator();
+        string whereClause = "1=1";
+        var parameters = new DynamicParameters();
+
+        if (queryExpression != null)
+        {
+            var (w, p) = translator.Translate(queryExpression);
+            whereClause = w;
+            parameters = p;
+        }
+
+        var tableName = GetDocumentTableName(collection);
+        var usePerCollection = _options?.UsePerCollectionTables == true;
+
+        var sqlBuilder = new System.Text.StringBuilder();
+        sqlBuilder.Append($@"
+                SELECT Key, JsonData, IsDeleted, HlcWall, HlcLogic, HlcNode
+                FROM {tableName}
+                WHERE IsDeleted = 0");
+        
+        if (!usePerCollection)
+        {
+            sqlBuilder.Append(" AND Collection = @Collection");
+            parameters.Add("@Collection", collection);
+        }
+        
+        sqlBuilder.Append(" AND (");
+        sqlBuilder.Append(whereClause);
+        sqlBuilder.Append(")");
+
+        if (!string.IsNullOrEmpty(orderBy))
+        {
+            if (orderBy.All(c => char.IsLetterOrDigit(c) || c == '.' || c == '_'))
+            {
+                string sortField = $"json_extract(JsonData, '$.{orderBy}')";
+                sqlBuilder.Append($" ORDER BY {sortField} {(ascending ? "ASC" : "DESC")}");
+            }
+        }
+        else
+        {
+             sqlBuilder.Append(" ORDER BY Key ASC");
+        }
+
+        // Paging
+        if (take.HasValue)
+        {
+            sqlBuilder.Append(" LIMIT @Take");
+            parameters.Add("@Take", take.Value);
+        }
+
+        if (skip.HasValue)
+        {
+            sqlBuilder.Append(" OFFSET @Skip");
+            parameters.Add("@Skip", skip.Value);
+        }
+
+        var rows = await connection.QueryAsync<DocumentRow>(sqlBuilder.ToString(), parameters);
+        
+        return rows.Select(r => {
+             var hlc = new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode);
+             var content = r.JsonData != null 
+                ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) 
+                : default;
+             return new Document(collection, r.Key, content, hlc, r.IsDeleted != 0);
+        });
     }
 
     // --- Snapshotting Implementation ---
