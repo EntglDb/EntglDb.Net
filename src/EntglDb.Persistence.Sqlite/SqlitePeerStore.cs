@@ -1067,11 +1067,11 @@ public class SqlitePeerStore : IPeerStore
         var rows = await connection.QueryAsync<DocumentRow>(sqlBuilder.ToString(), parameters);
         
         return rows.Select(r => {
-             var hlc = new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode);
-             var content = r.JsonData != null 
+            var hlc = new HlcTimestamp(r.HlcWall, r.HlcLogic, r.HlcNode);
+            var content = r.JsonData != null 
                 ? JsonSerializer.Deserialize<JsonElement>(r.JsonData) 
                 : default;
-             return new Document(collection, r.Key, content, hlc, r.IsDeleted != 0);
+            return new Document(collection, r.Key, content, hlc, r.IsDeleted != 0);
         });
     }
 
