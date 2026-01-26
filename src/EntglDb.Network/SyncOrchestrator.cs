@@ -584,7 +584,14 @@ public class SyncOrchestrator : ISyncOrchestrator
         {
             if (File.Exists(tempFile))
             {
-                try { File.Delete(tempFile); } catch { }
+                try
+                {
+                    File.Delete(tempFile);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete temporary snapshot file {TempFile}", tempFile);
+                }
             }
         }
     }
