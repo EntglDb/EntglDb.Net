@@ -22,7 +22,10 @@ public class PeerDatabase : IPeerDatabase
     private readonly object _clockLock = new object();
 
     private object _hashLock = new object();
-    internal object CentralizedHashUpdateLock => new object();
+    
+    // CHANGED: Replaced broken "=> new object()" lock with a proper SemaphoreSlim for async coordination.
+    // This ensures only one writer can append to the chain at a time.
+    internal SemaphoreSlim WriteLock { get; } = new SemaphoreSlim(1, 1);
 
     private string? _lastHash;
     public string? LastHash

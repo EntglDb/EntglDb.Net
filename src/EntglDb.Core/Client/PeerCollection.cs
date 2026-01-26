@@ -26,34 +26,41 @@ internal class PeerCollection : IPeerCollection
 
     public async Task Put(string key, object document, CancellationToken cancellationToken = default)
     {
-        OplogEntry oplog;
-
-        var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
-        var timestamp = await _db.Tick();
-
-        lock (_db.CentralizedHashUpdateLock)
+        await _db.WriteLock.WaitAsync(cancellationToken);
+        try
         {
+            var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
+            var timestamp = await _db.Tick();
+
             var previousHash = _db.LastHash;
-            oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
+            var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
+            
+            var paramsContainer = new Document(_name, key, json, timestamp, false);
+
+            // Persist FIRST. If this fails, we haven't corrupted the in-memory chain state.
+            await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
+            await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
+            
+            // Update in-memory hash only after successful persistence (Crash Safety)
             _db.LastHash = oplog.Hash;
         }
-
-        var paramsContainer = new Document(_name, key, json, timestamp, false);
-
-        await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
-        await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     public async Task PutMany(IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken = default)
     {
-        var docList = new List<Document>();
-        var oplogList = new List<OplogEntry>();
-        var firstTimestamp = await _db.Tick();
-        var nodeId = firstTimestamp.NodeId;
-
-        lock (_db.CentralizedHashUpdateLock)
+        await _db.WriteLock.WaitAsync(cancellationToken);
+        try
         {
+            var docList = new List<Document>();
+            var oplogList = new List<OplogEntry>();
+            var firstTimestamp = await _db.Tick();
+            var nodeId = firstTimestamp.NodeId;
             var previousHash = _db.LastHash;
+            var newLastHash = previousHash;
 
             foreach (var kvp in documents)
             {
@@ -62,11 +69,11 @@ internal class PeerCollection : IPeerCollection
                 var json = JsonSerializer.SerializeToElement(document, _db.JsonOptions);
 
                 // We need unique logical timestamps for each entry in the batch
-                // The first one is already ticked. Subsequent ones increment logic counter.
                 var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
 
                 var oplog = new OplogEntry(_name, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
-                previousHash = oplog.Hash; // Update for next item in batch
+                previousHash = oplog.Hash; // Link internally within the batch
+                newLastHash = oplog.Hash;
 
                 var paramsContainer = new Document(_name, key, json, timestamp, false);
 
@@ -74,12 +81,17 @@ internal class PeerCollection : IPeerCollection
                 oplogList.Add(oplog);
             }
 
-            _db.LastHash = previousHash;
+            if (docList.Count > 0)
+            {
+                await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+                
+                // Update in-memory hash only after successful persistence
+                _db.LastHash = newLastHash;
+            }
         }
-
-        if (docList.Count > 0)
+        finally
         {
-            await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+            _db.WriteLock.Release();
         }
     }
 
@@ -93,43 +105,51 @@ internal class PeerCollection : IPeerCollection
 
     public async Task Delete(string key, CancellationToken cancellationToken = default)
     {
-        OplogEntry oplog;
-        var timestamp = await _db.Tick();
-
-        lock (_db.CentralizedHashUpdateLock)
+        await _db.WriteLock.WaitAsync(cancellationToken);
+        try
         {
+            var timestamp = await _db.Tick();
             var previousHash = _db.LastHash;
+            
+            var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
 
-            oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
-
+            var empty = default(JsonElement);
+            var paramsContainer = new Document(_name, key, empty, timestamp, true);
+            
+            // Persist FIRST
+            await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
+            await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
+            
+            // Update in-memory hash
             _db.LastHash = oplog.Hash;
         }
-
-        var empty = default(JsonElement);
-        var paramsContainer = new Document(_name, key, empty, timestamp, true);
-        await _db.Store.SaveDocumentAsync(paramsContainer, cancellationToken);
-        await _db.Store.AppendOplogEntryAsync(oplog, cancellationToken);
+        finally
+        {
+            _db.WriteLock.Release();
+        }
     }
 
     public async Task DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken = default)
     {
-        var docList = new List<Document>();
-        var oplogList = new List<OplogEntry>();
-        var empty = default(JsonElement);
-        
-        var firstTimestamp = await _db.Tick();
-        var nodeId = firstTimestamp.NodeId;
-
-        lock (_db.CentralizedHashUpdateLock)
+        await _db.WriteLock.WaitAsync(cancellationToken);
+        try
         {
+            var docList = new List<Document>();
+            var oplogList = new List<OplogEntry>();
+            var empty = default(JsonElement);
+            
+            var firstTimestamp = await _db.Tick();
+            var nodeId = firstTimestamp.NodeId;
             var previousHash = _db.LastHash;
+            var newLastHash = previousHash;
 
             foreach (var key in keys)
             {
                 var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
 
                 var oplog = new OplogEntry(_name, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
-                previousHash = oplog.Hash;
+                previousHash = oplog.Hash; // Link internally
+                newLastHash = oplog.Hash;
 
                 var paramsContainer = new Document(_name, key, empty, timestamp, true);
 
@@ -137,12 +157,17 @@ internal class PeerCollection : IPeerCollection
                 oplogList.Add(oplog);
             }
 
-            _db.LastHash = previousHash;
+            if (docList.Count > 0)
+            {
+                await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+                
+                // Update in-memory hash only after successful persistence
+                _db.LastHash = newLastHash;
+            }
         }
-
-        if (docList.Count > 0)
+        finally
         {
-            await _db.Store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+            _db.WriteLock.Release();
         }
     }
 
