@@ -946,10 +946,39 @@ public class SqlitePeerStore : IPeerStore
         return documents.Count();
     }
 
-    public Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
+    public async Task EnsureIndexAsync(string collection, string propertyPath, CancellationToken cancellationToken = default)
     {
-        // Not implemented (Placeholder)
-        return Task.CompletedTask;
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        await EnsureCollectionTablesAsync(connection, collection);
+
+        var tableName = GetDocumentTableName(collection);
+        var usePerCollection = _options?.UsePerCollectionTables == true;
+
+        // Sanitize names to prevent injection
+        var safeColl = new string(collection.Where(char.IsLetterOrDigit).ToArray());
+        var safeProp = new string(propertyPath.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '.').ToArray());
+        var indexName = $"IDX_{safeColl}_{safeProp.Replace(".", "_")}";
+
+        string sql;
+        if (usePerCollection)
+        {
+            // Per-collection mode: simple index without collection filter
+            sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
+                         ON {tableName}(json_extract(JsonData, '$.{safeProp}'))";
+        }
+        else
+        {
+            // Legacy mode: index with collection filter
+            sql = $@"CREATE INDEX IF NOT EXISTS {indexName} 
+                         ON Documents(json_extract(JsonData, '$.{safeProp}')) 
+                         WHERE Collection = '{collection}'";
+        }
+
+        await connection.ExecuteAsync(sql);
+        
+        _logger.LogInformation("Ensured index {IndexName} on {Collection}.{Property}", indexName, collection, propertyPath);
     }
 
     public async Task<IEnumerable<string>> GetCollectionsAsync(CancellationToken cancellationToken = default)
@@ -957,7 +986,7 @@ public class SqlitePeerStore : IPeerStore
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        if (UsePerCollectionTables)
+        if (_options?.UsePerCollectionTables == true)
         {
             // In per-collection mode, rely on known collection tables.
             return GetKnownCollections(connection);
