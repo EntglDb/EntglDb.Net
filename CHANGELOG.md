@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="0.9.0"></a>
+## [0.9.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.9.0) (2026-01-28)
+
+### Features
+
+* enhance ASP.NET Core sample, fix EF Core runtime issues, stabilize Sync/Persistence ([18813d0](https://www.github.com/EntglDb/EntglDb.Net/commit/18813d0aa881de9d0a13bd8d863ab6283bc630fc))
+
 <a name="0.8.6"></a>
 ## [0.8.6](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.8.6) (2026-01-27)
 
