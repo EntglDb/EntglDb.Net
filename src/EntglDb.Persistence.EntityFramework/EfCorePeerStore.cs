@@ -859,6 +859,17 @@ public class EfCorePeerStore : IPeerStore
         }
     }
 
+    public async Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheInitializedAsync();
+        
+        var snapshot = await _context.SnapshotMetadata
+            .Where(s => s.NodeId == nodeId)
+            .FirstOrDefaultAsync(cancellationToken);
+        
+        return snapshot?.Hash;
+    }
+
     public async Task ClearAllDataAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogWarning("CLEARING ALL DATA FROM STORE!");

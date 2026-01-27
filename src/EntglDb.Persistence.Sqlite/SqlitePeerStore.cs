@@ -1304,6 +1304,18 @@ public class SqlitePeerStore : IPeerStore
         }
     }
 
+    public async Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        var hash = await connection.QuerySingleOrDefaultAsync<string>(
+            "SELECT Hash FROM SnapshotMetadata WHERE NodeId = @NodeId",
+            new { NodeId = nodeId });
+        
+        return hash;
+    }
+
     public async Task ClearAllDataAsync(CancellationToken cancellationToken = default)
     {
          _logger.LogWarning("CLEARING ALL DATA FROM STORE!");

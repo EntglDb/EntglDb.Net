@@ -267,7 +267,7 @@ public class TcpPeerClient : IDisposable
     /// <summary>
     /// Retrieves a range of oplog entries connecting two hashes (Gap Recovery).
     /// </summary>
-    public async Task<List<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken token)
+    public virtual async Task<List<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken token)
     {
         var req = new GetChainRangeRequest { StartHash = startHash, EndHash = endHash };
         await _protocol.SendMessageAsync(_stream!, MessageType.GetChainRangeReq, req, _useCompression, _cipherState, token);

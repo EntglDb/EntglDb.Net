@@ -233,6 +233,12 @@ public class PeerCollectionTests
             throw new NotImplementedException();
         }
 
+        public Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
+        {
+            // In-memory store doesn't maintain snapshot metadata
+            return Task.FromResult<string?>(null);
+        }
+
         public Task ClearAllDataAsync(CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();

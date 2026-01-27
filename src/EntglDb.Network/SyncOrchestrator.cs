@@ -483,60 +483,77 @@ public class SyncOrchestrator : ISyncOrchestrator
 
             if (localHeadHash != null && firstEntry.PreviousHash != localHeadHash)
             {
-                // GAP DETECTED
-                _logger.LogWarning("Gap Detected for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Initiating Recovery.", authorNodeId, localHeadHash, firstEntry.PreviousHash);
-
-                // Gap Recovery (Range Sync)
-                List<OplogEntry>? missingChain = null;
-                try
+                // Check if entry starts from snapshot boundary (valid case after pruning)
+                var snapshotHash = await _store.GetSnapshotHashAsync(authorNodeId, token);
+                
+                if (snapshotHash != null && firstEntry.PreviousHash == snapshotHash)
                 {
-                     missingChain = await client.GetChainRangeAsync(localHeadHash, firstEntry.PreviousHash, token);
-                }
-                catch (SnapshotRequiredException)
-                {
-                    throw; // Propagate up to trigger full sync
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Gap Recovery failed.");
-                    /* Fallthrough to decision logic */
-                }
-
-                if (missingChain != null && missingChain.Any())
-                {
-                    _logger.LogInformation("Gap Recovery: Retrieved {Count} missing entries.", missingChain.Count);
-
-                    // Validate Recovery Chain Linkage
-                    bool linkValid = true;
-                    if (missingChain[0].PreviousHash != localHeadHash) linkValid = false;
-                    for (int i = 1; i < missingChain.Count; i++)
-                        if (missingChain[i].PreviousHash != missingChain[i - 1].Hash) linkValid = false;
-                    if (missingChain.Last().Hash != firstEntry.PreviousHash) linkValid = false;
-
-                    if (!linkValid)
-                    {
-                        _logger.LogError("Recovery Chain Invalid Linkage. Aborting Gap Recovery.");
-                        return SyncBatchResult.GapDetected;
-                    }
-
-                    // Apply Missing Chain First
-                    await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), missingChain, token);
-                    _logger.LogInformation("Gap Recovery Applied Successfully.");
+                    // Entry connects to snapshot boundary - this is expected after pruning/snapshot sync
+                    // This prevents infinite snapshot request loops when old nodes reconnect
+                    _logger.LogInformation(
+                        "Entry for Node {AuthorId} connects to snapshot boundary (Hash: {SnapshotHash}). Accepting without gap recovery. Network convergence in effect.",
+                        authorNodeId, snapshotHash);
+                    
+                    // No gap recovery needed - this is a valid state
                 }
                 else
                 {
-                    // Gap recovery failed. This can happen if:
-                    // 1. This is actually our first contact with this node's history
-                    // 2. The peer doesn't have the full history
-                    // 3. There's a true gap that cannot be recovered
-                    
-                    // DECISION: Accept the entries anyway but log a warning
-                    // This allows forward progress even with partial history
-                    _logger.LogWarning("Could not recover gap for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Accepting entries anyway (partial sync).",
+                    // GAP DETECTED (not a snapshot boundary case)
+                    _logger.LogWarning("Gap Detected for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Initiating Recovery.", 
                         authorNodeId, localHeadHash, firstEntry.PreviousHash);
-                    
-                    // Optionally: Mark this as a partial sync in metadata
-                    // For now, we proceed and let the chain continue from this point
+
+                    // Gap Recovery (Range Sync)
+                    List<OplogEntry>? missingChain = null;
+                    try
+                    {
+                         missingChain = await client.GetChainRangeAsync(localHeadHash, firstEntry.PreviousHash, token);
+                    }
+                    catch (SnapshotRequiredException)
+                    {
+                        throw; // Propagate up to trigger full sync
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Gap Recovery failed.");
+                        /* Fallthrough to decision logic */
+                    }
+
+                    if (missingChain != null && missingChain.Any())
+                    {
+                        _logger.LogInformation("Gap Recovery: Retrieved {Count} missing entries.", missingChain.Count);
+
+                        // Validate Recovery Chain Linkage
+                        bool linkValid = true;
+                        if (missingChain[0].PreviousHash != localHeadHash) linkValid = false;
+                        for (int i = 1; i < missingChain.Count; i++)
+                            if (missingChain[i].PreviousHash != missingChain[i - 1].Hash) linkValid = false;
+                        if (missingChain.Last().Hash != firstEntry.PreviousHash) linkValid = false;
+
+                        if (!linkValid)
+                        {
+                            _logger.LogError("Recovery Chain Invalid Linkage. Aborting Gap Recovery.");
+                            return SyncBatchResult.GapDetected;
+                        }
+
+                        // Apply Missing Chain First
+                        await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), missingChain, token);
+                        _logger.LogInformation("Gap Recovery Applied Successfully.");
+                    }
+                    else
+                    {
+                        // Gap recovery failed. This can happen if:
+                        // 1. This is actually our first contact with this node's history
+                        // 2. The peer doesn't have the full history
+                        // 3. There's a true gap that cannot be recovered
+                        
+                        // DECISION: Accept the entries anyway but log a warning
+                        // This allows forward progress even with partial history
+                        _logger.LogWarning("Could not recover gap for Node {AuthorId}. Local Head: {Local}, Remote Prev: {Prev}. Accepting entries anyway (partial sync).",
+                            authorNodeId, localHeadHash, firstEntry.PreviousHash);
+                        
+                        // Optionally: Mark this as a partial sync in metadata
+                        // For now, we proceed and let the chain continue from this point
+                    }
                 }
             }
             else if (localHeadHash == null && !string.IsNullOrEmpty(firstEntry.PreviousHash))

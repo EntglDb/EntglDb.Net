@@ -136,6 +136,13 @@ public interface IPeerStore
     Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retrieves the snapshot boundary hash for a specific node.
+    /// Returns null if no snapshot exists for this node.
+    /// Used to detect if incoming entries connect to snapshot boundaries after pruning.
+    /// </summary>
+    Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Clears all data from the store, resetting it to an empty state.
     /// </summary>
     Task ClearAllDataAsync(CancellationToken cancellationToken = default);
