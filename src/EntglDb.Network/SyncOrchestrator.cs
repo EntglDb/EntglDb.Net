@@ -146,7 +146,19 @@ public class SyncOrchestrator : ISyncOrchestrator
             var config = await _peerNodeConfigurationProvider.GetConfiguration();
             try
             {
-                var allPeers = _discovery.GetActivePeers().Where(p => p.NodeId != config.NodeId).ToList();
+                var discoveredPeers = _discovery.GetActivePeers();
+                
+                var knownPeers = config.KnownPeers.Select(k => new PeerNode(
+                    k.NodeId, 
+                    $"{k.Host}:{k.Port}", 
+                    DateTimeOffset.UtcNow));
+
+                var allPeers = discoveredPeers
+                    .Concat(knownPeers)
+                    .GroupBy(p => p.NodeId)
+                    .Select(g => g.First())
+                    .Where(p => p.NodeId != config.NodeId)
+                    .ToList();
                 
                 // Filter peers based on backoff
                 var now = DateTime.UtcNow;

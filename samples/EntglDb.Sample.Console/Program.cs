@@ -50,7 +50,8 @@ class Program
             {
                 NodeId = nodeId,
                 TcpPort = tcpPort,
-                AuthToken = "Test-Cluster-Key"
+                AuthToken = "Test-Cluster-Key",
+                KnownPeers = builder.Configuration.GetSection("EntglDb:KnownPeers").Get<List<KnownPeerConfiguration>>() ?? new()
             });
 
         builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(peerNodeConfigurationProvider);

@@ -56,6 +56,11 @@ public class PeerNodeConfiguration
     public int OplogRetentionHours { get; set; } = 24;
 
     /// <summary>
+    /// Gets or sets a list of known peers to connect to directly, bypassing discovery.
+    /// </summary>
+    public System.Collections.Generic.List<KnownPeerConfiguration> KnownPeers { get; set; } = new();
+
+    /// <summary>
     /// Gets the default configuration settings for a peer node.
     /// </summary>
     /// <remarks>Each access returns a new instance of the configuration with a unique node identifier. The
@@ -67,4 +72,25 @@ public class PeerNodeConfiguration
         TcpPort = 9000,
         AuthToken = "default-cluster-token"
     };
+}
+
+/// <summary>
+/// Configuration for a known peer node.
+/// </summary>
+public class KnownPeerConfiguration
+{
+    /// <summary>
+    /// The unique identifier of the peer node.
+    /// </summary>
+    public string NodeId { get; set; }
+
+    /// <summary>
+    /// The hostname or IP address of the peer.
+    /// </summary>
+    public string Host { get; set; }
+
+    /// <summary>
+    /// The TCP port of the peer.
+    /// </summary>
+    public int Port { get; set; }
 }

@@ -36,6 +36,12 @@ public class EfCorePeerStore : IPeerStore
         public string Hash { get; set; } = "";
     }
 
+    private class NodeLatestEntryResult
+    {
+        public string NodeId { get; set; } = default!;
+        public OplogEntity? MaxEntry { get; set; }
+    }
+
     public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
 
     /// <summary>
@@ -60,15 +66,17 @@ public class EfCorePeerStore : IPeerStore
             if (_cacheInitialized) return;
 
             // Query latest entry per node
+            // Explicit projection to class to avoid EF Core "EmptyProjectionMember" error with anonymous types
             var latestPerNode = _context.Oplog
                 .GroupBy(o => o.TimestampNodeId)
-                .Select(g => new
+                .Select(g => new NodeLatestEntryResult
                 {
                     NodeId = g.Key,
                     MaxEntry = g.OrderByDescending(o => o.TimestampPhysicalTime)
                                 .ThenByDescending(o => o.TimestampLogicalCounter)
                                 .FirstOrDefault()
                 })
+                .ToList()
                 .Where(x => x.MaxEntry != null)
                 .ToList();
 

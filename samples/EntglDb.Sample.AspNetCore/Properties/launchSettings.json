@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "EntglDb.Sample.AspNetCore": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "swagger",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:7153;http://localhost:5249"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.2.11408.102 d18.0
+VisualStudioVersion = 18.2.11408.102
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
@@ -40,6 +40,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence.PostgreSQL", "src\EntglDb.Persistence.PostgreSQL\EntglDb.Persistence.PostgreSQL.csproj", "{DA3E8A81-93BB-F94E-2B54-250CC365DED8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.AspNet", "src\EntglDb.AspNet\EntglDb.AspNet.csproj", "{B8A0DA5C-7FC2-E1F2-AE0F-91964FF3A05D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Sample.AspNetCore", "samples\EntglDb.Sample.AspNetCore\EntglDb.Sample.AspNetCore.csproj", "{76946C01-6BB4-4A8E-8410-E4F3110F632C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -231,6 +233,18 @@ Global
 		{B8A0DA5C-7FC2-E1F2-AE0F-91964FF3A05D}.Release|x64.Build.0 = Release|Any CPU
 		{B8A0DA5C-7FC2-E1F2-AE0F-91964FF3A05D}.Release|x86.ActiveCfg = Release|Any CPU
 		{B8A0DA5C-7FC2-E1F2-AE0F-91964FF3A05D}.Release|x86.Build.0 = Release|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Debug|x64.Build.0 = Debug|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Debug|x86.Build.0 = Debug|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Release|x64.ActiveCfg = Release|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Release|x64.Build.0 = Release|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Release|x86.ActiveCfg = Release|Any CPU
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -251,6 +265,7 @@ Global
 		{2E86B090-9D4C-7626-72E2-876F173A764D} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{DA3E8A81-93BB-F94E-2B54-250CC365DED8} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{B8A0DA5C-7FC2-E1F2-AE0F-91964FF3A05D} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{76946C01-6BB4-4A8E-8410-E4F3110F632C} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A10316EF-E09F-4B26-8920-E51305F8E354}
