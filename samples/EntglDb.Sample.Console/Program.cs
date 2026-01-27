@@ -50,7 +50,7 @@ class Program
             {
                 NodeId = nodeId,
                 TcpPort = tcpPort,
-                AuthToken = "RK544E50Q4HR43ECA2D6YXC4KC"
+                AuthToken = "Test-Cluster-Key"
             });
 
         builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(peerNodeConfigurationProvider);

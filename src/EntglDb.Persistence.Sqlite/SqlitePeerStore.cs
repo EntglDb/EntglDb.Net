@@ -574,7 +574,9 @@ public class SqlitePeerStore : IPeerStore
             var row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)?>(@"
                 SELECT HlcWall as Wall, HlcLogic as Logic
                 FROM Oplog 
-                WHERE Hash = @Hash", new { Hash = hash });
+                WHERE Hash = @Hash
+                ORDER BY HlcWall DESC, HlcLogic DESC 
+                LIMIT 1", new { Hash = hash });
 
             if (row == null)
             {
@@ -1086,7 +1088,7 @@ public class SqlitePeerStore : IPeerStore
         try
         {
             // 1. Identify entries that will become the "boundary" (Max <= Cutoff)
-            var boundaries = await connection.QueryAsync<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
+            var boundaries = await connection.QueryAsync(@"
                 SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
                 FROM Oplog o1
                 WHERE (HlcWall, HlcLogic) = (
@@ -1104,7 +1106,7 @@ public class SqlitePeerStore : IPeerStore
                 await connection.ExecuteAsync(@"
                     INSERT OR REPLACE INTO SnapshotMetadata (NodeId, HlcWall, HlcLogic, Hash)
                     VALUES (@NodeId, @HlcWall, @HlcLogic, @Hash)",
-                    b, transaction);
+                    b as object, transaction);
             }
 
             // 3. Delete old entries
