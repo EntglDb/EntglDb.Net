@@ -13,7 +13,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.9.0</Version>
+    <Version>0.9.1</Version>
     <Authors>MrDevRobot</Authors>
     <Description>PostgreSQL persistence provider for EntglDb with JSONB support and GIN indexes.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

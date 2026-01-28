@@ -4,7 +4,7 @@
     <TargetFrameworks>netstandard2.0;net6.0;net8.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <Version>0.9.0</Version>
+    <Version>0.9.1</Version>
     <Authors>MrDevRobot</Authors>
     <Description>Core abstractions and logic for EntglDb, a lightweight P2P mesh database.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
