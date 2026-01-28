@@ -140,7 +140,7 @@ public class SqlitePeerStore : IPeerStore
             CREATE UNIQUE INDEX IF NOT EXISTS IDX_Oplog_Hash ON Oplog(Hash);
 
             -- Ensure linear history per node (prevent forks)
-            -- Note: PreviousHash alone cannot be unique because multiple nodes have empty previous hash at genesis.
+            -- Each node can have only ONE entry pointing to a specific PreviousHash (including empty for genesis)
             DROP INDEX IF EXISTS IDX_Oplog_Node_PreviousHash;
             CREATE UNIQUE INDEX IF NOT EXISTS IDX_Oplog_Node_PreviousHash ON Oplog(HlcNode, PreviousHash);
             

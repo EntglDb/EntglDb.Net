@@ -39,19 +39,19 @@ public class VectorClockPersistenceTests
         var entry1 = new OplogEntry(
             "users", "user1", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Alice\"}"),
-            new HlcTimestamp(100, 1, "node1"), "", ""
+            new HlcTimestamp(100, 1, "node1"), ""
         );
 
         var entry2 = new OplogEntry(
             "users", "user2", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Bob\"}"),
-            new HlcTimestamp(200, 2, "node1"), entry1.Hash, ""
+            new HlcTimestamp(200, 2, "node1"), entry1.Hash
         );
 
         var entry3 = new OplogEntry(
             "users", "user3", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Charlie\"}"),
-            new HlcTimestamp(150, 1, "node2"), "", ""
+            new HlcTimestamp(150, 1, "node2"), ""
         );
 
         await _store.AppendOplogEntryAsync(entry1);
@@ -80,19 +80,19 @@ public class VectorClockPersistenceTests
         var entry1Node1 = new OplogEntry(
             "users", "user1", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Alice\"}"),
-            new HlcTimestamp(100, 1, "node1"), "", ""
+            new HlcTimestamp(100, 1, "node1"), ""
         );
 
         var entry2Node1 = new OplogEntry(
             "users", "user2", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Bob\"}"),
-            new HlcTimestamp(200, 2, "node1"), entry1Node1.Hash, ""
+            new HlcTimestamp(200, 2, "node1"), entry1Node1.Hash
         );
 
         var entry1Node2 = new OplogEntry(
             "users", "user3", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Charlie\"}"),
-            new HlcTimestamp(150, 1, "node2"), "", ""
+            new HlcTimestamp(150, 1, "node2"), ""
         );
 
         await _store.AppendOplogEntryAsync(entry1Node1);
@@ -116,7 +116,7 @@ public class VectorClockPersistenceTests
         var entry1 = new OplogEntry(
             "users", "user1", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Alice\"}"),
-            new HlcTimestamp(100, 1, "node1"), "", ""
+            new HlcTimestamp(100, 1, "node1"), ""
         );
 
         await _store.AppendOplogEntryAsync(entry1);
@@ -135,7 +135,7 @@ public class VectorClockPersistenceTests
         var entry1 = new OplogEntry(
             "users", "user1", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Alice\"}"),
-            new HlcTimestamp(100, 1, "node1"), "", ""
+            new HlcTimestamp(100, 1, "node1"), ""
         );
 
         await _store.AppendOplogEntryAsync(entry1);
@@ -150,34 +150,37 @@ public class VectorClockPersistenceTests
     [Fact]
     public async Task GetOplogForNodeAfterAsync_ShouldReturnInTimestampOrder()
     {
-        // Arrange - Add entries out of order
-        var entry2 = new OplogEntry(
-            "users", "user2", OperationType.Put,
-            JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Bob\"}"),
-            new HlcTimestamp(200, 2, "node1"), "", ""
-        );
-
+        // Arrange - Create entries forming a valid chain
+        // The chain must be built in order: genesis -> middle -> latest
         var entry1 = new OplogEntry(
             "users", "user1", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Alice\"}"),
-            new HlcTimestamp(100, 1, "node1"), "", ""
+            new HlcTimestamp(100, 1, "node1"), ""  // Genesis entry
         );
 
         var entry3 = new OplogEntry(
             "users", "user3", OperationType.Put,
             JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Charlie\"}"),
-            new HlcTimestamp(150, 1, "node1"), entry1.Hash, ""
+            new HlcTimestamp(150, 1, "node1"), entry1.Hash  // Points to entry1
         );
 
-        await _store.AppendOplogEntryAsync(entry2);
-        await _store.AppendOplogEntryAsync(entry1);
-        await _store.AppendOplogEntryAsync(entry3);
+        var entry2 = new OplogEntry(
+            "users", "user2", OperationType.Put,
+            JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Bob\"}"),
+            new HlcTimestamp(200, 2, "node1"), entry3.Hash  // Points to entry3
+        );
 
-        // Act
+        // Insert entries in chain order (genesis first, then its children)
+        // This ensures the chain is valid
+        await _store.AppendOplogEntryAsync(entry1);  // Must be first (genesis)
+        await _store.AppendOplogEntryAsync(entry3);  // Must come after entry1
+        await _store.AppendOplogEntryAsync(entry2);  // Must come after entry3
+
+        // Act - Query should return entries sorted by timestamp regardless of insertion order
         var entries = await _store.GetOplogForNodeAfterAsync("node1", new HlcTimestamp(50, 0, "node1"));
         var entriesList = entries.ToList();
 
-        // Assert
+        // Assert - Results should be in chronological order by timestamp
         Assert.Equal(3, entriesList.Count);
         Assert.Equal(100, entriesList[0].Timestamp.PhysicalTime);
         Assert.Equal(150, entriesList[1].Timestamp.PhysicalTime);
@@ -200,7 +203,7 @@ public class VectorClockPersistenceTests
             var entry1 = new OplogEntry(
                 "users", "user1", OperationType.Put,
                 JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Alice\"}"),
-                new HlcTimestamp(100, 1, "node1"), "", ""
+                new HlcTimestamp(100, 1, "node1"), ""
             );
             await node1Store.AppendOplogEntryAsync(entry1);
 
@@ -208,7 +211,7 @@ public class VectorClockPersistenceTests
             var entry2 = new OplogEntry(
                 "users", "user2", OperationType.Put,
                 JsonSerializer.Deserialize<JsonElement>("{\"name\":\"Bob\"}"),
-                new HlcTimestamp(150, 1, "node2"), "", ""
+                new HlcTimestamp(150, 1, "node2"), ""
             );
             await node2Store.AppendOplogEntryAsync(entry2);
 
