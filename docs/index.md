@@ -20,27 +20,27 @@ See the [CHANGELOG](https://github.com/EntglDb/EntglDb.Net/blob/main/CHANGELOG.m
 ## Documentation
 
 ### Getting Started
-*   [**Getting Started**](getting-started.md) - Installation, basic setup, and your first EntglDb application
+*   [**Getting Started**](getting-started.html) - Installation, basic setup, and your first EntglDb application
 
 ### Core Concepts
-*   [Architecture](architecture.md) - Understanding HLC, Gossip Protocol, and P2P mesh networking
-*   [API Reference](api-reference.md) - Complete API documentation and examples
-*   [Querying](querying.md) - Data querying patterns and LINQ support
+*   [Architecture](architecture.html) - Understanding HLC, Gossip Protocol, and P2P mesh networking
+*   [API Reference](api-reference.html) - Complete API documentation and examples
+*   [Querying](querying.html) - Data querying patterns and LINQ support
 
 ### Persistence & Storage
-*   [Persistence Providers](persistence-providers.md) - SQLite, EF Core, PostgreSQL comparison and configuration
-*   [Deployment Modes](deployment-modes.md) - Single vs Multi-cluster deployment strategies
+*   [Persistence Providers](persistence-providers.html) - SQLite, EF Core, PostgreSQL comparison and configuration
+*   [Deployment Modes](deployment-modes.html) - Single vs Multi-cluster deployment strategies
 
 ### Networking & Security
-*   [Security](security.md) - Encryption, authentication, and secure networking
-*   [Conflict Resolution](conflict-resolution.md) - LWW and Recursive Merge strategies
-*   [Network Telemetry](network-telemetry.md) - Monitoring and diagnostics
-*   [Dynamic Reconfiguration](dynamic-reconfiguration.md) - Runtime configuration and leader election
-*   [Remote Peer Configuration](remote-peer-configuration.md) - Managing remote peers
+*   [Security](security.html) - Encryption, authentication, and secure networking
+*   [Conflict Resolution](conflict-resolution.html) - LWW and Recursive Merge strategies
+*   [Network Telemetry](network-telemetry.html) - Monitoring and diagnostics
+*   [Dynamic Reconfiguration](dynamic-reconfiguration.html) - Runtime configuration and leader election
+*   [Remote Peer Configuration](remote-peer-configuration.html) - Managing remote peers
 
 ### Deployment & Operations
-*   [Deployment (LAN)](deployment-lan.md) - Platform-specific deployment instructions
-*   [Production Hardening](production-hardening.md) - Configuration, monitoring, and best practices
+*   [Deployment (LAN)](deployment-lan.html) - Platform-specific deployment instructions
+*   [Production Hardening](production-hardening.html) - Configuration, monitoring, and best practices
 
 ## Previous Versions
 

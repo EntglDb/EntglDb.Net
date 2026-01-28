@@ -201,10 +201,10 @@ Choose your strategy:
 
 ## Next Steps
 
-- [Architecture Overview](architecture.md) - Understand HLC, Gossip Protocol, and mesh networking
-- [Persistence Providers](persistence-providers.md) - Choose the right database for your deployment
-- [Deployment Modes](deployment-modes.md) - Single vs Multi-cluster strategies
-- [Security Configuration](security.md) - Encryption and authentication
-- [Conflict Resolution Strategies](conflict-resolution.md) - LWW vs Recursive Merge
-- [Production Hardening](production-hardening.md) - Best practices and monitoring
-- [API Reference](api-reference.md) - Complete API documentation
+- [Architecture Overview](architecture.html) - Understand HLC, Gossip Protocol, and mesh networking
+- [Persistence Providers](persistence-providers.html) - Choose the right database for your deployment
+- [Deployment Modes](deployment-modes.html) - Single vs Multi-cluster strategies
+- [Security Configuration](security.html) - Encryption and authentication
+- [Conflict Resolution Strategies](conflict-resolution.html) - LWW vs Recursive Merge
+- [Production Hardening](production-hardening.html) - Best practices and monitoring
+- [API Reference](api-reference.html) - Complete API documentation

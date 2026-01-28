@@ -250,6 +250,6 @@ A: No. Conflict resolution assumes both documents have compatible schemas.
 ---
 
 **See Also:**
-- [Getting Started](getting-started.md)
-- [Architecture](architecture.md)  
-- [Security](security.md)
+- [Getting Started](getting-started.html)
+- [Architecture](architecture.html)  
+- [Security](security.html)

@@ -241,13 +241,17 @@
 
     .main-content a {
       color: var(--primary-color);
-      text-decoration: none;
-      transition: color 0.2s ease;
+      text-decoration: underline;
+      text-decoration-color: rgba(21, 153, 87, 0.3);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      transition: all 0.2s ease;
     }
 
     .main-content a:hover {
       color: var(--primary-dark);
-      text-decoration: underline;
+      text-decoration-color: var(--primary-dark);
+      text-decoration-thickness: 2px;
     }
 
     .main-content table {
@@ -349,6 +353,11 @@
     <!-- Sidebar Logic -->
     {% assign version = page.url | split: '/' %}
     {% assign current_version = version[1] %}
+    
+    <!-- If current_version is empty or doesn't start with 'v', treat as v0.9 (root level) -->
+    {% if current_version == '' or current_version contains '.html' or current_version contains '.md' %}
+      {% assign current_version = 'v0.9' %}
+    {% endif %}
 
     {% if current_version == 'v0.9' or current_version == 'v0.8' or current_version == 'v0.7' or current_version == 'v0.6' or current_version == 'v0.5' or current_version ==
     'v0.4' or current_version ==
