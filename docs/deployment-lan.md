@@ -27,7 +27,7 @@ EntglDb runs on all major operating systems:
 | **Linux** | ✅ Full | Ubuntu, Debian, RHEL, Alpine |
 | **macOS** | ✅ Full | macOS 11+ (Big Sur and later) |
 
-**Requirements**: .NET 10+ Runtime
+**Requirements**: .NET 8.0+ Runtime (also compatible with .NET 6.0 and .NET Standard 2.0)
 
 ## LAN Deployment Checklist
 
