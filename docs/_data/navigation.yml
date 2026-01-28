@@ -1,3 +1,53 @@
+v0.9:
+  - title: Getting Started
+    url: /getting-started.html
+  - title: Architecture
+    url: /architecture.html
+  - title: Persistence Providers
+    url: /persistence-providers.html
+  - title: Deployment Modes
+    url: /deployment-modes.html
+  - title: Deployment (LAN)
+    url: /deployment-lan.html
+  - title: Security
+    url: /security.html
+  - title: Conflict Resolution
+    url: /conflict-resolution.html
+  - title: Querying
+    url: /querying.html
+  - title: Network Telemetry
+    url: /network-telemetry.html
+  - title: Dynamic Reconfiguration
+    url: /dynamic-reconfiguration.html
+  - title: Remote Peer Configuration
+    url: /remote-peer-configuration.html
+  - title: Production Hardening
+    url: /production-hardening.html
+  - title: API Reference
+    url: /api-reference.html
+
+v0.8:
+  - title: Getting Started
+    url: /v0.8/getting-started.html
+  - title: Architecture
+    url: /v0.8/architecture.html
+  - title: Persistence Providers
+    url: /v0.8/persistence-providers.html
+  - title: Deployment Modes
+    url: /v0.8/deployment-modes.html
+  - title: Security
+    url: /v0.8/security.html
+  - title: Conflict Resolution
+    url: /v0.8/conflict-resolution.html
+  - title: Querying
+    url: /v0.8/querying.html
+  - title: Production Hardening
+    url: /v0.8/production-hardening.html
+  - title: Deployment (LAN)
+    url: /v0.8/deployment-lan.html
+  - title: API Reference
+    url: /v0.8/api-reference.html
+
 v0.7:
   - title: Getting Started
     url: /v0.7/getting-started.html

@@ -6,7 +6,7 @@ EntglDb is designed for **Local Area Networks (LAN)** and **Local-First** scenar
 It does not rely on a central master server. Every node is equal (Peer-to-Peer).
 
 **Target Deployment**: Trusted LAN environments (offices, homes, private networks)  
-**Cross-Platform**: Windows, Linux, macOS (.NET 10+)
+**Cross-Platform**: Windows, Linux, macOS (.NET 8.0+, with .NET 6.0 and .NET Standard 2.0 support)
 
 ### HLC (Hybrid Logical Clock)
 To resolve conflicts without a central authority, we use **Hybrid Logical Clocks**.
@@ -47,4 +47,4 @@ To optimize reconnection, each node maintains a **Snapshot** of the last known s
 - For internet deployment, implement TLS, proper authentication, and firewall rules
 - Consider the production hardening features for resilience on LAN
 
-**Cross-Platform Support**: Runs on Windows, Linux, and macOS with .NET 10+.
+**Cross-Platform Support**: Runs on Windows, Linux, and macOS with .NET 8.0+ (also supports .NET 6.0 and .NET Standard 2.0).
