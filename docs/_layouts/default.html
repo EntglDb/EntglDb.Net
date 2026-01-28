@@ -6,65 +6,151 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="{{ site.description }}">
   <link rel="stylesheet" href="{{ '/assets/css/style.css?v=' | append: site.github.build_revision | relative_url }}">
-  <title>{{ site.title }}</title>
+  <title>{{ page.title | default: site.title }}</title>
   <style>
-    /* Navbar */
+    /* Modern Color Palette */
+    :root {
+      --primary-color: #159957;
+      --primary-dark: #0e7042;
+      --primary-light: #1eb96a;
+      --secondary-color: #155799;
+      --background: #ffffff;
+      --background-alt: #f8f9fa;
+      --text-primary: #24292e;
+      --text-secondary: #586069;
+      --border-color: #e1e4e8;
+      --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+      --shadow-hover: 0 3px 6px rgba(0,0,0,0.15), 0 2px 4px rgba(0,0,0,0.12);
+    }
+
+    /* Base Styles */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: var(--text-primary);
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Top Navigation */
     .site-nav {
-      background: #159957;
-      padding: 10px;
+      background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+      padding: 1rem 0;
       text-align: center;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
     }
 
     .site-nav a {
-      color: rgba(255, 255, 255, 0.7);
-      margin: 0 1rem;
+      color: rgba(255, 255, 255, 0.9);
+      margin: 0 1.5rem;
       text-decoration: none;
-      font-weight: bold;
-      font-size: 1.1rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      letter-spacing: 0.5px;
+      transition: all 0.3s ease;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
     }
 
     .site-nav a:hover,
     .site-nav a.active {
       color: white;
+      background: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+    }
+
+    /* Header Section */
+    .page-header {
+      background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+      color: white;
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+
+    .project-name {
+      margin: 0 0 0.5rem 0;
+      font-size: 2.5rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .project-tagline {
+      margin: 0 0 1.5rem 0;
+      font-size: 1.2rem;
+      font-weight: 400;
+      opacity: 0.9;
+    }
+
+    .btn {
+      display: inline-block;
+      margin: 0.5rem;
+      padding: 0.75rem 2rem;
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      border-radius: 6px;
       text-decoration: none;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      font-size: 0.95rem;
+    }
+
+    .btn:hover {
+      background: white;
+      color: var(--primary-color);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-hover);
     }
 
     /* Layout Grid */
     .page-content {
       display: flex;
       flex-direction: column;
-      max-width: 64rem;
-      margin: 0 auto;
-      padding: 2rem 1rem;
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      gap: 2rem;
     }
 
     @media (min-width: 64em) {
       .page-content {
         flex-direction: row;
         align-items: flex-start;
+        padding: 0 2rem;
       }
     }
 
     /* Sidebar */
     .sidebar {
       width: 100%;
-      margin-bottom: 2rem;
-      background: #f9f9f9;
-      padding: 1rem;
-      border-radius: 4px;
-      border: 1px solid #e1e4e8;
+      background: var(--background-alt);
+      padding: 1.5rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow);
     }
 
     @media (min-width: 64em) {
       .sidebar {
-        width: 250px;
-        margin-right: 2rem;
-        margin-bottom: 0;
-        position: sticky;
-        top: 1rem;
+        width: 280px;
         flex-shrink: 0;
+        position: sticky;
+        top: calc(4rem + 1rem);
+        max-height: calc(100vh - 6rem);
+        overflow-y: auto;
       }
+    }
+
+    .sidebar h3 {
+      margin: 0 0 1rem 0;
+      font-size: 1.1rem;
+      color: var(--text-primary);
+      font-weight: 700;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid var(--primary-color);
     }
 
     .sidebar ul {
@@ -74,26 +160,177 @@
     }
 
     .sidebar li {
-      margin-bottom: 0.5rem;
+      margin: 0;
     }
 
     .sidebar a {
-      color: #159957;
+      color: var(--text-secondary);
       text-decoration: none;
       display: block;
-      padding: 0.25rem 0;
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+      font-size: 0.95rem;
     }
 
     .sidebar a:hover {
-      color: #1e6bb8;
-      text-decoration: underline;
+      color: var(--primary-color);
+      background: rgba(21, 153, 87, 0.08);
+      padding-left: 1rem;
     }
 
     /* Main Content */
     .main-content-wrapper {
       flex: 1;
       min-width: 0;
-      /* Fix flex overflow */
+    }
+
+    .main-content {
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .main-content h1 {
+      color: var(--text-primary);
+      font-size: 2rem;
+      margin-top: 0;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 3px solid var(--primary-color);
+    }
+
+    .main-content h2 {
+      color: var(--text-primary);
+      font-size: 1.5rem;
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--border-color);
+    }
+
+    .main-content h3 {
+      color: var(--text-primary);
+      font-size: 1.25rem;
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .main-content code {
+      background: var(--background-alt);
+      padding: 0.2rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: var(--secondary-color);
+    }
+
+    .main-content pre {
+      background: var(--background-alt);
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid var(--border-color);
+    }
+
+    .main-content pre code {
+      background: none;
+      padding: 0;
+      color: var(--text-primary);
+    }
+
+    .main-content a {
+      color: var(--primary-color);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .main-content a:hover {
+      color: var(--primary-dark);
+      text-decoration: underline;
+    }
+
+    .main-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+
+    .main-content th,
+    .main-content td {
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      text-align: left;
+    }
+
+    .main-content th {
+      background: var(--background-alt);
+      font-weight: 600;
+    }
+
+    .main-content blockquote {
+      margin: 1rem 0;
+      padding: 1rem;
+      border-left: 4px solid var(--primary-color);
+      background: var(--background-alt);
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* Footer */
+    .site-footer {
+      text-align: center;
+      padding: 2rem;
+      border-top: 1px solid var(--border-color);
+      margin-top: 3rem;
+      background: var(--background-alt);
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .site-footer a {
+      color: var(--primary-color);
+      text-decoration: none;
+    }
+
+    .site-footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Mobile Responsiveness */
+    @media (max-width: 64em) {
+      .project-name {
+        font-size: 2rem;
+      }
+
+      .page-header {
+        padding: 2rem 1rem;
+      }
+
+      .main-content {
+        padding: 1.5rem;
+      }
+
+      .sidebar {
+        margin-bottom: 1.5rem;
+      }
+    }
+
+    /* Scrollbar Styling */
+    .sidebar::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .sidebar::-webkit-scrollbar-track {
+      background: var(--background-alt);
+    }
+
+    .sidebar::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 4px;
+    }
+
+    .sidebar::-webkit-scrollbar-thumb:hover {
+      background: var(--text-secondary);
     }
   </style>
 </head>
@@ -133,7 +370,7 @@
     </div>
   </div>
 
-  <footer class="site-footer" style="text-align: center; padding: 2rem; border-top: 1px solid #eee; margin-top: 2rem;">
+  <footer class="site-footer">
     <span class="site-footer-owner"><a href="https://entgldb.com">EntglDb</a> is maintained by <a
         href="https://github.com/mrdevrobot">MrDevRobot</a>.</span>
     <span class="site-footer-credits">This page was generated by <a href="https://pages.github.com">GitHub
