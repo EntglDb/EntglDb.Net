@@ -7,10 +7,10 @@
 [![.NET Version](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ## Status
-![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)
 
-**Latest Release**: v0.8.0 (ASP.NET Server + Persistence Layers)
+**Latest Release**: v0.9.0 (Persistence Snapshots & Stability)
 
 EntglDb is a mesh database...
 [Features](#features) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples) • [Contributing](#contributing)
@@ -45,8 +45,9 @@ EntglDb is a mesh database...
 > **🏠 Designed for Local Area Networks (LAN)**  
 > EntglDb is specifically built for **trusted LAN environments** such as offices, homes, retail stores, and edge computing deployments. It is **cross-platform** (Windows, Linux, macOS) and optimized for scenarios where nodes operate on the same local network.
 
-> **⚠️ NOT for Public Internet**  
-> EntglDb is **NOT** designed for public internet deployment without additional security measures (TLS, authentication, firewall rules). See [Security Considerations](docs/architecture.md#security-disclaimer).
+> **⚠️ Security Limits (P2P Mesh vs Cloud)**
+> * **P2P Mesh Mode (TCP/UDP)**: Designed for trusted **LAN** environments. Default settings (raw TCP) are **NOT** safe for public internet without VPN/Tunneling.
+> * **Cloud Server Mode (ASP.NET Core)**: Designed for **Public Internet** when using HTTPS and OAuth2 Authentication. Single Cluster mode is production-ready for public access.
 
 ---
 
@@ -76,6 +77,11 @@ EntglDb is a mesh database...
 - **Recursive Merge** - Intelligent JSON merging with array ID detection
 - **Runtime switchable** via configuration
 - **Visual demo** in UI samples
+
+### 📸 Persistence Snapshots (v0.8.6)
+- **Fast Reconnection**: Peers resume sync from the last known state
+- **Snapshot Metadata**: Tracks the last applied hash and logical timestamp per peer
+- **Optimized Recovery**: Prevents re-processing of already applied operations
 
 ### 🎯 Type-Safe API
 - **Generic Collection API** with LINQ support
@@ -165,24 +171,37 @@ using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
 
-// Configuration
-services.Configure<EntglDbOptions>(options =>
+// 1. Define Configuration Provider (simplest implementation)
+public class StaticConfigProvider : IPeerNodeConfigurationProvider
 {
-    options.Network.TcpPort = 5000;
-    options.Persistence.DatabasePath = "data/myapp.db";
-    options.Persistence.EnableWalMode = true;
-});
+    private readonly PeerNodeConfiguration _config;
+    public StaticConfigProvider(string nodeId, int port) 
+        => _config = new PeerNodeConfiguration { NodeId = nodeId, TcpPort = port, AuthToken = "secret-key" };
+        
+    public event PeerNodeConfigurationChangedEventHandler? ConfigurationChanged;
+    public Task<PeerNodeConfiguration> GetConfiguration() => Task.FromResult(_config);
+}
 
-// Register EntglDb services
-services.AddSingleton<IPeerStore>(sp => 
-    new SqlitePeerStore("Data Source=myapp.db"));
-services.AddEntglDbNetwork("my-node-id", 5000, "shared-secret");
+// 2. Register Configuration Provider
+services.AddSingleton<IPeerNodeConfigurationProvider>(new StaticConfigProvider("my-node-id", 5000));
+
+// 3. Register EntglDb Services
+services.AddEntglDbCore()
+        .AddEntglDbSqlite(options => 
+        {
+            options.BasePath = "data";
+            options.UsePerCollectionTables = true;
+        })
+        .AddEntglDbNetwork<StaticConfigProvider>();
 
 var provider = services.BuildServiceProvider();
-var node = provider.GetRequiredService<EntglDbNode>();
-node.Start();
 
-var db = new PeerDatabase(store, "my-node-id");
+// 4. Start Node
+var node = provider.GetRequiredService<IEntglDbNode>();
+await node.StartAsync(); // Starts discovery and sync server
+
+// 5. Use Database
+var db = provider.GetRequiredService<IPeerDatabase>();
 await db.InitializeAsync();
 ```
 
@@ -315,23 +334,32 @@ EntglDb v0.2.0+ includes production-hardening features for LAN deployments:
 ```json
 {
   "EntglDb": {
-    "Network": {
-      "TcpPort": 5000,
-      "RetryAttempts": 3,
-      "ConnectionTimeoutMs": 5000
-    },
-    "Persistence": {
-      "DatabasePath": "data/entgldb.db",
-      "EnableWalMode": true,
-      "EnableAutoBackup": true,
-      "CacheSizeMb": 50
-    },
-    "Sync": {
-      "EnableOfflineQueue": true,
-      "BatchSize": 100
+    "KnownPeers": [
+      {
+        "NodeId": "gateway-1",
+        "Address": "192.168.1.10:5000",
+        "Type": "StaticRemote"
+      }
+    ]
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "EntglDb": "Warning"
     }
   }
 }
+```
+
+**Code Configuration:**
+
+```csharp
+services.AddEntglDbSqlite(options =>
+{
+    options.BasePath = "/var/lib/data";
+    options.DatabaseFilenameTemplate = "node-{NodeId}.db";
+    options.UsePerCollectionTables = true;
+});
 ```
 
 ### Health Monitoring
@@ -476,7 +504,7 @@ EntglDbMapper.Global.Entity<Product>()
 - [x] **Conflict resolution strategies** - LWW & Recursive Merge (v0.6.0)
 - [x] **Multi-target framework** support (netstandard2.0, net6.0, net8.0)
 - [x] **Performance benchmarks** and regression tests
-- [ ] Merkle Trees for efficient sync
+- [x] **Hash-Chain Sync** (Gap Exchange, Snapshots, Full Sync)
 - [ ] Query optimization & advanced indexing
 - [x] **Compressed sync protocol** (Brotli) (v0.7.0)
 - [ ] Admin UI / monitoring dashboard

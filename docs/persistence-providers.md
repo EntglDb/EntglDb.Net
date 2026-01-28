@@ -20,6 +20,7 @@ EntglDb supports multiple persistence backends to suit different deployment scen
 - ✅ **Excellent performance**: Native SQL, no ORM overhead
 - ✅ **WAL mode**: Concurrent readers + writers
 - ✅ **Per-collection tables**: Optional for better isolation
+- ✅ **Snapshots**: Fast reconnection with `SnapshotMetadata`
 - ✅ **Portable**: Single file database
 - ❌ **Limited JSON queries**: Uses `json_extract()`
 

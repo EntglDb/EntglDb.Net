@@ -24,14 +24,20 @@ When two nodes connect, they exchange their latest HLC timestamps.
 Nodes discover each other via UDP Broadcast (LAN) and then form random TCP connections to gossip updates.
 This ensures that updates propagate exponentially through the network (Epidemic Algorithm).
 
+### Snapshots & Fast Recovery
+To optimize reconnection, each node maintains a **Snapshot** of the last known state (Hash & Timestamp) for every peer.
+- When re-connecting, nodes compare their snapshot state.
+- If the chain hash matches, they only exchange the delta.
+- This avoids re-processing the entire operation history and ensures efficient gap recovery.
+
 ## Security Disclaimer
 
 ::: warning FOR LAN USE ONLY
 **EntglDb is designed for trusted Local Area Networks.**
 :::
 
-- **Target Environment**: LAN/private networks (offices, homes, edge deployments)
-- **NOT for Public Internet**: Requires additional security measures for internet deployment
+- **P2P Mesh Mode**: Designed for **LAN/VPN** use. Uses raw TCP and UDP broadcast. Not safe for public internet by default.
+- **ASP.NET Core Server**: Designed for **Public Internet** use. Supports standard HTTPS, JWT Authentication, and WebSockets.
 - **Transport**: Data is transmitted via raw TCP. There is **NO Encryption (TLS/SSL)** by default.
 - **Authentication**: A basic "Shared Key" mechanism is implemented. Nodes must share the same `AuthToken` to sync.
 - **Authorization**: Once authenticated, a node has full read/write access to all collections.
