@@ -103,7 +103,12 @@ public class SqlitePeerStore : IPeerStore
             // Set busy timeout
             connection.Execute("PRAGMA busy_timeout = 5000");
 
-            _logger.LogInformation("Initializing SQLite database with WAL mode");
+            // Performance optimization pragmas
+            connection.Execute("PRAGMA synchronous = NORMAL");
+            connection.Execute("PRAGMA cache_size = 10000");
+            connection.Execute("PRAGMA temp_store = MEMORY");
+
+            _logger.LogInformation("Initializing SQLite database with WAL mode and performance optimizations");
 
             // Unified Oplog and RemotePeers (Always created)
             connection.Execute(@"
@@ -350,6 +355,31 @@ public class SqlitePeerStore : IPeerStore
         {
             _logger.LogError(ex, "Failed to create database backup");
             throw new PersistenceException($"Backup failed: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Runs PRAGMA optimize to maintain optimal database performance.
+    /// </summary>
+    /// <remarks>
+    /// This should be called periodically (e.g., during maintenance windows) to ensure
+    /// SQLite maintains optimal query plans and statistics.
+    /// </remarks>
+    public async Task OptimizeAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            await connection.ExecuteAsync("PRAGMA optimize");
+
+            _logger.LogInformation("Database optimization completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to optimize database");
+            throw new PersistenceException("Database optimization failed", ex);
         }
     }
 

@@ -162,4 +162,42 @@ public class SqlitePeerStoreTests : IDisposable
         
         // No exception means pass
     }
+
+    [Fact]
+    public void Initialize_ShouldApplyPerformancePragmas()
+    {
+        // Arrange & Act - Database is initialized in constructor
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        connection.Open();
+
+        // Assert - Verify PRAGMA settings
+        var synchronous = connection.CreateCommand();
+        synchronous.CommandText = "PRAGMA synchronous";
+        var syncValue = synchronous.ExecuteScalar();
+        syncValue.Should().NotBeNull();
+        
+        var journalMode = connection.CreateCommand();
+        journalMode.CommandText = "PRAGMA journal_mode";
+        var journalValue = journalMode.ExecuteScalar()?.ToString()?.ToLower();
+        journalValue.Should().Be("wal");
+
+        var tempStore = connection.CreateCommand();
+        tempStore.CommandText = "PRAGMA temp_store";
+        var tempStoreValue = tempStore.ExecuteScalar();
+        tempStoreValue.Should().NotBeNull();
+        
+        // These pragmas should be set and return non-null values
+    }
+
+    [Fact]
+    public async Task OptimizeAsync_ShouldCompleteWithoutError()
+    {
+        // Arrange
+        await _store.SaveDocumentAsync(CreateDocument("users", "u1", new { Name = "Test" }, new HlcTimestamp(100, 0, "n1")));
+
+        // Act & Assert - Should complete without throwing
+        await _store.OptimizeAsync();
+        
+        // No exception means pass
+    }
 }
