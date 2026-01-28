@@ -173,20 +173,23 @@ public class SqlitePeerStoreTests : IDisposable
         // Assert - Verify PRAGMA settings
         var synchronous = connection.CreateCommand();
         synchronous.CommandText = "PRAGMA synchronous";
-        var syncValue = synchronous.ExecuteScalar();
-        syncValue.Should().NotBeNull();
+        var syncValue = Convert.ToInt64(synchronous.ExecuteScalar());
+        syncValue.Should().Be(1, "PRAGMA synchronous should be set to NORMAL (1)");
         
         var journalMode = connection.CreateCommand();
         journalMode.CommandText = "PRAGMA journal_mode";
         var journalValue = journalMode.ExecuteScalar()?.ToString()?.ToLower();
-        journalValue.Should().Be("wal");
+        journalValue.Should().Be("wal", "PRAGMA journal_mode should be set to WAL");
+
+        var cacheSize = connection.CreateCommand();
+        cacheSize.CommandText = "PRAGMA cache_size";
+        var cacheSizeValue = Convert.ToInt64(cacheSize.ExecuteScalar());
+        cacheSizeValue.Should().Be(10000, "PRAGMA cache_size should be set to 10000");
 
         var tempStore = connection.CreateCommand();
         tempStore.CommandText = "PRAGMA temp_store";
-        var tempStoreValue = tempStore.ExecuteScalar();
-        tempStoreValue.Should().NotBeNull();
-        
-        // These pragmas should be set and return non-null values
+        var tempStoreValue = Convert.ToInt64(tempStore.ExecuteScalar());
+        tempStoreValue.Should().Be(2, "PRAGMA temp_store should be set to MEMORY (2)");
     }
 
     [Fact]
