@@ -140,6 +140,6 @@ A: Security works on all target frameworks (netstandard2.0, net6.0, net8.0) with
 ---
 
 **See Also:**
-- [Getting Started](getting-started.html)
-- [Architecture](architecture.html)
-- [Production Hardening](production-hardening.html)
+- [Getting Started](getting-started.md)
+- [Architecture](architecture.md)
+- [Production Hardening](production-hardening.md)
