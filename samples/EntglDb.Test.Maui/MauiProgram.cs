@@ -76,8 +76,17 @@ public static class MauiProgram
             TcpPort = 5001,
 			AuthToken = "Test-Cluster-Key",
 			OplogRetentionHours = 2,
-			MaintenanceIntervalMinutes = 5
-        });	
+			MaintenanceIntervalMinutes = 5,
+            KnownPeers = new List<KnownPeerConfiguration> 
+            {
+                new KnownPeerConfiguration 
+                { 
+                    NodeId = "AspNetSampleNode", 
+                    Host = DeviceInfo.Platform == DevicePlatform.Android ? "10.0.2.2" : "localhost", 
+                    Port = 6001 
+                }
+            }
+        });
 
 		builder.Services.AddSingleton(peerNodeConfigurationProvider);
 

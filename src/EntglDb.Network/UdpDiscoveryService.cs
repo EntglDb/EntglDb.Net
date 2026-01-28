@@ -194,10 +194,21 @@ internal class UdpDiscoveryService : IDiscoveryService
 
                 try
                 {
-                    var _nodeId = (await _configProvider.GetConfiguration()).NodeId;
+                    var config = await _configProvider.GetConfiguration();
+                    var _nodeId = config.NodeId;
+                    var localClusterHash = ComputeClusterHash(config.AuthToken);
+
                     var beacon = JsonSerializer.Deserialize<DiscoveryBeacon>(json);
+                    
                     if (beacon != null && beacon.NodeId != _nodeId)
                     {
+                        // Filter by ClusterHash to reduce congestion from different clusters
+                        if (!string.Equals(beacon.ClusterHash, localClusterHash, StringComparison.Ordinal))
+                        {
+                            // Optional: Log trace if needed, but keeping it silent avoids flooding logs during congestion
+                            continue; 
+                        }
+
                         HandleBeacon(beacon, result.RemoteEndPoint.Address);
                     }
                 }
@@ -219,18 +230,25 @@ internal class UdpDiscoveryService : IDiscoveryService
         using var udp = new UdpClient();
         udp.EnableBroadcast = true;
 
-        var conf = await _configProvider.GetConfiguration();
-        var beacon = new DiscoveryBeacon { NodeId = conf.NodeId, TcpPort = conf.TcpPort };
-        var json = JsonSerializer.Serialize(beacon);
-        var bytes = Encoding.UTF8.GetBytes(json);
         var endpoint = new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);
-
-        _logger.LogInformation("UDP Broadcasting started for {NodeId}", conf.NodeId);
 
         while (!token.IsCancellationRequested)
         {
             try
             {
+                // Re-fetch config each time in case it changes (though usually static)
+                var conf = await _configProvider.GetConfiguration();
+                
+                var beacon = new DiscoveryBeacon 
+                { 
+                    NodeId = conf.NodeId, 
+                    TcpPort = conf.TcpPort,
+                    ClusterHash = ComputeClusterHash(conf.AuthToken)
+                };
+
+                var json = JsonSerializer.Serialize(beacon);
+                var bytes = Encoding.UTF8.GetBytes(json);
+
                 await udp.SendAsync(bytes, bytes.Length, endpoint);
             }
             catch (Exception ex)
@@ -242,6 +260,16 @@ internal class UdpDiscoveryService : IDiscoveryService
         }
     }
 
+    private string ComputeClusterHash(string authToken)
+    {
+        if (string.IsNullOrEmpty(authToken)) return "";
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var bytes = Encoding.UTF8.GetBytes(authToken);
+        var hash = sha256.ComputeHash(bytes);
+        // Return first 8 chars (4 bytes hex) is enough for filtering
+        return BitConverter.ToString(hash).Replace("-", "").Substring(0, 8);
+    }
+
 
 
     private class DiscoveryBeacon
@@ -251,5 +279,8 @@ internal class UdpDiscoveryService : IDiscoveryService
 
         [System.Text.Json.Serialization.JsonPropertyName("tcp_port")]
         public int TcpPort { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("cluster_hash")]
+        public string ClusterHash { get; set; } = "";
     }
 }

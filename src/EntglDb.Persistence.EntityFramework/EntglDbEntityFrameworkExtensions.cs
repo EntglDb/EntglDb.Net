@@ -40,7 +40,7 @@ public static class EntglDbEntityFrameworkExtensions
         services.TryAddSingleton<IConflictResolver, LastWriteWinsConflictResolver>();
 
         // Register EF Core Store
-        services.TryAddScoped<IPeerStore, EfCorePeerStore>();
+        services.TryAddSingleton<IPeerStore, EfCorePeerStore>();
 
         return services;
     }

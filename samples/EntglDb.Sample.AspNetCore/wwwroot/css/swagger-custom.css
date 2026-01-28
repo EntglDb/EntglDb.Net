@@ -1,0 +1,65 @@
+/* EntglDb Swagger Custom Theme */
+
+/* Import a modern font */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+body {
+    font-family: 'Outfit', sans-serif !important;
+}
+
+/* Custom Header Color */
+.swagger-ui .topbar {
+    background-color: #0f172a; /* Slate 900 - Premium Dark */
+    border-bottom: 2px solid #3b82f6; /* Blue 500 - EntglDb Accent */
+}
+
+/* Logo Text Adjustment */
+.swagger-ui .topbar a {
+    max-width: auto;
+}
+.swagger-ui .topbar .link {
+    font-weight: 700;
+    font-size: 1.5em;
+    color: #e2e8f0; /* Slate 200 */
+}
+
+/* Info Section Styling */
+.swagger-ui .info .title {
+    font-family: 'Outfit', sans-serif;
+    color: #1e293b; /* Slate 800 */
+}
+
+.swagger-ui .info .title small.version-stamp {
+    background-color: #3b82f6;
+}
+
+/* Method Badges */
+.swagger-ui .opblock.opblock-get .opblock-summary-method {
+    background: #3b82f6;
+}
+.swagger-ui .opblock.opblock-post .opblock-summary-method {
+    background: #10b981; /* Emerald 500 */
+}
+.swagger-ui .opblock.opblock-delete .opblock-summary-method {
+    background: #ef4444; /* Red 500 */
+}
+.swagger-ui .opblock.opblock-put .opblock-summary-method {
+    background: #f59e0b; /* Amber 500 */
+}
+
+/* Button Styling */
+.swagger-ui .btn.authorize {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    border-radius: 6px;
+}
+.swagger-ui .btn.authorize svg {
+    fill: #3b82f6;
+}
+
+/* Rounded Corners for Blocks */
+.swagger-ui .opblock {
+    border-radius: 8px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border: none;
+}

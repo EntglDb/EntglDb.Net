@@ -129,7 +129,15 @@ public class SqlitePeerStore : IPeerStore
                 );
 
                 CREATE INDEX IF NOT EXISTS IDX_Oplog_HlcWall ON Oplog(HlcWall);
-                CREATE INDEX IF NOT EXISTS IDX_Oplog_Hash ON Oplog(Hash);
+            
+            -- Ensure Hash is globally unique (prevent duplicates)
+            DROP INDEX IF EXISTS IDX_Oplog_Hash;
+            CREATE UNIQUE INDEX IF NOT EXISTS IDX_Oplog_Hash ON Oplog(Hash);
+
+            -- Ensure linear history per node (prevent forks)
+            -- Note: PreviousHash alone cannot be unique because multiple nodes have empty previous hash at genesis.
+            DROP INDEX IF EXISTS IDX_Oplog_Node_PreviousHash;
+            CREATE UNIQUE INDEX IF NOT EXISTS IDX_Oplog_Node_PreviousHash ON Oplog(HlcNode, PreviousHash);
             
                 CREATE TABLE IF NOT EXISTS SnapshotMetadata (
                     NodeId TEXT PRIMARY KEY,
@@ -473,10 +481,11 @@ public class SqlitePeerStore : IPeerStore
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Unified Oplog Table: Always use single Oplog table regardless of per-collection setting
+        // Unified Oplog Table: Idempotent Insert based on Hash
         await connection.ExecuteAsync(@"
             INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
-            VALUES (@Collection, @Key, @Operation, @JsonData, @HlcWall, @HlcLogic, @HlcNode, @Hash, @PreviousHash)",
+            SELECT @Collection, @Key, @Operation, @JsonData, @HlcWall, @HlcLogic, @HlcNode, @Hash, @PreviousHash
+            WHERE NOT EXISTS (SELECT 1 FROM Oplog WHERE Hash = @Hash)",
             new
             {
                 entry.Collection,
@@ -574,7 +583,9 @@ public class SqlitePeerStore : IPeerStore
             var row = await connection.QuerySingleOrDefaultAsync<(long Wall, int Logic)?>(@"
                 SELECT HlcWall as Wall, HlcLogic as Logic
                 FROM Oplog 
-                WHERE Hash = @Hash", new { Hash = hash });
+                WHERE Hash = @Hash
+                ORDER BY HlcWall DESC, HlcLogic DESC 
+                LIMIT 1", new { Hash = hash });
 
             if (row == null)
             {
@@ -842,27 +853,38 @@ public class SqlitePeerStore : IPeerStore
                                 IsDeleted = doc.IsDeleted ? 1 : 0,
                                 HlcWall = doc.UpdatedAt.PhysicalTime,
                                 HlcLogic = doc.UpdatedAt.LogicalCounter,
-                                HlcNode = doc.UpdatedAt.NodeId
+                HlcNode = doc.UpdatedAt.NodeId
                             }, transaction);
                     }
                 }
 
-                // Unified Oplog Table: Always use single Oplog table regardless of per-collection setting
-                await connection.ExecuteAsync(@"
-                    INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
-                    VALUES (@Collection, @Key, @Operation, @JsonData, @HlcWall, @HlcLogic, @HlcNode, @Hash, @PreviousHash)",
-                    new
-                    {
-                        entry.Collection,
-                        entry.Key,
-                        Operation = (int)entry.Operation,
-                        JsonData = entry.Payload.HasValue && entry.Payload.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
-                        HlcWall = entry.Timestamp.PhysicalTime,
-                        HlcLogic = entry.Timestamp.LogicalCounter,
-                        HlcNode = entry.Timestamp.NodeId,
-                        entry.Hash,
-                        entry.PreviousHash
-                    }, transaction);
+                    // Unified Oplog Table: Idempotent Insert based on Hash
+                try
+                {
+                    await connection.ExecuteAsync(@"
+                        INSERT INTO Oplog (Collection, Key, Operation, JsonData, HlcWall, HlcLogic, HlcNode, Hash, PreviousHash)
+                        SELECT @Collection, @Key, @Operation, @JsonData, @HlcWall, @HlcLogic, @HlcNode, @Hash, @PreviousHash
+                        WHERE NOT EXISTS (SELECT 1 FROM Oplog WHERE Hash = @Hash)",
+                        new
+                        {
+                            entry.Collection,
+                            entry.Key,
+                            Operation = (int)entry.Operation,
+                            JsonData = entry.Payload.HasValue && entry.Payload.Value.ValueKind != JsonValueKind.Undefined ? entry.Payload.Value.GetRawText() : null,
+                            HlcWall = entry.Timestamp.PhysicalTime,
+                            HlcLogic = entry.Timestamp.LogicalCounter,
+                            HlcNode = entry.Timestamp.NodeId,
+                            entry.Hash,
+                            entry.PreviousHash
+                        }, transaction);
+                }
+                catch (SqliteException ex) when (ex.SqliteErrorCode == 19) // SQLITE_CONSTRAINT
+                {
+                    // This catches the (HlcNode, PreviousHash) violation if a fork is attempted.
+                    // Hash duplication is already handled by WHERE NOT EXISTS, so this must be a chain fork.
+                     _logger.LogWarning("Oplog insertion failed due to constraint violation (likely Fork detected): Node={NodeId}, PrevHash={PrevHash}, Hash={Hash}. Skipping entry.",
+                         entry.Timestamp.NodeId, entry.PreviousHash, entry.Hash);
+                }
             }
 
             transaction.Commit();
@@ -1086,7 +1108,7 @@ public class SqlitePeerStore : IPeerStore
         try
         {
             // 1. Identify entries that will become the "boundary" (Max <= Cutoff)
-            var boundaries = await connection.QueryAsync<(string NodeId, long HlcWall, int HlcLogic, string Hash)>(@"
+            var boundaries = await connection.QueryAsync(@"
                 SELECT HlcNode as NodeId, HlcWall, HlcLogic, Hash
                 FROM Oplog o1
                 WHERE (HlcWall, HlcLogic) = (
@@ -1104,7 +1126,7 @@ public class SqlitePeerStore : IPeerStore
                 await connection.ExecuteAsync(@"
                     INSERT OR REPLACE INTO SnapshotMetadata (NodeId, HlcWall, HlcLogic, Hash)
                     VALUES (@NodeId, @HlcWall, @HlcLogic, @Hash)",
-                    b, transaction);
+                    b as object, transaction);
             }
 
             // 3. Delete old entries
@@ -1300,6 +1322,18 @@ public class SqlitePeerStore : IPeerStore
         {
             if (File.Exists(tempDbPath)) File.Delete(tempDbPath);
         }
+    }
+
+    public async Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        var hash = await connection.QuerySingleOrDefaultAsync<string>(
+            "SELECT Hash FROM SnapshotMetadata WHERE NodeId = @NodeId",
+            new { NodeId = nodeId });
+        
+        return hash;
     }
 
     public async Task ClearAllDataAsync(CancellationToken cancellationToken = default)

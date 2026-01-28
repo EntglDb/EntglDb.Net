@@ -16,6 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="0.9.0"></a>
+## [0.9.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.9.0) (2026-01-28)
+
+### Features
+
+* enhance ASP.NET Core sample, fix EF Core runtime issues, stabilize Sync/Persistence ([18813d0](https://www.github.com/EntglDb/EntglDb.Net/commit/18813d0aa881de9d0a13bd8d863ab6283bc630fc))
+
+<a name="0.8.6"></a>
+## [0.8.6](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.8.6) (2026-01-27)
+
+### Features
+
+* **persistence:** snapshots ([05068ff](https://www.github.com/EntglDb/EntglDb.Net/commit/05068ff70d8cafcf2ca292a80ddb3c14039ce30a))
+
+### Bug Fixes
+
+* prevent snapshot infinite loop via boundary convergence check ([e10b80a](https://www.github.com/EntglDb/EntglDb.Net/commit/e10b80a424b3fa521fc8f716eeecc329ba72648d))
+* query limits ([d74e689](https://www.github.com/EntglDb/EntglDb.Net/commit/d74e6892a027eac367feadba2ab96f7758af320b))
+
 <a name="0.8.5"></a>
 ## [0.8.5](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.8.5) (2026-01-26)
 

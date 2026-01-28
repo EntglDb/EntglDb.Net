@@ -4,9 +4,15 @@
     <ProjectReference Include="..\EntglDb.Core\EntglDb.Core.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net6.0'">
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="6.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
   </ItemGroup>
 
@@ -15,7 +21,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.8.5</Version>
+    <Version>0.9.0</Version>
     <Authors>MrDevRobot</Authors>
     <Description>Entity Framework Core persistence provider for EntglDb. Generic implementation supporting any EF Core database provider (SQL Server, PostgreSQL, MySQL, SQLite, etc).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
