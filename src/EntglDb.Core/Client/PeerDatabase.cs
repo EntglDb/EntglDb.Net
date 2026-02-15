@@ -151,6 +151,208 @@ public class PeerDatabase : IPeerDatabase
         return new PeerCollection<T>(collectionName, this);
     }
 
+    public async Task PutAsync(string collection, string key, object document, CancellationToken cancellationToken = default)
+    {
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            var json = JsonSerializer.SerializeToElement(document, _jsonOptions);
+            var timestamp = await Tick();
+
+            var previousHash = LastHash;
+            var oplog = new OplogEntry(collection, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
+            
+            var paramsContainer = new Document(collection, key, json, timestamp, false);
+
+            await _store.SaveDocumentAsync(paramsContainer, cancellationToken);
+            await _store.AppendOplogEntryAsync(oplog, cancellationToken);
+            
+            LastHash = oplog.Hash;
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    public async Task PutManyAsync(string collection, IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken = default)
+    {
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            var docList = new List<Document>();
+            var oplogList = new List<OplogEntry>();
+            var firstTimestamp = await Tick();
+            var nodeId = firstTimestamp.NodeId;
+            var previousHash = LastHash;
+            var newLastHash = previousHash;
+
+            foreach (var kvp in documents)
+            {
+                var key = kvp.Key;
+                var document = kvp.Value;
+                var json = JsonSerializer.SerializeToElement(document, _jsonOptions);
+
+                var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
+
+                var oplog = new OplogEntry(collection, key, OperationType.Put, json, timestamp, previousHash ?? string.Empty);
+                previousHash = oplog.Hash;
+                newLastHash = oplog.Hash;
+
+                var paramsContainer = new Document(collection, key, json, timestamp, false);
+
+                docList.Add(paramsContainer);
+                oplogList.Add(oplog);
+            }
+
+            if (docList.Count > 0)
+            {
+                await _store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+                LastHash = newLastHash;
+            }
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    public async Task<T?> GetAsync<T>(string collection, string key, CancellationToken cancellationToken = default)
+    {
+        var doc = await _store.GetDocumentAsync(collection, key, cancellationToken);
+        if (doc == null || doc.IsDeleted) return default;
+
+        return JsonSerializer.Deserialize<T>(doc.Content, _jsonOptions);
+    }
+
+    public async Task DeleteAsync(string collection, string key, CancellationToken cancellationToken = default)
+    {
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timestamp = await Tick();
+            var previousHash = LastHash;
+            
+            var oplog = new OplogEntry(collection, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
+
+            var empty = default(JsonElement);
+            var paramsContainer = new Document(collection, key, empty, timestamp, true);
+            
+            await _store.SaveDocumentAsync(paramsContainer, cancellationToken);
+            await _store.AppendOplogEntryAsync(oplog, cancellationToken);
+            
+            LastHash = oplog.Hash;
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    public async Task DeleteManyAsync(string collection, IEnumerable<string> keys, CancellationToken cancellationToken = default)
+    {
+        await WriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            var docList = new List<Document>();
+            var oplogList = new List<OplogEntry>();
+            var empty = default(JsonElement);
+            
+            var firstTimestamp = await Tick();
+            var nodeId = firstTimestamp.NodeId;
+            var previousHash = LastHash;
+            var newLastHash = previousHash;
+
+            foreach (var key in keys)
+            {
+                var timestamp = docList.Count == 0 ? firstTimestamp : new HlcTimestamp(firstTimestamp.PhysicalTime, firstTimestamp.LogicalCounter + docList.Count, nodeId);
+
+                var oplog = new OplogEntry(collection, key, OperationType.Delete, null, timestamp, previousHash ?? string.Empty);
+                previousHash = oplog.Hash;
+                newLastHash = oplog.Hash;
+
+                var paramsContainer = new Document(collection, key, empty, timestamp, true);
+
+                docList.Add(paramsContainer);
+                oplogList.Add(oplog);
+            }
+
+            if (docList.Count > 0)
+            {
+                await _store.ApplyBatchAsync(docList, oplogList, cancellationToken);
+                LastHash = newLastHash;
+            }
+        }
+        finally
+        {
+            WriteLock.Release();
+        }
+    }
+
+    public async Task<IEnumerable<T>> FindAsync<T>(string collection, Expression<Func<T, bool>> predicate, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
+    {
+        QueryNode? queryNode = null;
+        try
+        {
+            queryNode = ExpressionToQueryNodeTranslator.Translate(predicate, _jsonOptions);
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[Warning] Query translation failed: {ex.Message}. Fetching all documents and filtering in memory.");
+        }
+
+        var docs = await _store.QueryDocumentsAsync(collection, queryNode, skip, take, orderBy, ascending, cancellationToken);
+        var list = new List<T>();
+
+        var compiledPredicate = queryNode == null && predicate != null ? predicate.Compile() : null;
+
+        foreach (var d in docs)
+        {
+            if (!d.IsDeleted)
+            {
+                try
+                {
+                    var item = JsonSerializer.Deserialize<T>(d.Content, _jsonOptions);
+                    if (item == null) continue;
+
+                    if (compiledPredicate != null)
+                    {
+                        if (compiledPredicate(item))
+                        {
+                            list.Add(item);
+                        }
+                    }
+                    else
+                    {
+                        list.Add(item);
+                    }
+                }
+                catch { /* deserialization error */ }
+            }
+        }
+        return list;
+    }
+
+    public async Task<int> CountAsync<T>(string collection, Expression<Func<T, bool>>? predicate = null, CancellationToken cancellationToken = default)
+    {
+        QueryNode? queryNode = null;
+        if (predicate != null)
+        {
+            try
+            {
+                queryNode = ExpressionToQueryNodeTranslator.Translate(predicate, _jsonOptions);
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[Warning] Query translation failed for Count: {ex.Message}. Falling back to counting in memory.");
+                var all = await FindAsync(collection, predicate, cancellationToken: cancellationToken);
+                return all.Count();
+            }
+        }
+
+        return await _store.CountDocumentsAsync(collection, queryNode, cancellationToken);
+    }
+
     /// <summary>
     /// Manually triggers synchronization. Currently a no-op as sync is handled by SyncOrchestrator.
     /// </summary>
@@ -190,121 +392,4 @@ public class PeerDatabase : IPeerDatabase
             return _localClock!.Value;
         }
     }
-}
-
-/// <summary>
-/// Represents a strongly-typed collection of documents within a <see cref="PeerDatabase"/>.
-/// </summary>
-internal class PeerCollection<T> : IPeerCollection<T>
-{
-    private readonly PeerCollection _inner;
-
-    public PeerCollection(string name, PeerDatabase db)
-    {
-        _inner = new PeerCollection(name, db);
-    }
-
-    public string Name => _inner.Name;
-
-    public Task Put(string key, T document, CancellationToken cancellationToken = default)
-        => _inner.Put(key, document, cancellationToken);
-
-    public Task Put(T document, CancellationToken cancellationToken = default)
-    {
-        // Get key from entity metadata
-        var getKey = Metadata.EntityMetadata<T>.GetKey;
-        if (getKey == null)
-            throw new InvalidOperationException(
-                $"Type {typeof(T).Name} has no primary key defined. " +
-                $"Add [PrimaryKey] attribute or define an 'Id' property, or use Put(key, document) instead.");
-
-        var key = getKey(document);
-
-        // Auto-generate if empty and auto-generation enabled
-        if (string.IsNullOrEmpty(key) && Metadata.EntityMetadata<T>.AutoGenerateKey)
-        {
-            key = Guid.NewGuid().ToString();
-            Metadata.EntityMetadata<T>.SetKey?.Invoke(document, key);
-        }
-
-        if (string.IsNullOrEmpty(key))
-            throw new InvalidOperationException(
-                $"Primary key for {typeof(T).Name} is null or empty. " +
-                $"Ensure the primary key property has a value or enable auto-generation.");
-
-        return Put(key, document, cancellationToken);
-    }
-
-    public Task PutMany(IEnumerable<T> documents, CancellationToken cancellationToken = default)
-    {
-        // Use metadata to extract keys and create KeyValuePair list for inner PutMany
-        var list = new List<KeyValuePair<string, object>>();
-        var getKey = Metadata.EntityMetadata<T>.GetKey;
-
-        foreach (var document in documents)
-        {
-            if (document == null) throw new ArgumentNullException(nameof(documents), "Document cannot be null");
-
-            if (getKey == null)
-                throw new InvalidOperationException($"Type {typeof(T).Name} has no primary key defined.");
-
-            var key = getKey(document);
-
-            if (string.IsNullOrEmpty(key) && Metadata.EntityMetadata<T>.AutoGenerateKey)
-            {
-                key = Guid.NewGuid().ToString();
-                Metadata.EntityMetadata<T>.SetKey?.Invoke(document, key);
-            }
-
-            if (string.IsNullOrEmpty(key))
-                throw new InvalidOperationException($"Primary key for {typeof(T).Name} is null or empty.");
-
-            list.Add(new KeyValuePair<string, object>(key, document));
-        }
-
-        return _inner.PutMany(list, cancellationToken);
-    }
-
-    public Task<T> Get(string key, CancellationToken cancellationToken = default)
-        => _inner.Get<T>(key, cancellationToken);
-
-    public Task Delete(string key, CancellationToken cancellationToken = default)
-        => _inner.Delete(key, cancellationToken);
-
-    public Task DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken = default)
-        => _inner.DeleteMany(keys, cancellationToken);
-
-    public Task<IEnumerable<T>> Find(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default)
-        => _inner.Find(predicate, cancellationToken);
-
-    public Task<IEnumerable<T>> Find(Expression<Func<T, bool>> predicate, int? skip, int? take, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default)
-        => _inner.Find(predicate, skip, take, orderBy, ascending, cancellationToken);
-
-    public Task<int> Count(Expression<Func<T, bool>>? predicate = null, CancellationToken cancellationToken = default)
-        => _inner.Count(predicate, cancellationToken);
-
-    // Explicit interface implementations for non-generic methods
-    Task IPeerCollection.Put(string key, object document, CancellationToken cancellationToken)
-        => _inner.Put(key, document, cancellationToken);
-
-    Task IPeerCollection.PutMany(IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken)
-        => _inner.PutMany(documents, cancellationToken);
-
-    Task<TResult> IPeerCollection.Get<TResult>(string key, CancellationToken cancellationToken)
-        => _inner.Get<TResult>(key, cancellationToken);
-
-    Task IPeerCollection.Delete(string key, CancellationToken cancellationToken)
-         => _inner.Delete(key, cancellationToken);
-
-    Task IPeerCollection.DeleteMany(IEnumerable<string> keys, CancellationToken cancellationToken)
-         => _inner.DeleteMany(keys, cancellationToken);
-
-    Task<IEnumerable<TResult>> IPeerCollection.Find<TResult>(Expression<Func<TResult, bool>> predicate, CancellationToken cancellationToken)
-        => _inner.Find(predicate, cancellationToken);
-
-    Task<IEnumerable<TResult>> IPeerCollection.Find<TResult>(Expression<Func<TResult, bool>> predicate, int? skip, int? take, string? orderBy, bool ascending, CancellationToken cancellationToken)
-        => _inner.Find(predicate, skip, take, orderBy, ascending, cancellationToken);
-
-    Task<int> IPeerCollection.Count(Expression<Func<object, bool>>? predicate, CancellationToken cancellationToken)
-        => _inner.Count(predicate, cancellationToken);
 }
