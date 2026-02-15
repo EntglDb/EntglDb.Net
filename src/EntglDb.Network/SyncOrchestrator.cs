@@ -318,7 +318,7 @@ public class SyncOrchestrator : ISyncOrchestrator
             {
                 _logger.LogDebug("Vector clocks are equal with {PeerNodeId}. No sync needed.", peer.NodeId);
             }
-            else if (causality == CausalityRelation.Concurrent && !nodesToPull.Any() && !nodesToPush.Any())
+            else if (causality == CausalityRelation.Concurrent)
             {
                 _logger.LogDebug("Vector clocks are concurrent with {PeerNodeId}, but no divergence detected.", peer.NodeId);
             }

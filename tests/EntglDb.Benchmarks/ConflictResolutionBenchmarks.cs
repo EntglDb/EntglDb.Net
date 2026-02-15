@@ -12,13 +12,17 @@ namespace EntglDb.Benchmarks;
 [MemoryDiagnoser]
 public class ConflictResolutionBenchmarks
 {
-    private RecursiveNodeMergeConflictResolver _resolver;
+    private RecursiveNodeMergeConflictResolver _resolver = null!;
     
-    private Document _docSimple;
-    private OplogEntry _opSimple;
+    private Document _docSimple = null!;
+    private OplogEntry _opSimple = null!;
     
-    private Document _docArray1000;
-    private OplogEntry _opArray1000;
+    private Document _docArray1000 = null!;
+    private OplogEntry _opArray1000 = null!;
+
+    private Document _localDoc = null!;
+    private Document _remoteDoc = null!;
+    private OplogEntry _oplogEntry = null!;
 
     [GlobalSetup]
     public void Setup()

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EntglDb.Core\EntglDb.Core.csproj" />
+    <ProjectReference Include="..\..\..\BLite\src\BLite.Core\BLite.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <Version>0.9.1</Version>
+    <Authors>MrDevRobot</Authors>
+    <Description>BLite persistence provider for EntglDb.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>p2p;database;blite;persistence;storage;wal;bson</PackageTags>
+    <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+</Project>
