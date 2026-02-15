@@ -22,6 +22,15 @@ public interface IPeerDatabase
     /// <typeparam name="T">The entity type for this collection.</typeparam>
     /// <param name="customName">Optional custom collection name. If null, uses typeof(T).Name.ToLowerInvariant().</param>
     IPeerCollection<T> Collection<T>(string? customName = null);
+
+    // Direct CRUD operations
+    Task PutAsync(string collection, string key, object document, CancellationToken cancellationToken = default);
+    Task PutManyAsync(string collection, IEnumerable<KeyValuePair<string, object>> documents, CancellationToken cancellationToken = default);
+    Task<T?> GetAsync<T>(string collection, string key, CancellationToken cancellationToken = default);
+    Task DeleteAsync(string collection, string key, CancellationToken cancellationToken = default);
+    Task DeleteManyAsync(string collection, IEnumerable<string> keys, CancellationToken cancellationToken = default);
+    Task<IEnumerable<T>> FindAsync<T>(string collection, Expression<Func<T, bool>> predicate, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default);
+    Task<int> CountAsync<T>(string collection, Expression<Func<T, bool>>? predicate = null, CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Manually triggers synchronization.

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using System.ComponentModel.DataAnnotations;
+using System.Linq.Expressions;
 
 namespace EntglDb.Core.Metadata;
 
@@ -40,30 +41,47 @@ public static class EntityMetadata<T>
         {
             var prop = PrimaryKeyProperty;
             if (prop == null) return null;
+
+            var parameter = Expression.Parameter(typeof(T), "entity");
+            var property = Expression.Property(parameter, prop);
             
-            return entity => prop.GetValue(entity)?.ToString() ?? "";
+            // if property is not string, convert to string
+            Expression converted = property.Type == typeof(string) 
+                ? property 
+                : Expression.Call(property, typeof(object).GetMethod("ToString")!);
+
+            var lambda = Expression.Lambda<Func<T, string>>(converted, parameter);
+            return lambda.Compile();
         });
         
         _keySetter = new Lazy<Action<T, string>?>(() =>
         {
             var prop = PrimaryKeyProperty;
             if (prop == null || !prop.CanWrite) return null;
+
+            var entityParam = Expression.Parameter(typeof(T), "entity");
+            var valueParam = Expression.Parameter(typeof(string), "value");
             
-            return (entity, value) =>
+            Expression valueExpression;
+            if (prop.PropertyType == typeof(string))
             {
-                if (prop.PropertyType == typeof(string))
-                {
-                    prop.SetValue(entity, value);
-                }
-                else if (prop.PropertyType == typeof(Guid))
-                {
-                    prop.SetValue(entity, Guid.Parse(value));
-                }
-                else
-                {
-                    prop.SetValue(entity, Convert.ChangeType(value, prop.PropertyType));
-                }
-            };
+                valueExpression = valueParam;
+            }
+            else if (prop.PropertyType == typeof(Guid))
+            {
+                valueExpression = Expression.Call(typeof(Guid).GetMethod("Parse", new[] { typeof(string) })!, valueParam);
+            }
+            else
+            {
+                // Fallback for other types using Convert.ChangeType
+                var changeTypeMethod = typeof(Convert).GetMethod("ChangeType", new[] { typeof(object), typeof(Type) })!;
+                var call = Expression.Call(changeTypeMethod, valueParam, Expression.Constant(prop.PropertyType));
+                valueExpression = Expression.Convert(call, prop.PropertyType);
+            }
+
+            var assign = Expression.Assign(Expression.Property(entityParam, prop), valueExpression);
+            var lambda = Expression.Lambda<Action<T, string>>(assign, entityParam, valueParam);
+            return lambda.Compile();
         });
         
         _indexedProperties = new Lazy<PropertyInfo[]>(() =>
