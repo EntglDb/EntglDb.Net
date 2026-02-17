@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using EntglDb.Core.Storage;
 using Microsoft.Extensions.Logging;
 using EntglDb.Core.Network;
 using EntglDb.Core;
@@ -22,19 +24,18 @@ internal class UdpDiscoveryService : IDiscoveryService
     private const int DiscoveryPort = 25000;
     private readonly ILogger<UdpDiscoveryService> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
+    private readonly IDocumentStore _documentStore;
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerNode> _activePeers = new();
     private readonly object _startStopLock = new object();
 
-    /// <summary>
-    /// Initializes a new instance of the UdpDiscoveryService class with the specified peer node configuration provider
-    /// and logger.
-    /// </summary>
-    /// <param name="peerNodeConfigurationProvider">The provider used to retrieve configuration settings for peer nodes. Cannot be null.</param>
-    /// <param name="logger">The logger used to record diagnostic and operational information. Cannot be null.</param>
-    public UdpDiscoveryService(IPeerNodeConfigurationProvider peerNodeConfigurationProvider, ILogger<UdpDiscoveryService> logger)
+    public UdpDiscoveryService(
+        IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
+        IDocumentStore documentStore,
+        ILogger<UdpDiscoveryService> logger)
     {
         _configProvider = peerNodeConfigurationProvider ?? throw new ArgumentNullException(nameof(peerNodeConfigurationProvider));
+        _documentStore = documentStore ?? throw new ArgumentNullException(nameof(documentStore));
         _logger = logger;
     }
 
@@ -244,7 +245,7 @@ internal class UdpDiscoveryService : IDiscoveryService
                     NodeId = conf.NodeId, 
                     TcpPort = conf.TcpPort,
                     ClusterHash = ComputeClusterHash(conf.AuthToken),
-                    InterestingCollections = conf.InterestingCollections ?? new List<string>()
+                    InterestingCollections = _documentStore.InterestedCollection.ToList()
                 };
 
                 var json = JsonSerializer.Serialize(beacon);

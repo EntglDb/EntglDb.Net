@@ -434,7 +434,6 @@ public class EfCoreStoreExportImportTests : IDisposable
                 NodeId = nodeId,
                 TcpPort = 5000,
                 AuthToken = "test-token",
-                InterestingCollections = new List<string> { "Users", "TodoLists" },
                 OplogRetentionHours = 24,
                 MaintenanceIntervalMinutes = 60
             };

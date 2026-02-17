@@ -25,6 +25,7 @@ namespace EntglDb.Network;
 internal class TcpSyncServer : ISyncServer
 {
     private readonly IOplogStore _oplogStore;
+    private readonly IDocumentStore _documentStore;
     private readonly ISnapshotService _snapshotStore;
     private readonly ILogger<TcpSyncServer> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
@@ -56,6 +57,7 @@ internal class TcpSyncServer : ISyncServer
     /// <param name="handshakeService">The service used to perform secure handshake (optional).</param>
     public TcpSyncServer(
         IOplogStore oplogStore, 
+        IDocumentStore documentStore,
         ISnapshotService snapshotStore,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider, 
         ILogger<TcpSyncServer> logger, 
@@ -64,6 +66,7 @@ internal class TcpSyncServer : ISyncServer
         INetworkTelemetryService? telemetry = null)
     {
         _oplogStore = oplogStore;
+        _documentStore = documentStore;
         _snapshotStore = snapshotStore;
         _logger = logger;
         _authenticator = authenticator;
@@ -282,10 +285,8 @@ internal class TcpSyncServer : ISyncServer
 
                         var hRes = new HandshakeResponse { NodeId = config.NodeId, Accepted = true };
                         
-                        // FIX: Include local interests in response so client can perform push filtering
-                        // Usually, SyncOrchestrator manages interests, but we can get them from config or a new provider.
-                        // For now, we assume interests are defined in the config.
-                        foreach (var coll in config.InterestingCollections ?? Enumerable.Empty<string>())
+                        // Include local interests from IDocumentStore in response for push filtering
+                        foreach (var coll in _documentStore.InterestedCollection)
                         {
                             hRes.InterestingCollections.Add(coll);
                         }

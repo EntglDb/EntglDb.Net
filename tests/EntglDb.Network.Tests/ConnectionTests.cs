@@ -25,6 +25,7 @@ namespace EntglDb.Network.Tests
             var snapshotService = new StubSnapshotService();
             var server = new TcpSyncServer(
                 oplogStore,
+                new StubDocumentStore(),
                 snapshotService,
                 configProvider,
                 NullLogger<TcpSyncServer>.Instance,
@@ -181,6 +182,24 @@ namespace EntglDb.Network.Tests
         private class StubAuthenticator : IAuthenticator
         {
             public Task<bool> ValidateAsync(string nodeId, string authToken) => Task.FromResult(true);
+        }
+
+        private class StubDocumentStore : IDocumentStore
+        {
+            public IEnumerable<string> InterestedCollection => new[] { "Users", "TodoLists" };
+            public Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(null);
+            public Task<IEnumerable<Document>> GetDocumentsByCollectionAsync(string collection, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<Document>>(Array.Empty<Document>());
+            public Task<IEnumerable<Document>> GetDocumentsAsync(List<(string Collection, string Key)> documentKeys, CancellationToken cancellationToken) => Task.FromResult<IEnumerable<Document>>(Array.Empty<Document>());
+            public Task<bool> PutDocumentAsync(Document document, CancellationToken cancellationToken = default) => Task.FromResult(true);
+            public Task<bool> InsertBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default) => Task.FromResult(true);
+            public Task<bool> UpdateBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default) => Task.FromResult(true);
+            public Task<bool> DeleteDocumentAsync(string collection, string key, CancellationToken cancellationToken = default) => Task.FromResult(true);
+            public Task<bool> DeleteBatchDocumentsAsync(IEnumerable<string> documentKeys, CancellationToken cancellationToken = default) => Task.FromResult(true);
+            public Task<Document> MergeAsync(Document incoming, CancellationToken cancellationToken = default) => Task.FromResult(incoming);
+            public Task DropAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task<IEnumerable<Document>> ExportAsync(CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<Document>>(Array.Empty<Document>());
+            public Task ImportAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task MergeAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
         }
 
         private class SpyHandshakeService : IPeerHandshakeService

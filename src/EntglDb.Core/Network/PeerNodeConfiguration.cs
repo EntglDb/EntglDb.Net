@@ -61,12 +61,6 @@ public class PeerNodeConfiguration
     public System.Collections.Generic.List<KnownPeerConfiguration> KnownPeers { get; set; } = new();
 
     /// <summary>
-    /// Gets or sets the list of collections this node is interested in.
-    /// If empty, the node is interested in all collections.
-    /// </summary>
-    public System.Collections.Generic.List<string> InterestingCollections { get; set; } = new();
-
-    /// <summary>
     /// Gets the default configuration settings for a peer node.
     /// </summary>
     /// <remarks>Each access returns a new instance of the configuration with a unique node identifier. The

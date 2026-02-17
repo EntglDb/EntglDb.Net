@@ -23,6 +23,7 @@ public class SyncOrchestrator : ISyncOrchestrator
 {
     private readonly IDiscoveryService _discovery;
     private readonly IOplogStore _oplogStore;
+    private readonly IDocumentStore _documentStore;
     private readonly ISnapshotMetadataStore _snapshotMetadataStore;
     private readonly ISnapshotService _snapshotService;
     private readonly IPeerNodeConfigurationProvider _peerNodeConfigurationProvider;
@@ -49,6 +50,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     public SyncOrchestrator(
         IDiscoveryService discovery,
         IOplogStore oplogStore,
+        IDocumentStore documentStore,
         ISnapshotMetadataStore snapshotStore,
         ISnapshotService snapshotService,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
@@ -58,6 +60,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     {
         _discovery = discovery;
         _oplogStore = oplogStore;
+        _documentStore = documentStore;
         _snapshotMetadataStore = snapshotStore;
         _snapshotService = snapshotService;
         _peerNodeConfigurationProvider = peerNodeConfigurationProvider;
@@ -178,7 +181,7 @@ public class SyncOrchestrator : ISyncOrchestrator
                 }).ToList();
 
                 // Interest-Aware Gossip: Prioritize peers sharing interests with us
-                var localInterests = config.InterestingCollections ?? new List<string>();
+                var localInterests = _documentStore.InterestedCollection.ToList();
                 var targets = eligiblePeers
                     .OrderByDescending(p => p.InterestingCollections.Any(ci => localInterests.Contains(ci)))
                     .ThenBy(x => _random.Next())
@@ -258,7 +261,7 @@ public class SyncOrchestrator : ISyncOrchestrator
             }
 
             // Handshake (idempotent)
-            if (!await client.HandshakeAsync(config.NodeId, config.AuthToken, config.InterestingCollections, token))
+            if (!await client.HandshakeAsync(config.NodeId, config.AuthToken, _documentStore.InterestedCollection, token))
             {
                 _logger.LogWarning("Handshake rejected by {NodeId}", peer.NodeId);
                 shouldRemoveClient = true;
@@ -291,7 +294,7 @@ public class SyncOrchestrator : ISyncOrchestrator
                         nodeId, localTs, remoteTs);
 
                     // PASS LOCAL INTERESTS TO PULL
-                    var changes = await client.PullChangesFromNodeAsync(nodeId, localTs, config.InterestingCollections, token);
+                    var changes = await client.PullChangesFromNodeAsync(nodeId, localTs, _documentStore.InterestedCollection, token);
                     if (changes != null && changes.Count > 0)
                     {
                         var result = await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
