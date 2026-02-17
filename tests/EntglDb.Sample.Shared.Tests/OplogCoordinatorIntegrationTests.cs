@@ -34,11 +34,16 @@ public class OplogCoordinatorIntegrationTests : IDisposable
             conflictResolver,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         
+        // Create DocumentMetadataStore for sync tracking
+        var documentMetadataStore = new BLiteDocumentMetadataStore<SampleDbContext>(
+            _context, NullLogger<BLiteDocumentMetadataStore<SampleDbContext>>.Instance);
+        
         // Create OplogCoordinator - it will subscribe to document store events
         _coordinator = new OplogCoordinator(
             _documentStore,
             _oplogStore,
             _configProvider,
+            documentMetadataStore,
             NullLogger<OplogCoordinator>.Instance);
     }
 

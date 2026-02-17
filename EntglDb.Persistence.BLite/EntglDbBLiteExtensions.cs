@@ -39,6 +39,7 @@ public static class EntglDbBLiteExtensions
         services.TryAddSingleton<IOplogStore, BLiteOplogStore<TDbContext>>();
         services.TryAddSingleton<IPeerConfigurationStore, BLitePeerConfigurationStore<TDbContext>>();
         services.TryAddSingleton<ISnapshotMetadataStore, BLiteSnapshotMetadataStore<TDbContext>>();
+        services.TryAddSingleton<IDocumentMetadataStore, BLiteDocumentMetadataStore<TDbContext>>();
         
         // Register the DocumentStore implementation
         services.TryAddSingleton<IDocumentStore, TDocumentStore>();
@@ -76,6 +77,7 @@ public static class EntglDbBLiteExtensions
         services.TryAddSingleton<IOplogStore, BLiteOplogStore<TDbContext>>();
         services.TryAddSingleton<IPeerConfigurationStore, BLitePeerConfigurationStore<TDbContext>>();
         services.TryAddSingleton<ISnapshotMetadataStore, BLiteSnapshotMetadataStore<TDbContext>>();
+        services.TryAddSingleton<IDocumentMetadataStore, BLiteDocumentMetadataStore<TDbContext>>();
         
         // Register the SnapshotService (uses the generic SnapshotStore from EntglDb.Persistence)
         services.TryAddSingleton<ISnapshotService, SnapshotStore>();

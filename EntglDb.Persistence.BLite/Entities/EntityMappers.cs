@@ -157,4 +157,50 @@ public static class EntityMappers
     }
 
     #endregion
+
+    #region DocumentMetadataEntity Mappers
+
+    /// <summary>
+    /// Converts a Document to a DocumentMetadataEntity for persistence.
+    /// </summary>
+    public static DocumentMetadataEntity ToMetadataEntity(this Document document)
+    {
+        return new DocumentMetadataEntity
+        {
+            Id = Guid.NewGuid().ToString(),
+            Collection = document.Collection,
+            Key = document.Key,
+            HlcPhysicalTime = document.UpdatedAt.PhysicalTime,
+            HlcLogicalCounter = document.UpdatedAt.LogicalCounter,
+            HlcNodeId = document.UpdatedAt.NodeId,
+            IsDeleted = document.IsDeleted
+        };
+    }
+
+    /// <summary>
+    /// Creates a DocumentMetadataEntity from collection, key, timestamp, and deleted state.
+    /// </summary>
+    public static DocumentMetadataEntity CreateMetadataEntity(string collection, string key, HlcTimestamp timestamp, bool isDeleted = false)
+    {
+        return new DocumentMetadataEntity
+        {
+            Id = Guid.NewGuid().ToString(),
+            Collection = collection,
+            Key = key,
+            HlcPhysicalTime = timestamp.PhysicalTime,
+            HlcLogicalCounter = timestamp.LogicalCounter,
+            HlcNodeId = timestamp.NodeId,
+            IsDeleted = isDeleted
+        };
+    }
+
+    /// <summary>
+    /// Converts a DocumentMetadataEntity to an HlcTimestamp.
+    /// </summary>
+    public static HlcTimestamp ToHlcTimestamp(this DocumentMetadataEntity entity)
+    {
+        return new HlcTimestamp(entity.HlcPhysicalTime, entity.HlcLogicalCounter, entity.HlcNodeId);
+    }
+
+    #endregion
 }

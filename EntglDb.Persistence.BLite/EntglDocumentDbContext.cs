@@ -30,6 +30,13 @@ public partial class EntglDocumentDbContext : DocumentDbContext
     public DocumentCollection<string, RemotePeerEntity> RemotePeerConfigurations { get; private set; } = null!;
 
     /// <summary>
+    /// Gets the collection of document metadata for sync tracking.
+    /// </summary>
+    /// <remarks>Stores HLC timestamps and deleted state for each document without modifying application entities.
+    /// Used to track document versions for incremental sync instead of full snapshots.</remarks>
+    public DocumentCollection<string, DocumentMetadataEntity> DocumentMetadatas { get; private set; } = null!;
+
+    /// <summary>
     /// Initializes a new instance of the EntglDocumentDbContext class using the specified database file path.
     /// </summary>
     /// <param name="databasePath">The file system path to the database file to be used by the context. Cannot be null or empty.</param>
@@ -72,5 +79,13 @@ public partial class EntglDocumentDbContext : DocumentDbContext
             .HasKey(e => e.Id)
             .HasIndex(e => e.NodeId, unique: true) // NodeId is unique business key
             .HasIndex(e => e.IsEnabled);
+
+        // DocumentMetadatas: Use Id as technical key, Collection+Key as unique composite business key
+        modelBuilder.Entity<DocumentMetadataEntity>()
+            .ToCollection("DocumentMetadatas")
+            .HasKey(e => e.Id)
+            .HasIndex(e => new { e.Collection, e.Key }, unique: true) // Composite business key
+            .HasIndex(e => new { e.HlcPhysicalTime, e.HlcLogicalCounter, e.HlcNodeId })
+            .HasIndex(e => e.Collection);
     }
 }
