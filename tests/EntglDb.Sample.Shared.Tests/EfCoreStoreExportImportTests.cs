@@ -26,7 +26,7 @@ public class EfCoreStoreExportImportTests : IDisposable
     private readonly EfCoreOplogStore<SampleEfCoreDbContext> _oplogStore;
     private readonly EfCorePeerConfigurationStore<SampleEfCoreDbContext> _peerConfigStore;
     private readonly EfCoreSnapshotMetadaStore<SampleEfCoreDbContext> _snapshotMetadataStore;
-    private readonly IConflictResolver _conflictResolver;
+    private readonly TestPeerNodeConfigurationProvider _configProvider;
 
     public EfCoreStoreExportImportTests()
     {
@@ -36,21 +36,20 @@ public class EfCoreStoreExportImportTests : IDisposable
         // IMPORTANT: Create database schema FIRST before instantiating stores
         _context.Database.EnsureCreated();
 
-        _conflictResolver = new LastWriteWinsConflictResolver();
+        _configProvider = new TestPeerNodeConfigurationProvider("test-node");
 
-        _documentStore = new SampleEfCoreDocumentStore(_context, _conflictResolver, NullLogger<SampleEfCoreDocumentStore>.Instance);
+        _documentStore = new SampleEfCoreDocumentStore(_context, _configProvider, NullLogger<SampleEfCoreDocumentStore>.Instance);
 
         // Create SnapshotMetadataStore first (needed by OplogStore)
         _snapshotMetadataStore = new EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>(
             _context, NullLogger<EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>>.Instance);
 
         // OplogStore requires: context, documentStore, snapshotMetadataStore, conflictResolver, logger
-        // OplogStore constructor calls InitializeNodeCache which queries the database
         _oplogStore = new EfCoreOplogStore<SampleEfCoreDbContext>(
             _context,
             _documentStore,
             _snapshotMetadataStore,
-            _conflictResolver,
+            new LastWriteWinsConflictResolver(),
             NullLogger<EfCoreOplogStore<SampleEfCoreDbContext>>.Instance);
 
         _peerConfigStore = new EfCorePeerConfigurationStore<SampleEfCoreDbContext>(
@@ -420,6 +419,32 @@ public class EfCoreStoreExportImportTests : IDisposable
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
+        }
+    }
+
+    // Helper class for testing
+    private class TestPeerNodeConfigurationProvider : IPeerNodeConfigurationProvider
+    {
+        private readonly PeerNodeConfiguration _config;
+
+        public TestPeerNodeConfigurationProvider(string nodeId)
+        {
+            _config = new PeerNodeConfiguration
+            {
+                NodeId = nodeId,
+                TcpPort = 5000,
+                AuthToken = "test-token",
+                InterestingCollections = new List<string> { "Users", "TodoLists" },
+                OplogRetentionHours = 24,
+                MaintenanceIntervalMinutes = 60
+            };
+        }
+
+        public event PeerNodeConfigurationChangedEventHandler? ConfigurationChanged;
+
+        public Task<PeerNodeConfiguration> GetConfiguration()
+        {
+            return Task.FromResult(_config);
         }
     }
 }

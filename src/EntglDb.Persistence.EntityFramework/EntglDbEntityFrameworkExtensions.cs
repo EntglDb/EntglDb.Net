@@ -38,6 +38,7 @@ public static class EntglDbEntityFrameworkExtensions
         modelBuilder.ApplyConfiguration(new OplogEntityConfiguration());
         modelBuilder.ApplyConfiguration(new RemotePeerEntityConfiguration());
         modelBuilder.ApplyConfiguration(new SnapshotMetadataEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new DocumentMetadataEntityConfiguration());
         return modelBuilder;
     }
 }
