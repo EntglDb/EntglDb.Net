@@ -340,7 +340,17 @@ internal class TcpSyncServer : ISyncServer
                             
                             // Use collection filter from request
                             var filter = pReq.Collections.Any() ? pReq.Collections : null;
-                            var oplog = await _oplogStore.GetOplogAfterAsync(since, filter, token);
+
+                            // Use per-node query when a specific node is requested
+                            IEnumerable<OplogEntry> oplog;
+                            if (!string.IsNullOrEmpty(pReq.SinceNode))
+                            {
+                                oplog = await _oplogStore.GetOplogForNodeAfterAsync(pReq.SinceNode, since, filter, token);
+                            }
+                            else
+                            {
+                                oplog = await _oplogStore.GetOplogAfterAsync(since, filter, token);
+                            }
                             
                             var csRes = new ChangeSetResponse();
                             foreach (var e in oplog)
