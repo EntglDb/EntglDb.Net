@@ -27,18 +27,10 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
 
     public override async Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
     {
-        using var txn = await _context.BeginTransactionAsync(cancellationToken);
-
-        try
-        {
-            await base.ApplyBatchAsync(oplogEntries, cancellationToken);
-            await txn.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            txn.Rollback();
-            throw;
-        }
+        // BLite transactions are committed by each SaveChangesAsync internally.
+        // Wrapping in an explicit transaction causes "Cannot rollback committed transaction"
+        // because PutDocumentAsync → SaveChangesAsync already commits.
+        await base.ApplyBatchAsync(oplogEntries, cancellationToken);
     }
 
     public override async Task DropAsync(CancellationToken cancellationToken = default)

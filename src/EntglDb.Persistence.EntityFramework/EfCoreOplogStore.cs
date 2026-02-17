@@ -162,6 +162,10 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
 
             _vectorClock.Invalidate();
             InitializeVectorClock();
+
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
             OnChangesApplied(oplogEntries);
         }
         catch
