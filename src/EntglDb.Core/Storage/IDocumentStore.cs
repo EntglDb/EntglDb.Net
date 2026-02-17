@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EntglDb.Core.Storage.Events; // Added for RemotePeerConfiguration
 
 namespace EntglDb.Core.Storage;
 
@@ -97,28 +96,4 @@ public interface IDocumentStore : ISnapshotable<Document>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the asynchronous operation.</param>
     /// <returns>A task that represents the asynchronous retrieval operation.</returns>
     Task<IEnumerable<Document>> GetDocumentsAsync(List<(string Collection, string Key)> documentKeys, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Occurs when one or more documents have been deleted.
-    /// </summary>
-    /// <remarks>Subscribers can use this event to perform custom actions after documents are removed. The
-    /// event provides details about the deleted documents through the <see cref="DocumentsDeletedEventArgs"/>
-    /// parameter.</remarks>
-    event EventHandler<DocumentsDeletedEventArgs> DocumentsDeleted;
-
-    /// <summary>
-    /// Occurs when one or more documents have been inserted into the collection.
-    /// </summary>
-    /// <remarks>Subscribers can use this event to respond to the addition of new documents. The event
-    /// provides details about the inserted documents through the <see cref="DocumentsInsertedEventArgs"/>
-    /// parameter.</remarks>
-    event EventHandler<DocumentsInsertedEventArgs> DocumentsInserted;
-
-    /// <summary>
-    /// Occurs when the collection of documents has been updated.
-    /// </summary>
-    /// <remarks>Subscribers can use this event to respond to changes in the incoming set, such as additions,
-    /// removals, or modifications. The event provides details about the update through the <see
-    /// cref="DocumentsUpdatedEventArgs"/> parameter.</remarks>
-    event EventHandler<DocumentsUpdatedEventArgs> DocumentsUpdated;
 }

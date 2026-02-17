@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
-using EntglDb.Core.Storage.Events;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.BLite.Entities;
 using Microsoft.Extensions.Logging;
@@ -387,15 +386,6 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             _isRemoteSync.Value = false;
         }
     }
-
-    #endregion
-
-    #region Events (Deprecated - kept for backward compatibility)
-
-    // These events are no longer used internally but kept for backward compatibility
-    public event EventHandler<DocumentsDeletedEventArgs>? DocumentsDeleted;
-    public event EventHandler<DocumentsInsertedEventArgs>? DocumentsInserted;
-    public event EventHandler<DocumentsUpdatedEventArgs>? DocumentsUpdated;
 
     #endregion
 

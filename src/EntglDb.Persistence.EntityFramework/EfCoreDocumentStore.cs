@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
-using EntglDb.Core.Storage.Events;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.EntityFramework.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -394,14 +393,6 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
             _isRemoteSync.Value = false;
         }
     }
-
-    #endregion
-
-    #region Events (kept for IDocumentStore contract)
-
-    public event EventHandler<DocumentsDeletedEventArgs>? DocumentsDeleted;
-    public event EventHandler<DocumentsInsertedEventArgs>? DocumentsInserted;
-    public event EventHandler<DocumentsUpdatedEventArgs>? DocumentsUpdated;
 
     #endregion
 

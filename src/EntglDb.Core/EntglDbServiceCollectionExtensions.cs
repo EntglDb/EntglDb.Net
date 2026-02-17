@@ -22,9 +22,6 @@ namespace EntglDb.Core
             services.TryAddSingleton<IRetryPolicy, RetryPolicy>();
             services.TryAddSingleton<IEntglDbHealthCheck, EntglDbHealthCheck>();
 
-            // Oplog Coordinator - tracks local document changes and creates oplog entries
-            services.TryAddSingleton<OplogCoordinator>();
-
             return services;
         }
     }

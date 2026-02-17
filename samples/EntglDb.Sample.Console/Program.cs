@@ -71,12 +71,8 @@ class Program
 
         var host = builder.Build();
         
-        // Force OplogCoordinator initialization - it subscribes to IDocumentStore events
-        _ = host.Services.GetRequiredService<OplogCoordinator>();
-        
         System.Console.WriteLine($"? Node {nodeId} initialized on port {tcpPort}");
         System.Console.WriteLine($"? Database: {databasePath}");
-        System.Console.WriteLine($"? OplogCoordinator active - tracking local changes");
         System.Console.WriteLine();
         
         await host.RunAsync();
