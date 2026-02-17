@@ -17,6 +17,9 @@ public abstract class OplogStore : IOplogStore
     protected readonly IDocumentStore _documentStore;
     protected readonly IConflictResolver _conflictResolver;
     protected readonly ISnapshotMetadataStore? _snapshotMetadataStore;
+    protected readonly IVectorClockService _vectorClock;
+
+    protected bool _cacheInitialized = false;
 
     public event EventHandler<ChangesAppliedEventArgs> ChangesApplied;
 
@@ -25,50 +28,24 @@ public abstract class OplogStore : IOplogStore
         ChangesApplied?.Invoke(this, new ChangesAppliedEventArgs(appliedEntries));
     }
 
-    protected readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
-    protected readonly Dictionary<string, NodeCacheEntry> _nodeCache = new Dictionary<string, NodeCacheEntry>(StringComparer.Ordinal);
-    protected bool _cacheInitialized = false;
-
-    /// <summary>
-    /// Initializes a new instance of the OplogStore class.
-    /// </summary>
-    /// <param name="documentStore">The document store.</param>
-    /// <param name="conflictResolver">The conflict resolver.</param>
-    /// <param name="snapshotMetadataStore">Optional snapshot metadata store for fallback when oplog is pruned.</param>
-    public OplogStore(IDocumentStore documentStore, IConflictResolver conflictResolver, ISnapshotMetadataStore? snapshotMetadataStore = null)
+    public OplogStore(
+        IDocumentStore documentStore,
+        IConflictResolver conflictResolver,
+        IVectorClockService vectorClockService,
+        ISnapshotMetadataStore? snapshotMetadataStore = null)
     {
         _documentStore = documentStore ?? throw new ArgumentNullException(nameof(documentStore));
         _conflictResolver = conflictResolver ?? throw new ArgumentNullException(nameof(conflictResolver));
+        _vectorClock = vectorClockService ?? throw new ArgumentNullException(nameof(vectorClockService));
         _snapshotMetadataStore = snapshotMetadataStore;
-
-        // Subscribe to local CDC-created OplogEntries to keep Vector Clock cache in sync
-        _documentStore.LocalOplogEntryCreated += OnLocalOplogEntryCreated;
-
-        InitializeNodeCache();
+        InitializeVectorClock();
     }
 
-    private void OnLocalOplogEntryCreated(OplogEntry entry)
-    {
-        _cacheLock.Wait();
-        try
-        {
-            var nodeId = entry.Timestamp.NodeId;
-            if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
-            {
-                _nodeCache[nodeId] = new NodeCacheEntry
-                {
-                    Timestamp = entry.Timestamp,
-                    Hash = entry.Hash ?? ""
-                };
-            }
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
-    }
-
-    protected abstract void InitializeNodeCache();
+    /// <summary>
+    /// Initializes the VectorClockService with existing oplog/snapshot data.
+    /// Called once at construction time.
+    /// </summary>
+    protected abstract void InitializeVectorClock();
 
     /// <summary>
     /// Asynchronously inserts an operation log entry into the underlying data store.
@@ -84,25 +61,7 @@ public abstract class OplogStore : IOplogStore
     public async Task AppendOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)
     {
         await InsertOplogEntryAsync(entry, cancellationToken);
-
-        // Update node cache with both timestamp and hash
-        _cacheLock.Wait();
-        try
-        {
-            var nodeId = entry.Timestamp.NodeId;
-            if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
-            {
-                _nodeCache[nodeId] = new NodeCacheEntry
-                {
-                    Timestamp = entry.Timestamp,
-                    Hash = entry.Hash ?? ""
-                };
-            }
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
+        _vectorClock.Update(entry);
     }
 
     /// <inheritdoc />
@@ -153,7 +112,8 @@ public abstract class OplogStore : IOplogStore
         //insert all oplog entries after processing documents to ensure oplog reflects the actual state of documents
         await MergeAsync(oplogEntries, cancellationToken);
 
-        _nodeCache?.Clear();
+        _vectorClock.Invalidate();
+        InitializeVectorClock();
         OnChangesApplied(oplogEntries);
     }
 
@@ -188,18 +148,8 @@ public abstract class OplogStore : IOplogStore
     public async Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         // Try cache first
-        _cacheLock.Wait();
-        try
-        {
-            if (_nodeCache.TryGetValue(nodeId, out var entry))
-            {
-                return entry.Hash;
-            }
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
+        var cachedHash = _vectorClock.GetLastHash(nodeId);
+        if (cachedHash != null) return cachedHash;
 
         // Cache miss - query database (Oplog first)
         var hash = await QueryLastHashForNodeAsync(nodeId, cancellationToken);
@@ -211,23 +161,12 @@ public abstract class OplogStore : IOplogStore
             
             if (hash != null)
             {
-                // Get timestamp from snapshot metadata and update cache
                 var snapshotMeta = await _snapshotMetadataStore.GetSnapshotMetadataAsync(nodeId, cancellationToken);
                 if (snapshotMeta != null)
                 {
-                    _cacheLock.Wait();
-                    try
-                    {
-                        _nodeCache[nodeId] = new NodeCacheEntry
-                        {
-                            Timestamp = new HlcTimestamp(snapshotMeta.TimestampPhysicalTime, snapshotMeta.TimestampLogicalCounter, nodeId),
-                            Hash = hash
-                        };
-                    }
-                    finally
-                    {
-                        _cacheLock.Release();
-                    }
+                    _vectorClock.UpdateNode(nodeId,
+                        new HlcTimestamp(snapshotMeta.TimestampPhysicalTime, snapshotMeta.TimestampLogicalCounter, nodeId),
+                        hash);
                 }
                 return hash;
             }
@@ -236,24 +175,12 @@ public abstract class OplogStore : IOplogStore
         // Update cache if found in oplog
         if (hash != null)
         {
-            // Try to get timestamp from Oplog
             var row = await QueryLastHashTimestampFromOplogAsync(hash, cancellationToken);
-
             if (row.HasValue)
             {
-                _cacheLock.Wait();
-                try
-                {
-                    _nodeCache[nodeId] = new NodeCacheEntry
-                    {
-                        Timestamp = new HlcTimestamp(row.Value.Wall, row.Value.Logic, nodeId),
-                        Hash = hash
-                    };
-                }
-                finally
-                {
-                    _cacheLock.Release();
-                }
+                _vectorClock.UpdateNode(nodeId,
+                    new HlcTimestamp(row.Value.Wall, row.Value.Logic, nodeId),
+                    hash);
             }
         }
 
@@ -263,26 +190,7 @@ public abstract class OplogStore : IOplogStore
     /// <inheritdoc />
     public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default)
     {
-        // Return the maximum timestamp from cache
-        _cacheLock.Wait();
-        try
-        {
-            if (_nodeCache.Count == 0)
-            {
-                return Task.FromResult(new HlcTimestamp(0, 0, ""));
-            }
-
-            var maxTimestamp = _nodeCache.Values
-                .Select(e => e.Timestamp)
-                .OrderByDescending(t => t)
-                .First();
-
-            return Task.FromResult(maxTimestamp);
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
+        return _vectorClock.GetLatestTimestampAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -294,21 +202,7 @@ public abstract class OplogStore : IOplogStore
     /// <inheritdoc />
     public Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default)
     {
-        // Return cached vector clock
-        _cacheLock.Wait();
-        try
-        {
-            var vectorClock = new VectorClock();
-            foreach (var kvp in _nodeCache)
-            {
-                vectorClock.SetTimestamp(kvp.Key, kvp.Value.Timestamp);
-            }
-            return Task.FromResult(vectorClock);
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
+        return _vectorClock.GetVectorClockAsync(cancellationToken);
     }
 
     /// <inheritdoc />

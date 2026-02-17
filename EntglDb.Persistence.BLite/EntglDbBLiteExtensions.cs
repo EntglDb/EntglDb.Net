@@ -35,6 +35,9 @@ public static class EntglDbBLiteExtensions
         // Default Conflict Resolver (Last Write Wins) if none is provided
         services.TryAddSingleton<IConflictResolver, LastWriteWinsConflictResolver>();
 
+        // Vector Clock Service (shared between DocumentStore and OplogStore)
+        services.TryAddSingleton<IVectorClockService, VectorClockService>();
+
         // Register BLite Stores (all Singleton)
         services.TryAddSingleton<IOplogStore, BLiteOplogStore<TDbContext>>();
         services.TryAddSingleton<IPeerConfigurationStore, BLitePeerConfigurationStore<TDbContext>>();

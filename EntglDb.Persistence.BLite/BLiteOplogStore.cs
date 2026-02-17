@@ -17,8 +17,9 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         TDbContext dbContext, 
         IDocumentStore documentStore, 
         IConflictResolver conflictResolver,
+        IVectorClockService vectorClockService,
         ISnapshotMetadataStore? snapshotMetadataStore = null,
-        ILogger<BLiteOplogStore<TDbContext>>? logger = null) : base(documentStore, conflictResolver, snapshotMetadataStore)
+        ILogger<BLiteOplogStore<TDbContext>>? logger = null) : base(documentStore, conflictResolver, vectorClockService, snapshotMetadataStore)
     {
         _context = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? NullLogger<BLiteOplogStore<TDbContext>>.Instance;
@@ -149,91 +150,63 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         await _context.OplogEntries.DeleteBulkAsync(toDelete);
     }
 
-    protected override void InitializeNodeCache()
+    protected override void InitializeVectorClock()
     {
         if (_cacheInitialized) return;
 
         // Early check: if context or OplogEntries is null, skip initialization
-        // Note: _logger may be null here if called from base constructor
         if (_context?.OplogEntries == null)
         {
             _cacheInitialized = true;
             return;
         }
 
-        _cacheLock.Wait();
-        try
+        // Step 1: Load from SnapshotMetadata FIRST (base state after prune)
+        if (_snapshotMetadataStore != null)
         {
-            if (_cacheInitialized) return;
-
-            _nodeCache.Clear();
-
-            // Step 1: Load from SnapshotMetadata FIRST (base state after prune)
-            // This is critical for correct VectorClock after oplog pruning
-            if (_snapshotMetadataStore != null)
+            try
             {
-                try
+                var snapshots = _snapshotMetadataStore.GetAllSnapshotMetadataAsync().GetAwaiter().GetResult();
+                foreach (var snapshot in snapshots)
                 {
-                    var snapshots = _snapshotMetadataStore.GetAllSnapshotMetadataAsync().GetAwaiter().GetResult();
-                    foreach (var snapshot in snapshots)
-                    {
-                        _nodeCache[snapshot.NodeId] = new NodeCacheEntry
-                        {
-                            Timestamp = new HlcTimestamp(
-                                snapshot.TimestampPhysicalTime,
-                                snapshot.TimestampLogicalCounter,
-                                snapshot.NodeId),
-                            Hash = snapshot.Hash ?? ""
-                        };
-                    }
-                }
-                catch
-                {
-                    // Ignore errors during initialization - oplog data will be used as fallback
+                    _vectorClock.UpdateNode(
+                        snapshot.NodeId,
+                        new HlcTimestamp(snapshot.TimestampPhysicalTime, snapshot.TimestampLogicalCounter, snapshot.NodeId),
+                        snapshot.Hash ?? "");
                 }
             }
-
-            // Step 2: Load from Oplog (Latest State - Overrides Snapshot if newer)
-            var latestPerNode = _context.OplogEntries.AsQueryable()
-                .GroupBy(o => o.TimestampNodeId)
-                .Select(g => new
-                {
-                    NodeId = g.Key,
-                    MaxEntry = g.OrderByDescending(o => o.TimestampPhysicalTime)
-                                .ThenByDescending(o => o.TimestampLogicalCounter)
-                                .FirstOrDefault()
-                })
-                .ToList()
-                .Where(x => x.MaxEntry != null)
-                .ToList();
-
-            foreach (var node in latestPerNode)
+            catch
             {
-                if (node.MaxEntry != null)
-                {
-                    var timestamp = new HlcTimestamp(
-                        node.MaxEntry.TimestampPhysicalTime,
-                        node.MaxEntry.TimestampLogicalCounter,
-                        node.MaxEntry.TimestampNodeId);
-
-                    // Only update if newer than snapshot
-                    if (!_nodeCache.TryGetValue(node.NodeId, out var existing) || timestamp.CompareTo(existing.Timestamp) > 0)
-                    {
-                        _nodeCache[node.NodeId] = new NodeCacheEntry
-                        {
-                            Timestamp = timestamp,
-                            Hash = node.MaxEntry.Hash ?? ""
-                        };
-                    }
-                }
+                // Ignore errors during initialization - oplog data will be used as fallback
             }
+        }
 
-            _cacheInitialized = true;
-        }
-        finally
+        // Step 2: Load from Oplog (Latest State - Overrides Snapshot if newer)
+        var latestPerNode = _context.OplogEntries.AsQueryable()
+            .GroupBy(o => o.TimestampNodeId)
+            .Select(g => new
+            {
+                NodeId = g.Key,
+                MaxEntry = g.OrderByDescending(o => o.TimestampPhysicalTime)
+                            .ThenByDescending(o => o.TimestampLogicalCounter)
+                            .FirstOrDefault()
+            })
+            .ToList()
+            .Where(x => x.MaxEntry != null)
+            .ToList();
+
+        foreach (var node in latestPerNode)
         {
-            _cacheLock.Release();
+            if (node.MaxEntry != null)
+            {
+                _vectorClock.UpdateNode(
+                    node.NodeId,
+                    new HlcTimestamp(node.MaxEntry.TimestampPhysicalTime, node.MaxEntry.TimestampLogicalCounter, node.MaxEntry.TimestampNodeId),
+                    node.MaxEntry.Hash ?? "");
+            }
         }
+
+        _cacheInitialized = true;
     }
 
     protected override async Task InsertOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)

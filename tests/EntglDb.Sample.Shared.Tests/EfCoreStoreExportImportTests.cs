@@ -3,6 +3,7 @@ using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.EntityFramework;
+using EntglDb.Persistence.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
@@ -44,11 +45,13 @@ public class EfCoreStoreExportImportTests : IDisposable
         _snapshotMetadataStore = new EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>(
             _context, NullLogger<EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>>.Instance);
 
-        // OplogStore requires: context, documentStore, snapshotMetadataStore, conflictResolver, logger
+        // OplogStore requires: context, documentStore, snapshotMetadataStore, vectorClockService, conflictResolver, logger
+        var vectorClock = new VectorClockService();
         _oplogStore = new EfCoreOplogStore<SampleEfCoreDbContext>(
             _context,
             _documentStore,
             _snapshotMetadataStore,
+            vectorClock,
             new LastWriteWinsConflictResolver(),
             NullLogger<EfCoreOplogStore<SampleEfCoreDbContext>>.Instance);
 

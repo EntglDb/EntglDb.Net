@@ -3,6 +3,7 @@ using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.BLite;
+using EntglDb.Persistence.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using Xunit;
@@ -27,12 +28,14 @@ public class BLiteStoreExportImportTests : IDisposable
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-export-import-{Guid.NewGuid()}.blite");
         _context = new SampleDbContext(_testDbPath);
         _configProvider = new TestPeerNodeConfigurationProvider("test-node");
+        var vectorClock = new VectorClockService();
         
-        _documentStore = new SampleDocumentStore(_context, _configProvider, NullLogger<SampleDocumentStore>.Instance);
+        _documentStore = new SampleDocumentStore(_context, _configProvider, vectorClock, NullLogger<SampleDocumentStore>.Instance);
         _snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
             _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
             _context, _documentStore, new LastWriteWinsConflictResolver(),
+            vectorClock,
             _snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(

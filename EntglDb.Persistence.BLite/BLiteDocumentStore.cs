@@ -29,10 +29,8 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     protected readonly TDbContext _context;
     protected readonly IPeerNodeConfigurationProvider _configProvider;
     protected readonly IConflictResolver _conflictResolver;
+    protected readonly IVectorClockService _vectorClock;
     protected readonly ILogger _logger;
-
-    /// <inheritdoc />
-    public event Action<OplogEntry>? LocalOplogEntryCreated;
 
     /// <summary>
     /// Semaphore used to suppress CDC-triggered OplogEntry creation during remote sync.
@@ -52,11 +50,13 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     protected BLiteDocumentStore(
         TDbContext context,
         IPeerNodeConfigurationProvider configProvider,
+        IVectorClockService vectorClockService,
         IConflictResolver? conflictResolver = null,
         ILogger? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+        _vectorClock = vectorClockService ?? throw new ArgumentNullException(nameof(vectorClockService));
         _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
         _logger = logger ?? NullLogger.Instance;
 
@@ -502,11 +502,12 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
         await _context.SaveChangesAsync(cancellationToken);
 
+        // Notify VectorClockService so sync sees local changes
+        _vectorClock.Update(oplogEntry);
+
         _logger.LogDebug(
             "Created Oplog entry: {Operation} {Collection}/{Key} at {Timestamp} (hash: {Hash})",
             operationType, collection, key, timestamp, oplogEntry.Hash);
-
-        LocalOplogEntryCreated?.Invoke(oplogEntry);
     }
 
     /// <summary>

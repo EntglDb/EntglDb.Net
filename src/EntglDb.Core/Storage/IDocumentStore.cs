@@ -13,12 +13,6 @@ public interface IDocumentStore : ISnapshotable<Document>
     IEnumerable<string> InterestedCollection { get; }
 
     /// <summary>
-    /// Raised when a local change creates a new OplogEntry (via CDC).
-    /// OplogStore subscribes to keep its Vector Clock cache in sync.
-    /// </summary>
-    event Action<OplogEntry>? LocalOplogEntryCreated;
-
-    /// <summary>
     /// Asynchronously retrieves a incoming from the specified collection by its key.
     /// </summary>
     /// <param name="collection">The name of the collection containing the incoming to retrieve. Cannot be null or empty.</param>

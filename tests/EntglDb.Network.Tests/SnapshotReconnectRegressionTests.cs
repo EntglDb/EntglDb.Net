@@ -120,7 +120,6 @@ namespace EntglDb.Network.Tests
 
         private class StubDocumentStore : IDocumentStore
         {
-            public event Action<OplogEntry>? LocalOplogEntryCreated;
             public IEnumerable<string> InterestedCollection => new[] { "Users", "TodoLists" };
             public Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(null);
             public Task<IEnumerable<Document>> GetDocumentsByCollectionAsync(string collection, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<Document>>(Array.Empty<Document>());

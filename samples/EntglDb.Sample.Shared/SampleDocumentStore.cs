@@ -1,5 +1,6 @@
 using EntglDb.Core;
 using EntglDb.Core.Network;
+using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.BLite;
 using Microsoft.Extensions.Logging;
@@ -19,8 +20,9 @@ public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
     public SampleDocumentStore(
         SampleDbContext context,
         IPeerNodeConfigurationProvider configProvider,
+        IVectorClockService vectorClockService,
         ILogger<SampleDocumentStore>? logger = null)
-        : base(context, configProvider, new LastWriteWinsConflictResolver(), logger)
+        : base(context, configProvider, vectorClockService, new LastWriteWinsConflictResolver(), logger)
     {
         // Register CDC watchers for local change detection
         // InterestedCollection is automatically populated
