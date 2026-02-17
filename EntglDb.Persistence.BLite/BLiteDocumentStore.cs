@@ -31,6 +31,9 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     protected readonly IConflictResolver _conflictResolver;
     protected readonly ILogger _logger;
 
+    /// <inheritdoc />
+    public event Action<OplogEntry>? LocalOplogEntryCreated;
+
     /// <summary>
     /// Semaphore used to suppress CDC-triggered OplogEntry creation during remote sync.
     /// CurrentCount == 0 ? sync in progress, CDC must skip.
@@ -502,6 +505,8 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         _logger.LogDebug(
             "Created Oplog entry: {Operation} {Collection}/{Key} at {Timestamp} (hash: {Hash})",
             operationType, collection, key, timestamp, oplogEntry.Hash);
+
+        LocalOplogEntryCreated?.Invoke(oplogEntry);
     }
 
     /// <summary>

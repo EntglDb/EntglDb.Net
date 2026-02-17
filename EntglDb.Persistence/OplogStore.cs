@@ -40,7 +40,32 @@ public abstract class OplogStore : IOplogStore
         _documentStore = documentStore ?? throw new ArgumentNullException(nameof(documentStore));
         _conflictResolver = conflictResolver ?? throw new ArgumentNullException(nameof(conflictResolver));
         _snapshotMetadataStore = snapshotMetadataStore;
+
+        // Subscribe to local CDC-created OplogEntries to keep Vector Clock cache in sync
+        _documentStore.LocalOplogEntryCreated += OnLocalOplogEntryCreated;
+
         InitializeNodeCache();
+    }
+
+    private void OnLocalOplogEntryCreated(OplogEntry entry)
+    {
+        _cacheLock.Wait();
+        try
+        {
+            var nodeId = entry.Timestamp.NodeId;
+            if (!_nodeCache.TryGetValue(nodeId, out var existing) || entry.Timestamp.CompareTo(existing.Timestamp) > 0)
+            {
+                _nodeCache[nodeId] = new NodeCacheEntry
+                {
+                    Timestamp = entry.Timestamp,
+                    Hash = entry.Hash ?? ""
+                };
+            }
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
     }
 
     protected abstract void InitializeNodeCache();

@@ -28,6 +28,9 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     protected readonly IConflictResolver _conflictResolver;
     protected readonly ILogger _logger;
 
+    /// <inheritdoc />
+    public event Action<OplogEntry>? LocalOplogEntryCreated;
+
     /// <summary>
     /// Semaphore used to suppress Oplog creation during remote sync.
     /// CurrentCount == 0 ? sync in progress, skip Oplog.
@@ -424,6 +427,8 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
         _logger.LogDebug(
             "Created Oplog entry: {Operation} {Collection}/{Key} at {Timestamp} (hash: {Hash})",
             operationType, collection, key, timestamp, oplogEntry.Hash);
+
+        LocalOplogEntryCreated?.Invoke(oplogEntry);
     }
 
     /// <summary>
