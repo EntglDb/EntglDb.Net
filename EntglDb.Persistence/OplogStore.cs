@@ -16,6 +16,7 @@ public abstract class OplogStore : IOplogStore
 {
     protected readonly IDocumentStore _documentStore;
     protected readonly IConflictResolver _conflictResolver;
+    protected readonly ISnapshotMetadataStore? _snapshotMetadataStore;
 
     public event EventHandler<ChangesAppliedEventArgs> ChangesApplied;
 
@@ -31,10 +32,14 @@ public abstract class OplogStore : IOplogStore
     /// <summary>
     /// Initializes a new instance of the OplogStore class.
     /// </summary>
-    public OplogStore(IDocumentStore documentStore, IConflictResolver conflictResolver)
+    /// <param name="documentStore">The document store.</param>
+    /// <param name="conflictResolver">The conflict resolver.</param>
+    /// <param name="snapshotMetadataStore">Optional snapshot metadata store for fallback when oplog is pruned.</param>
+    public OplogStore(IDocumentStore documentStore, IConflictResolver conflictResolver, ISnapshotMetadataStore? snapshotMetadataStore = null)
     {
         _documentStore = documentStore ?? throw new ArgumentNullException(nameof(documentStore));
         _conflictResolver = conflictResolver ?? throw new ArgumentNullException(nameof(conflictResolver));
+        _snapshotMetadataStore = snapshotMetadataStore;
         InitializeNodeCache();
     }
 
@@ -171,10 +176,39 @@ public abstract class OplogStore : IOplogStore
             _cacheLock.Release();
         }
 
-        // Cache miss - query database (Oplog first, then SnapshotMetadata)
+        // Cache miss - query database (Oplog first)
         var hash = await QueryLastHashForNodeAsync(nodeId, cancellationToken);
 
-        // Update cache if found
+        // FALLBACK: If not in oplog, check SnapshotMetadata (important after prune!)
+        if (hash == null && _snapshotMetadataStore != null)
+        {
+            hash = await _snapshotMetadataStore.GetSnapshotHashAsync(nodeId, cancellationToken);
+            
+            if (hash != null)
+            {
+                // Get timestamp from snapshot metadata and update cache
+                var snapshotMeta = await _snapshotMetadataStore.GetSnapshotMetadataAsync(nodeId, cancellationToken);
+                if (snapshotMeta != null)
+                {
+                    _cacheLock.Wait();
+                    try
+                    {
+                        _nodeCache[nodeId] = new NodeCacheEntry
+                        {
+                            Timestamp = new HlcTimestamp(snapshotMeta.TimestampPhysicalTime, snapshotMeta.TimestampLogicalCounter, nodeId),
+                            Hash = hash
+                        };
+                    }
+                    finally
+                    {
+                        _cacheLock.Release();
+                    }
+                }
+                return hash;
+            }
+        }
+
+        // Update cache if found in oplog
         if (hash != null)
         {
             // Try to get timestamp from Oplog

@@ -135,7 +135,7 @@ public class EfCoreSnapshotMetadaStore<TDbContext> : SnapshotMetadataStore where
         return snapshot?.Hash;
     }
 
-    public override async Task<SnapshotMetadata?> FindByNodeIs(string nodeId, CancellationToken cancellationToken)
+    public override async Task<SnapshotMetadata?> GetSnapshotMetadataAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         var snapshot = await _context.Set<SnapshotMetadataEntity>()
             .Where(s => s.NodeId == nodeId)
@@ -151,6 +151,20 @@ public class EfCoreSnapshotMetadaStore<TDbContext> : SnapshotMetadataStore where
             TimestampLogicalCounter = snapshot.TimestampLogicalCounter,
             Hash = snapshot.Hash
         };
+    }
+
+    public override async Task<IEnumerable<SnapshotMetadata>> GetAllSnapshotMetadataAsync(CancellationToken cancellationToken = default)
+    {
+        var snapshots = await _context.Set<SnapshotMetadataEntity>()
+            .ToListAsync(cancellationToken);
+
+        return snapshots.Select(s => new SnapshotMetadata
+        {
+            NodeId = s.NodeId,
+            TimestampPhysicalTime = s.TimestampPhysicalTime,
+            TimestampLogicalCounter = s.TimestampLogicalCounter,
+            Hash = s.Hash
+        });
     }
 
     public override async Task UpdateSnapshotMetadataAsync(SnapshotMetadata existingMeta, CancellationToken cancellationToken)

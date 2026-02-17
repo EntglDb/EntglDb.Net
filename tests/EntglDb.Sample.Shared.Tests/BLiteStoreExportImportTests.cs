@@ -29,13 +29,14 @@ public class BLiteStoreExportImportTests : IDisposable
         _conflictResolver = new LastWriteWinsConflictResolver();
         
         _documentStore = new SampleDocumentStore(_context, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+        _snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
+            _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
             _context, _documentStore, _conflictResolver,
+            _snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(
             _context, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
-        _snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
-            _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
     }
 
     #region OplogStore Tests

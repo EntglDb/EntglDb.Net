@@ -73,14 +73,19 @@ namespace EntglDb.Network.Tests
                 throw new NotImplementedException();
             }
 
-            public Task<SnapshotMetadata?> FindByNodeIs(string nodeId, CancellationToken cancellationToken)
+            public Task<SnapshotMetadata?> GetSnapshotMetadataAsync(string nodeId, CancellationToken cancellationToken = default)
             {
-                throw new NotImplementedException();
+                return Task.FromResult<SnapshotMetadata?>(null);
             }
 
             public Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
             {
                 return Task.FromResult<string?>(null);
+            }
+
+            public Task<IEnumerable<SnapshotMetadata>> GetAllSnapshotMetadataAsync(CancellationToken cancellationToken = default)
+            {
+                return Task.FromResult<IEnumerable<SnapshotMetadata>>(Array.Empty<SnapshotMetadata>());
             }
 
             public Task ImportAsync(IEnumerable<SnapshotMetadata> items, CancellationToken cancellationToken = default)

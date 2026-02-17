@@ -61,13 +61,6 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     }
 
     /// <inheritdoc />
-    public override async Task<SnapshotMetadata?> FindByNodeIs(string nodeId, CancellationToken cancellationToken)
-    {
-        // NodeId is now a regular indexed property, not the Key
-        return await Task.Run(() => _context.SnapshotMetadatas.Find(s => s.NodeId == nodeId).FirstOrDefault()?.ToDomain(), cancellationToken);
-    }
-
-    /// <inheritdoc />
     public override async Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         // NodeId is now a regular indexed property, not the Key
@@ -136,5 +129,18 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
             await _context.SnapshotMetadatas.UpdateAsync(existing);
             await _context.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    /// <inheritdoc />
+    public override async Task<SnapshotMetadata?> GetSnapshotMetadataAsync(string nodeId, CancellationToken cancellationToken = default)
+    {
+        // NodeId is now a regular indexed property, not the Key
+        return await Task.Run(() => _context.SnapshotMetadatas.Find(s => s.NodeId == nodeId).FirstOrDefault()?.ToDomain(), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public override async Task<IEnumerable<SnapshotMetadata>> GetAllSnapshotMetadataAsync(CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() => _context.SnapshotMetadatas.FindAll().ToDomain().ToList(), cancellationToken);
     }
 }

@@ -28,10 +28,16 @@ public class OplogCoordinatorIntegrationTests : IDisposable
         
         var conflictResolver = new LastWriteWinsConflictResolver();
         _documentStore = new SampleDocumentStore(_context, conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+        
+        // Create SnapshotMetadataStore first (needed by OplogStore for VectorClock initialization)
+        var snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
+            _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
+        
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
             _context, 
             _documentStore, 
             conflictResolver,
+            snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         
         // Create DocumentMetadataStore for sync tracking

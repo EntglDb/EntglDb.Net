@@ -27,10 +27,14 @@ public class SnapshotStoreTests : IDisposable
         _conflictResolver = new LastWriteWinsConflictResolver();
         
         _documentStore = new SampleDocumentStore(_context, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+        var snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
+            _context,
+            NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
             _context, 
             _documentStore, 
             _conflictResolver,
+            snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(
             _context,
@@ -122,8 +126,11 @@ public class SnapshotStoreTests : IDisposable
         {
             using var newContext = new SampleDbContext(newDbPath);
             var newDocStore = new SampleDocumentStore(newContext, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+            var newSnapshotMetaStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
+                newContext, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
             var newOplogStore = new BLiteOplogStore<SampleDbContext>(
                 newContext, newDocStore, _conflictResolver,
+                newSnapshotMetaStore,
                 NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
             var newPeerStore = new BLitePeerConfigurationStore<SampleDbContext>(
                 newContext, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
@@ -166,8 +173,11 @@ public class SnapshotStoreTests : IDisposable
             await sourceContext.SaveChangesAsync();
 
             var sourceDocStore = new SampleDocumentStore(sourceContext, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+            var sourceSnapshotMetaStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
+                sourceContext, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
             var sourceOplogStore = new BLiteOplogStore<SampleDbContext>(
                 sourceContext, sourceDocStore, _conflictResolver,
+                sourceSnapshotMetaStore,
                 NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
             var sourcePeerStore = new BLitePeerConfigurationStore<SampleDbContext>(
                 sourceContext, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);

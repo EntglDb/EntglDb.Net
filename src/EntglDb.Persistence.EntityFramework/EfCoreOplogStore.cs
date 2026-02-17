@@ -306,7 +306,7 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
             foreach (var entry in boundaryEntries)
             {
 
-                var existingMeta = await _snapshotMetadataStore.FindByNodeIs(entry.TimestampNodeId, cancellationToken);
+                var existingMeta = await _snapshotMetadataStore.GetSnapshotMetadataAsync(entry.TimestampNodeId, cancellationToken);
 
                 if (existingMeta == null)
                 {

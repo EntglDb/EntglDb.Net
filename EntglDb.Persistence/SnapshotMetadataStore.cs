@@ -12,7 +12,7 @@ public abstract class SnapshotMetadataStore : ISnapshotMetadataStore
 
     public abstract Task<IEnumerable<SnapshotMetadata>> ExportAsync(CancellationToken cancellationToken = default);
 
-    public abstract Task<SnapshotMetadata?> FindByNodeIs(string nodeId, CancellationToken cancellationToken);
+    public abstract Task<SnapshotMetadata?> GetSnapshotMetadataAsync(string nodeId, CancellationToken cancellationToken = default);
 
     public abstract Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default);
 
@@ -23,5 +23,7 @@ public abstract class SnapshotMetadataStore : ISnapshotMetadataStore
     public abstract Task MergeAsync(IEnumerable<SnapshotMetadata> items, CancellationToken cancellationToken = default);
 
     public abstract Task UpdateSnapshotMetadataAsync(SnapshotMetadata existingMeta, CancellationToken cancellationToken);
+
+    public abstract Task<IEnumerable<SnapshotMetadata>> GetAllSnapshotMetadataAsync(CancellationToken cancellationToken = default);
 }
 

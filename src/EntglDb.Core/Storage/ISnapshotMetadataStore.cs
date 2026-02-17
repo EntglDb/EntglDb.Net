@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,7 +13,7 @@ public interface ISnapshotMetadataStore : ISnapshotable<SnapshotMetadata>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the <see cref="SnapshotMetadata"/>
     /// for the specified node if found; otherwise, <see langword="null"/>.</returns>
-    Task<SnapshotMetadata?> FindByNodeIs(string nodeId, CancellationToken cancellationToken);
+    Task<SnapshotMetadata?> GetSnapshotMetadataAsync(string nodeId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Asynchronously inserts the specified snapshot metadata into the data store.
@@ -28,7 +29,7 @@ public interface ISnapshotMetadataStore : ISnapshotable<SnapshotMetadata>
     /// <param name="existingMeta">The metadata object representing the snapshot to update. Cannot be null.</param>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the asynchronous operation.</param>
     /// <returns>A task that represents the asynchronous update operation.</returns>
-    Task UpdateSnapshotMetadataAsync(SnapshotMetadata existingMeta, CancellationToken cancellationToken);
+    Task UpdateSnapshotMetadataAsync(SnapshotMetadata existingMeta, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Asynchronously retrieves the hash of the current snapshot for the specified node.
@@ -37,4 +38,11 @@ public interface ISnapshotMetadataStore : ISnapshotable<SnapshotMetadata>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
     /// <returns>A task containing the snapshot hash as a string, or null if no snapshot is available.</returns>
     Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets all snapshot metadata entries. Used for initializing VectorClock cache.
+    /// </summary>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>All snapshot metadata entries.</returns>
+    Task<IEnumerable<SnapshotMetadata>> GetAllSnapshotMetadataAsync(CancellationToken cancellationToken = default);
 }

@@ -17,7 +17,8 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         TDbContext dbContext, 
         IDocumentStore documentStore, 
         IConflictResolver conflictResolver,
-        ILogger<BLiteOplogStore<TDbContext>> logger) : base(documentStore, conflictResolver)
+        ISnapshotMetadataStore? snapshotMetadataStore = null,
+        ILogger<BLiteOplogStore<TDbContext>>? logger = null) : base(documentStore, conflictResolver, snapshotMetadataStore)
     {
         _context = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? NullLogger<BLiteOplogStore<TDbContext>>.Instance;
@@ -165,8 +166,34 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         {
             if (_cacheInitialized) return;
 
-            // Query latest entry per node
-            // Explicit projection to class to avoid EF Core "EmptyProjectionMember" error with anonymous types
+            _nodeCache.Clear();
+
+            // Step 1: Load from SnapshotMetadata FIRST (base state after prune)
+            // This is critical for correct VectorClock after oplog pruning
+            if (_snapshotMetadataStore != null)
+            {
+                try
+                {
+                    var snapshots = _snapshotMetadataStore.GetAllSnapshotMetadataAsync().GetAwaiter().GetResult();
+                    foreach (var snapshot in snapshots)
+                    {
+                        _nodeCache[snapshot.NodeId] = new NodeCacheEntry
+                        {
+                            Timestamp = new HlcTimestamp(
+                                snapshot.TimestampPhysicalTime,
+                                snapshot.TimestampLogicalCounter,
+                                snapshot.NodeId),
+                            Hash = snapshot.Hash ?? ""
+                        };
+                    }
+                }
+                catch
+                {
+                    // Ignore errors during initialization - oplog data will be used as fallback
+                }
+            }
+
+            // Step 2: Load from Oplog (Latest State - Overrides Snapshot if newer)
             var latestPerNode = _context.OplogEntries.AsQueryable()
                 .GroupBy(o => o.TimestampNodeId)
                 .Select(g => new
@@ -180,19 +207,24 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
                 .Where(x => x.MaxEntry != null)
                 .ToList();
 
-            _nodeCache.Clear();
             foreach (var node in latestPerNode)
             {
                 if (node.MaxEntry != null)
                 {
-                    _nodeCache[node.NodeId] = new NodeCacheEntry
+                    var timestamp = new HlcTimestamp(
+                        node.MaxEntry.TimestampPhysicalTime,
+                        node.MaxEntry.TimestampLogicalCounter,
+                        node.MaxEntry.TimestampNodeId);
+
+                    // Only update if newer than snapshot
+                    if (!_nodeCache.TryGetValue(node.NodeId, out var existing) || timestamp.CompareTo(existing.Timestamp) > 0)
                     {
-                        Timestamp = new HlcTimestamp(
-                            node.MaxEntry.TimestampPhysicalTime,
-                            node.MaxEntry.TimestampLogicalCounter,
-                            node.MaxEntry.TimestampNodeId),
-                        Hash = node.MaxEntry.Hash ?? ""
-                    };
+                        _nodeCache[node.NodeId] = new NodeCacheEntry
+                        {
+                            Timestamp = timestamp,
+                            Hash = node.MaxEntry.Hash ?? ""
+                        };
+                    }
                 }
             }
 
