@@ -16,8 +16,15 @@ namespace EntglDb.Network.Tests
 {
     public class HandshakeRegressionTests
     {
+        class StubSnapshotService : ISnapshotService
+        {
+            public Task CreateSnapshotAsync(Stream destination, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        }
+
         // Stubs
-        class StubStore : IPeerStore
+        class StubStore : IOplogStore
         {
             public event EventHandler<ChangesAppliedEventArgs> ChangesApplied;
             public Task AppendOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -30,8 +37,8 @@ namespace EntglDb.Network.Tests
             public Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(null);
             public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default) => Task.FromResult(new HlcTimestamp(0, 0, "node"));
             public Task<VectorClock> GetVectorClockAsync(CancellationToken cancellationToken = default) => Task.FromResult(new VectorClock());
-            public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
-            public Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
+            public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
+            public Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
             public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<Document>>(new List<Document>());
             public Task SaveDocumentAsync(Document document, CancellationToken cancellationToken = default) => Task.CompletedTask;
             
@@ -65,6 +72,36 @@ namespace EntglDb.Network.Tests
             public Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
 
             public Task ClearAllDataAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task<RemotePeerConfiguration?> GetRemotePeerAsync(string nodeId, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task DropAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task<IEnumerable<OplogEntry>> ExportAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task ImportAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task MergeAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
             {
                 throw new NotImplementedException();
             }
@@ -115,6 +152,7 @@ namespace EntglDb.Network.Tests
             
             var server = new TcpSyncServer(
                 new StubStore(),
+                new StubSnapshotService(),
                 configProvider,
                 NullLogger<TcpSyncServer>.Instance,
                 new StubAuthenticator(),

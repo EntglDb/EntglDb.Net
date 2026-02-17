@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace EntglDb.Core.Network;
 
@@ -26,7 +28,7 @@ public class PeerNode
     /// <summary>
     /// Gets the configuration settings for the peer node.
     /// </summary>
-    public PeerNodeConfiguration Configuration { get; }
+    public PeerNodeConfiguration? Configuration { get; } 
 
     /// <summary>
     /// Gets the type of the peer node (LanDiscovered, StaticRemote, or CloudRemote).
@@ -34,14 +36,14 @@ public class PeerNode
     public PeerType Type { get; }
 
     /// <summary>
-    /// Gets the role of the peer node in the cluster (Member or CloudGateway).
+    /// Gets the role assigned to this node within the cluster.
     /// </summary>
     public NodeRole Role { get; }
 
     /// <summary>
-    /// Gets whether this peer is persistent (stored in database) or ephemeral (LAN discovery).
+    /// Gets the list of collections this peer is interested in.
     /// </summary>
-    public bool IsPersistent => Type != PeerType.LanDiscovered;
+    public System.Collections.Generic.IReadOnlyList<string> InterestingCollections { get; }
 
     /// <summary>
     /// Initializes a new instance of the PeerNode class with the specified node identifier, network address, and last
@@ -52,12 +54,23 @@ public class PeerNode
     /// <param name="lastSeen">The date and time when the peer node was last seen, expressed as a DateTimeOffset.</param>
     /// <param name="type">The type of the peer node. Defaults to LanDiscovered.</param>
     /// <param name="role">The role of the peer node. Defaults to Member.</param>
-    public PeerNode(string nodeId, string address, DateTimeOffset lastSeen, PeerType type = PeerType.LanDiscovered, NodeRole role = NodeRole.Member)
+    /// <param name="configuration">The peer node configuration</param>
+    /// <param name="interestingCollections">The list of collections this peer is interested in.</param>
+    public PeerNode(
+        string nodeId, 
+        string address, 
+        DateTimeOffset lastSeen,
+        PeerType type = PeerType.LanDiscovered, 
+        NodeRole role = NodeRole.Member,
+        PeerNodeConfiguration? configuration = null,
+        IEnumerable<string>? interestingCollections = null)
     {
         NodeId = nodeId;
         Address = address;
         LastSeen = lastSeen;
         Type = type;
         Role = role;
+        Configuration = configuration;
+        InterestingCollections = new List<string>(interestingCollections ?? []).AsReadOnly();
     }
 }

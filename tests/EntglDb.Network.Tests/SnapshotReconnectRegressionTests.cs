@@ -20,9 +20,11 @@ namespace EntglDb.Network.Tests
         {
             public TestableSyncOrchestrator(
                 IDiscoveryService discovery,
-                IPeerStore store,
+                IOplogStore oplogStore,
+                ISnapshotMetadataStore snapshotMetadataStore,
+                ISnapshotService snapshotService,
                 IPeerNodeConfigurationProvider peerNodeConfigurationProvider)
-                : base(discovery, store, peerNodeConfigurationProvider, NullLoggerFactory.Instance)
+                : base(discovery, oplogStore, snapshotMetadataStore, snapshotService, peerNodeConfigurationProvider, NullLoggerFactory.Instance)
             {
             }
 
@@ -59,7 +61,58 @@ namespace EntglDb.Network.Tests
             }
         }
 
-        private class MockSnapshotStore : IPeerStore
+        private class MockSnapshotMetadataStore : ISnapshotMetadataStore
+        {
+            public Task DropAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task<IEnumerable<SnapshotMetadata>> ExportAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task<SnapshotMetadata?> FindByNodeIs(string nodeId, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
+            {
+                return Task.FromResult<string?>(null);
+            }
+
+            public Task ImportAsync(IEnumerable<SnapshotMetadata> items, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task InsertSnapshotMetadataAsync(SnapshotMetadata metadata, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task MergeAsync(IEnumerable<SnapshotMetadata> items, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task UpdateSnapshotMetadataAsync(SnapshotMetadata existingMeta, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
+        }
+
+        private class MockSnapshotService : ISnapshotService
+        {
+            public Task CreateSnapshotAsync(Stream destination, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ClearAllDataAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        }
+
+        private class MockOplogStore : IOplogStore
         {
             public string? SnapshotHashToReturn { get; set; }
             public string? LocalHeadHashToReturn { get; set; }
@@ -77,7 +130,7 @@ namespace EntglDb.Network.Tests
             // Stubs for other methods
             public event EventHandler<ChangesAppliedEventArgs>? ChangesApplied;
             public Task AppendOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default) => Task.CompletedTask;
-            public Task ApplyBatchAsync(IEnumerable<Document> documents, IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default) => Task.CompletedTask;
+            public Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task BackupAsync(string backupPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task<bool> CheckIntegrityAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
             public Task<int> CountDocumentsAsync(string collection, QueryNode? queryExpression, CancellationToken cancellationToken = default) => Task.FromResult(0);
@@ -87,8 +140,8 @@ namespace EntglDb.Network.Tests
             public Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default) => Task.FromResult<Document?>(null);
             public Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default) => Task.FromResult<OplogEntry?>(null);
             public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default) => Task.FromResult(new HlcTimestamp(0, 0, "test"));
-            public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
-            public Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
+            public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
+            public Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<OplogEntry>>(new List<OplogEntry>());
             public Task<IEnumerable<RemotePeerConfiguration>> GetRemotePeersAsync(CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<RemotePeerConfiguration>>(new List<RemotePeerConfiguration>());
             public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default) => Task.FromResult<IEnumerable<Document>>(Enumerable.Empty<Document>());
             public Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -100,6 +153,31 @@ namespace EntglDb.Network.Tests
             public Task ReplaceDatabaseAsync(Stream databaseStream, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default) => Task.CompletedTask;
             public Task ClearAllDataAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+            public Task<RemotePeerConfiguration?> GetRemotePeerAsync(string nodeId, CancellationToken cancellationToken)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task DropAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task<IEnumerable<OplogEntry>> ExportAsync(CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task ImportAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
+
+            public Task MergeAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
+            {
+                throw new NotImplementedException();
+            }
         }
 
         // Mock Client to intercept calls and simulate network behavior
@@ -136,12 +214,14 @@ namespace EntglDb.Network.Tests
         public async Task ProcessInboundBatch_ShouldSkipGapRecovery_WhenEntryMatchesSnapshotBoundary()
         {
             // Arrange
-            var store = new MockSnapshotStore();
-            store.SnapshotHashToReturn = "snapshot-boundary-hash";
-            store.LocalHeadHashToReturn = "snapshot-boundary-hash"; 
+            var oplogStore = new MockOplogStore();
+            oplogStore.SnapshotHashToReturn = "snapshot-boundary-hash";
+            oplogStore.LocalHeadHashToReturn = "snapshot-boundary-hash"; 
+            var snapshotMetadataStore = new MockSnapshotMetadataStore();
+            var snapshotService = new MockSnapshotService();
 
-            var orch = new TestableSyncOrchestrator(new StubDiscovery(), store, new StubConfig());
-            
+            var orch = new TestableSyncOrchestrator(new StubDiscovery(), oplogStore, snapshotMetadataStore, snapshotService, new StubConfig());
+
             // Use Mock Client
             using var client = new MockTcpPeerClient();
 
@@ -167,11 +247,13 @@ namespace EntglDb.Network.Tests
         public async Task ProcessInboundBatch_ShouldTryRecovery_WhenSnapshotMismatch()
         {
              // Arrange
-            var store = new MockSnapshotStore();
-            store.SnapshotHashToReturn = "snapshot-boundary-hash";
-            store.LocalHeadHashToReturn = "some-old-hash"; 
+            var oplogStore = new MockOplogStore();
+            oplogStore.SnapshotHashToReturn = "snapshot-boundary-hash";
+            oplogStore.LocalHeadHashToReturn = "some-old-hash"; 
+            var snapshotMetadataStore = new MockSnapshotMetadataStore();
+            var snapshotService = new MockSnapshotService();
 
-            var orch = new TestableSyncOrchestrator(new StubDiscovery(), store, new StubConfig());
+            var orch = new TestableSyncOrchestrator(new StubDiscovery(), oplogStore, snapshotMetadataStore, snapshotService, new StubConfig());
             using var client = new MockTcpPeerClient();
 
             var entries = new List<OplogEntry>

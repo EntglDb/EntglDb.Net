@@ -9,7 +9,8 @@ using EntglDb.Core.Diagnostics;
 using EntglDb.Core.Resilience;
 using EntglDb.Network;
 using EntglDb.Network.Security;
-using EntglDb.Persistence.Sqlite;
+using EntglDb.Persistence.BLite;
+using EntglDb.Sample.Shared;
 using Microsoft.Extensions.Hosting;
 using EntglDb.Core.Network;
 
@@ -51,22 +52,33 @@ class Program
                 NodeId = nodeId,
                 TcpPort = tcpPort,
                 AuthToken = "Test-Cluster-Key",
-                KnownPeers = builder.Configuration.GetSection("EntglDb:KnownPeers").Get<List<KnownPeerConfiguration>>() ?? new()
+                //KnownPeers = builder.Configuration.GetSection("EntglDb:KnownPeers").Get<List<KnownPeerConfiguration>>() ?? new()
             });
 
         builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(peerNodeConfigurationProvider);
 
-        // Register EntglDb Services using Fluent Extensions
+        // Database path
+        var dataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+        Directory.CreateDirectory(dataPath);
+        var databasePath = Path.Combine(dataPath, $"{nodeId}.blite");
+
+        // Register EntglDb Services using Fluent Extensions with BLite, SampleDbContext, and SampleDocumentStore
         builder.Services.AddEntglDbCore()
-                        .AddEntglDbSqlite(options =>
-                        {
-                            options.BasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
-                            options.UsePerCollectionTables = true; // Use new per-collection tables
-                        })
+                        .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath))
                         .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
+        
         builder.Services.AddHostedService<ConsoleInteractiveService>(); // Runs the Input Loop
 
         var host = builder.Build();
+        
+        // Force OplogCoordinator initialization - it subscribes to IDocumentStore events
+        _ = host.Services.GetRequiredService<OplogCoordinator>();
+        
+        System.Console.WriteLine($"? Node {nodeId} initialized on port {tcpPort}");
+        System.Console.WriteLine($"? Database: {databasePath}");
+        System.Console.WriteLine($"? OplogCoordinator active - tracking local changes");
+        System.Console.WriteLine();
+        
         await host.RunAsync();
     }
 

@@ -120,6 +120,12 @@ public class TcpPeerClient : IDisposable
     }
 
     /// <summary>
+    /// Gets the list of collections the remote peer is interested in.
+    /// </summary>
+    public System.Collections.Generic.IReadOnlyList<string> RemoteInterests => _remoteInterests.AsReadOnly();
+    private List<string> _remoteInterests = new();
+
+    /// <summary>
     /// Performs authentication handshake with the remote peer.
     /// </summary>
     /// <param name="myNodeId">The local node identifier.</param>
@@ -127,6 +133,14 @@ public class TcpPeerClient : IDisposable
     /// <param name="token">Cancellation token.</param>
     /// <returns>True if handshake was accepted, false otherwise.</returns>
     public async Task<bool> HandshakeAsync(string myNodeId, string authToken, CancellationToken token)
+    {
+        return await HandshakeAsync(myNodeId, authToken, null, token);
+    }
+
+    /// <summary>
+    /// Performs authentication handshake with the remote peer, including collection interests.
+    /// </summary>
+    public async Task<bool> HandshakeAsync(string myNodeId, string authToken, IEnumerable<string>? interestingCollections, CancellationToken token)
     {
         if (HasHandshaked) return true;
 
@@ -138,6 +152,14 @@ public class TcpPeerClient : IDisposable
         }
 
         var req = new HandshakeRequest { NodeId = myNodeId, AuthToken = authToken ?? "" };
+
+        if (interestingCollections != null)
+        {
+            foreach (var coll in interestingCollections)
+            {
+                req.InterestingCollections.Add(coll);
+            }
+        }
 
         if (CompressionHelper.IsBrotliSupported)
         {
@@ -153,6 +175,9 @@ public class TcpPeerClient : IDisposable
         if (type != MessageType.HandshakeRes) return false;
 
         var res = HandshakeResponse.Parser.ParseFrom(payload);
+
+        // Store remote interests
+        _remoteInterests = res.InterestingCollections.ToList();
 
         // Negotiation Result
         if (res.SelectedCompression == "brotli")
@@ -211,12 +236,27 @@ public class TcpPeerClient : IDisposable
     /// </summary>
     public async Task<List<OplogEntry>> PullChangesAsync(HlcTimestamp since, CancellationToken token)
     {
+        return await PullChangesAsync(since, null, token);
+    }
+
+    /// <summary>
+    /// Pulls oplog changes from the remote peer since the specified timestamp, filtered by collections.
+    /// </summary>
+    public async Task<List<OplogEntry>> PullChangesAsync(HlcTimestamp since, IEnumerable<string>? collections, CancellationToken token)
+    {
         var req = new PullChangesRequest
         {
             SinceWall = since.PhysicalTime,
             SinceLogic = since.LogicalCounter,
             SinceNode = since.NodeId
         };
+        if (collections != null)
+        {
+            foreach (var coll in collections)
+            {
+                req.Collections.Add(coll);
+            }
+        }
         await _protocol.SendMessageAsync(_stream!, MessageType.PullChangesReq, req, _useCompression, _cipherState, token);
 
         var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);
@@ -240,12 +280,27 @@ public class TcpPeerClient : IDisposable
     /// </summary>
     public async Task<List<OplogEntry>> PullChangesFromNodeAsync(string nodeId, HlcTimestamp since, CancellationToken token)
     {
+        return await PullChangesFromNodeAsync(nodeId, since, null, token);
+    }
+
+    /// <summary>
+    /// Pulls oplog changes for a specific node from the remote peer since the specified timestamp, filtered by collections.
+    /// </summary>
+    public async Task<List<OplogEntry>> PullChangesFromNodeAsync(string nodeId, HlcTimestamp since, IEnumerable<string>? collections, CancellationToken token)
+    {
         var req = new PullChangesRequest
         {
             SinceNode = nodeId,
             SinceWall = since.PhysicalTime,
             SinceLogic = since.LogicalCounter
         };
+        if (collections != null)
+        {
+            foreach (var coll in collections)
+            {
+                req.Collections.Add(coll);
+            }
+        }
         await _protocol.SendMessageAsync(_stream!, MessageType.PullChangesReq, req, _useCompression, _cipherState, token);
 
         var (type, payload) = await _protocol.ReadMessageAsync(_stream!, _cipherState, token);

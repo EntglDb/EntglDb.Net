@@ -138,7 +138,7 @@ internal class UdpDiscoveryService : IDiscoveryService
         var peerId = beacon.NodeId;
         var endpoint = $"{address}:{beacon.TcpPort}";
 
-        var peer = new PeerNode(peerId, endpoint, DateTimeOffset.UtcNow);
+        var peer = new PeerNode(peerId, endpoint, DateTimeOffset.UtcNow, interestingCollections: beacon.InterestingCollections);
 
         _activePeers.AddOrUpdate(peerId, peer, (key, old) => peer);
     }
@@ -243,7 +243,8 @@ internal class UdpDiscoveryService : IDiscoveryService
                 { 
                     NodeId = conf.NodeId, 
                     TcpPort = conf.TcpPort,
-                    ClusterHash = ComputeClusterHash(conf.AuthToken)
+                    ClusterHash = ComputeClusterHash(conf.AuthToken),
+                    InterestingCollections = conf.InterestingCollections ?? new List<string>()
                 };
 
                 var json = JsonSerializer.Serialize(beacon);
@@ -282,5 +283,8 @@ internal class UdpDiscoveryService : IDiscoveryService
 
         [System.Text.Json.Serialization.JsonPropertyName("cluster_hash")]
         public string ClusterHash { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("interests")]
+        public List<string> InterestingCollections { get; set; } = new();
     }
 }

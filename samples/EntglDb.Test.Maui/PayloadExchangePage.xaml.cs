@@ -1,4 +1,5 @@
 using EntglDb.Core;
+using EntglDb.Legacy;
 using System.Text.Json;
 
 namespace EntglDb.Test.Maui;

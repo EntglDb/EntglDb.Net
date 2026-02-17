@@ -37,4 +37,9 @@ public class RemotePeerEntity
     /// Gets or sets whether this peer is enabled for synchronization.
     /// </summary>
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the collection interests as a JSON string.
+    /// </summary>
+    public string? InterestsJson { get; set; }
 }

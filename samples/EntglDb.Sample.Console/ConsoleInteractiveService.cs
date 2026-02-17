@@ -6,7 +6,7 @@ using EntglDb.Core.Diagnostics;
 using EntglDb.Core.Sync;
 using EntglDb.Core.Storage;
 using EntglDb.Network;
-using EntglDb.Persistence.Sqlite;
+using EntglDb.Persistence.BLite;
 using Microsoft.Extensions.DependencyInjection; // For IServiceProvider if needed
 using EntglDb.Sample.Shared;
 using EntglDb.Core.Network;
@@ -16,10 +16,9 @@ namespace EntglDb.Sample.Console;
 public class ConsoleInteractiveService : BackgroundService
 {
     private readonly ILogger<ConsoleInteractiveService> _logger;
-    private readonly IPeerDatabase _db;
+    private readonly SampleDbContext _db;
     private readonly IEntglDbNode _node;
     private readonly IHostApplicationLifetime _lifetime;
-    private readonly IPeerStore _store; 
 
     
     // Auxiliary services for status/commands
@@ -32,10 +31,9 @@ public class ConsoleInteractiveService : BackgroundService
 
     public ConsoleInteractiveService(
         ILogger<ConsoleInteractiveService> logger,
-        IPeerDatabase db,
+        SampleDbContext db,
         IEntglDbNode node,
         IHostApplicationLifetime lifetime,
-        IPeerStore store,
         IDocumentCache cache,
         IOfflineQueue queue,
         IEntglDbHealthCheck healthCheck,
@@ -47,7 +45,6 @@ public class ConsoleInteractiveService : BackgroundService
         _db = db;
         _node = node;
         _lifetime = lifetime;
-        _store = store;
         _cache = cache;
         _queue = queue;
         _healthCheck = healthCheck;
@@ -59,12 +56,6 @@ public class ConsoleInteractiveService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var config = await _configProvider.GetConfiguration();
-        // Wait for DB initialization (could be moved to IHostedService StartAsync in DB service if separate)
-        await _db.InitializeAsync(stoppingToken);
-        
-        // Use Type-Safe Collections
-        var usersTyped = _db.Collection<User>();
-        var users = _db.Collection("users"); // Legacy/Dynamic
 
         System.Console.WriteLine($"--- Interactive Console ---");
         System.Console.WriteLine($"Node ID: {config.NodeId}");
@@ -84,7 +75,7 @@ public class ConsoleInteractiveService : BackgroundService
 
             try 
             {
-                await HandleInput(input, usersTyped, users);
+                await HandleInput(input);
             }
             catch (Exception ex)
             {
@@ -103,19 +94,20 @@ public class ConsoleInteractiveService : BackgroundService
     {
         System.Console.WriteLine("Commands:");
         System.Console.WriteLine("  [p]ut, [g]et, [d]elete, [f]ind, [l]ist peers, [q]uit");
-        System.Console.WriteLine("  [n]ew (auto), [s]pam (5x), [c]ount, [a]uto-demo, [t]yped");
-        System.Console.WriteLine("  [h]ealth, cac[h]e, [b]ackup");
-        System.Console.WriteLine("  [r]esolver [lww|merge], [demo] conflict, [todos]");
+        System.Console.WriteLine("  [n]ew (auto), [s]pam (5x), [c]ount, [t]odos");
+        System.Console.WriteLine("  [h]ealth, cac[h]e");
+        System.Console.WriteLine("  [r]esolver [lww|merge], [demo] conflict");
     }
 
-    private async Task HandleInput(string input, IPeerCollection<User> usersTyped, IPeerCollection users)
+    private async Task HandleInput(string input)
     {
         var config = await _configProvider.GetConfiguration();
         if (input.StartsWith("n"))
         {
             var ts = DateTime.Now.ToString("HH:mm:ss.fff");
-            var user = new User { Name = $"User-{ts}", Age = new Random().Next(18, 90), Address = new Address { City = "AutoCity" } };
-            await usersTyped.Put(user);
+            var user = new User { Id = Guid.NewGuid().ToString(), Name = $"User-{ts}", Age = new Random().Next(18, 90), Address = new Address { City = "AutoCity" } };
+            await _db.Users.InsertAsync(user);
+            await _db.SaveChangesAsync();
             System.Console.WriteLine($"[+] Created {user.Name} with Id: {user.Id}...");
         }
         else if (input.StartsWith("s"))
@@ -123,27 +115,27 @@ public class ConsoleInteractiveService : BackgroundService
             for (int i = 0; i < 5; i++)
             {
                 var ts = DateTime.Now.ToString("HH:mm:ss.fff");
-                var user = new User { Name = $"User-{ts}", Age = new Random().Next(18, 90), Address = new Address { City = "SpamCity" } };
-                await usersTyped.Put(user);
+                var user = new User { Id = Guid.NewGuid().ToString(), Name = $"User-{ts}", Age = new Random().Next(18, 90), Address = new Address { City = "SpamCity" } };
+                await _db.Users.InsertAsync(user);
                 System.Console.WriteLine($"[+] Created {user.Name} with Id: {user.Id}...");
                 await Task.Delay(100);
             }
+            await _db.SaveChangesAsync();
         }
         else if (input.StartsWith("c"))
         {
-            var allCollections = await _db.GetCollectionsAsync();
-            foreach (var col in allCollections)
-            {
-                var count = await _db.Collection(col).Count();
-                System.Console.WriteLine($"Collection '{col}': {count} documents");
-            }
+            var userCount = _db.Users.FindAll().Count();
+            var todoCount = _db.TodoLists.FindAll().Count();
+            System.Console.WriteLine($"Collection 'Users': {userCount} documents");
+            System.Console.WriteLine($"Collection 'TodoLists': {todoCount} documents");
         }
         else if (input.StartsWith("p"))
         {
-            var alice = new User { Name = "Alice", Age = 30, Address = new Address { City = "Paris" } };
-            var bob = new User { Name = "Bob", Age = 25, Address = new Address { City = "Rome" } };
-            await usersTyped.Put(alice);
-            await usersTyped.Put(bob);
+            var alice = new User { Id = Guid.NewGuid().ToString(), Name = "Alice", Age = 30, Address = new Address { City = "Paris" } };
+            var bob = new User { Id = Guid.NewGuid().ToString(), Name = "Bob", Age = 25, Address = new Address { City = "Rome" } };
+            await _db.Users.InsertAsync(alice);
+            await _db.Users.InsertAsync(bob);
+            await _db.SaveChangesAsync();
             System.Console.WriteLine($"Put Alice ({alice.Id}) and Bob ({bob.Id})");
         }
         else if (input.StartsWith("g"))
@@ -152,7 +144,7 @@ public class ConsoleInteractiveService : BackgroundService
             var id = System.Console.ReadLine();
             if (!string.IsNullOrEmpty(id))
             {
-                var u = await usersTyped.Get(id);
+                var u = _db.Users.FindById(id);
                 System.Console.WriteLine(u != null ? $"Got: {u.Name}, Age {u.Age}, City: {u.Address?.City}" : "Not found");
             }
         }
@@ -162,7 +154,8 @@ public class ConsoleInteractiveService : BackgroundService
             var id = System.Console.ReadLine();
             if (!string.IsNullOrEmpty(id))
             {
-                await usersTyped.Delete(id);
+                await _db.Users.DeleteAsync(id);
+                await _db.SaveChangesAsync();
                 System.Console.WriteLine($"Deleted user {id}");
             }
         }
@@ -181,9 +174,9 @@ public class ConsoleInteractiveService : BackgroundService
         }
         else if (input.StartsWith("f"))
         {
-                System.Console.WriteLine("Query: Age > 28");
-                var results = await usersTyped.Find(u => u.Age > 28);
-                foreach(var u in results) System.Console.WriteLine($"Found: {u.Name} ({u.Age})");
+            System.Console.WriteLine("Query: Age > 28");
+            var results = _db.Users.Find(u => u.Age > 28);
+            foreach(var u in results) System.Console.WriteLine($"Found: {u.Name} ({u.Age})");
         }
         else if (input.StartsWith("h"))
         {
@@ -210,18 +203,6 @@ public class ConsoleInteractiveService : BackgroundService
             var stats = _cache.GetStatistics();
             System.Console.WriteLine($"=== Cache Stats ===\nSize: {stats.Size}\nHits: {stats.Hits}\nMisses: {stats.Misses}\nRate: {stats.HitRate:P1}");
         }
-        else if (input.StartsWith("b"))
-        {
-            var backupPath = $"backups/backup-{config.NodeId}-{DateTime.Now:yyyyMMdd-HHmmss}.db";
-            Directory.CreateDirectory("backups");
-            
-            var store = _store as SqlitePeerStore;
-            if (store != null)
-            {
-                await store.BackupAsync(backupPath);
-                System.Console.WriteLine($"✓ Backup created: {backupPath}");
-            }
-        }
         else if (input.StartsWith("r") && input.Contains("resolver"))
         {
             var parts = input.Split(' ');
@@ -236,13 +217,9 @@ public class ConsoleInteractiveService : BackgroundService
                 
                 if (newResolver != null)
                 {
-                    var store = _store as SqlitePeerStore;
-                    if (store != null)
-                    {
-                        // Note: Requires restart to fully apply. For demo, we inform user.
-                        System.Console.WriteLine($"⚠️  Resolver changed to {parts[1].ToUpper()}. Restart node to apply.");
-                        System.Console.WriteLine($"    (Current session continues with previous resolver)");
-                    }
+                    // Note: Requires restart to fully apply. For demo, we inform user.
+                    System.Console.WriteLine($"⚠️  Resolver changed to {parts[1].ToUpper()}. Restart node to apply.");
+                    System.Console.WriteLine($"    (Current session continues with previous resolver)");
                 }
                 else
                 {
@@ -256,8 +233,7 @@ public class ConsoleInteractiveService : BackgroundService
         }
         else if (input == "todos")
         {
-            var todoCollection = _db.Collection<TodoList>();
-            var lists = await todoCollection.Find(t => true);
+            var lists = _db.TodoLists.FindAll();
             
             System.Console.WriteLine("=== Todo Lists ===");
             foreach (var list in lists)
@@ -277,11 +253,10 @@ public class ConsoleInteractiveService : BackgroundService
         System.Console.WriteLine("\n=== Conflict Resolution Demo ===");
         System.Console.WriteLine("Simulating concurrent edits to a TodoList...\n");
         
-        var todoCollection = _db.Collection<TodoList>();
-        
         // Create initial list
         var list = new TodoList 
         { 
+            Id = Guid.NewGuid().ToString(),
             Name = "Shopping List",
             Items = new List<TodoItem>
             {
@@ -290,36 +265,39 @@ public class ConsoleInteractiveService : BackgroundService
             }
         };
         
-        await todoCollection.Put(list);
+        await _db.TodoLists.InsertAsync(list);
+        await _db.SaveChangesAsync();
         System.Console.WriteLine($"✓ Created list '{list.Name}' with {list.Items.Count} items");
         await Task.Delay(100);
         
         // Simulate Node A edit: Mark item as completed, add new item
-        var listA = await todoCollection.Get(list.Id);
+        var listA = _db.TodoLists.FindById(list.Id);
         if (listA != null)
         {
             listA.Items[0].Completed = true; // Mark milk as done
             listA.Items.Add(new TodoItem { Task = "Buy eggs", Completed = false });
-            await todoCollection.Put(listA);
+            await _db.TodoLists.UpdateAsync(listA);
+            await _db.SaveChangesAsync();
             System.Console.WriteLine("📝 Node A: Marked 'Buy milk' complete, added 'Buy eggs'");
         }
         
         await Task.Delay(100);
         
         // Simulate Node B edit: Mark different item, add different item
-        var listB = await todoCollection.Get(list.Id);
+        var listB = _db.TodoLists.FindById(list.Id);
         if (listB != null)
         {
             listB.Items[1].Completed = true; // Mark bread as done
             listB.Items.Add(new TodoItem { Task = "Buy cheese", Completed = false });
-            await todoCollection.Put(listB);
+            await _db.TodoLists.UpdateAsync(listB);
+            await _db.SaveChangesAsync();
             System.Console.WriteLine("📝 Node B: Marked 'Buy bread' complete, added 'Buy cheese'");
         }
         
         await Task.Delay(200);
         
         // Show final merged state
-        var merged = await todoCollection.Get(list.Id);
+        var merged = _db.TodoLists.FindById(list.Id);
         if (merged != null)
         {
             System.Console.WriteLine("\n🔀 Merged Result:");

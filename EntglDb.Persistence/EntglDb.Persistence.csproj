@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net6.0;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings Condition="'$(TargetFramework)' == 'net6.0'">enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>0.9.1</Version>
+    <Authors>MrDevRobot</Authors>
+    <Description>Persistence provider for EntglDb.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>p2p;database;sqlite;persistence;storage;wal</PackageTags>
+    <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\assets\icon.png" Link="icon.png">
+      <PackagePath>\</PackagePath>
+      <Pack>true</Pack>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\EntglDb.Core\EntglDb.Core.csproj" />
+  </ItemGroup>
+
+</Project>

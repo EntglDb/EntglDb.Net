@@ -22,8 +22,8 @@ namespace EntglDb.Core
             services.TryAddSingleton<IRetryPolicy, RetryPolicy>();
             services.TryAddSingleton<IEntglDbHealthCheck, EntglDbHealthCheck>();
 
-            // Database Facade
-            services.TryAddSingleton<IPeerDatabase, PeerDatabase>();
+            // Oplog Coordinator - tracks local document changes and creates oplog entries
+            services.TryAddSingleton<OplogCoordinator>();
 
             return services;
         }

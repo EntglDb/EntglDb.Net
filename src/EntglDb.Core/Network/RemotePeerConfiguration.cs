@@ -1,4 +1,4 @@
-using EntglDb.Core.Metadata;
+using System.ComponentModel.DataAnnotations;
 
 namespace EntglDb.Core.Network;
 
@@ -11,7 +11,7 @@ public class RemotePeerConfiguration
     /// <summary>
     /// Gets or sets the unique identifier for the remote peer node.
     /// </summary>
-    [PrimaryKey(AutoGenerate = false)]
+    [Key]
     public string NodeId { get; set; } = "";
     
     /// <summary>
@@ -35,4 +35,10 @@ public class RemotePeerConfiguration
     /// Disabled peers are stored but not used for sync.
     /// </summary>
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the list of collections this peer is interested in.
+    /// If empty, the peer is interested in all collections.
+    /// </summary>
+    public System.Collections.Generic.List<string> InterestingCollections { get; set; } = new();
 }

@@ -14,12 +14,12 @@ namespace EntglDb.Core.Diagnostics;
 /// </summary>
 public class EntglDbHealthCheck : IEntglDbHealthCheck
 {
-    private readonly IPeerStore _store;
+    private readonly IOplogStore _store;
     private readonly ISyncStatusTracker _syncTracker;
     private readonly ILogger<EntglDbHealthCheck> _logger;
 
     public EntglDbHealthCheck(
-        IPeerStore store,
+        IOplogStore store,
         ISyncStatusTracker syncTracker,
         ILogger<EntglDbHealthCheck>? logger = null)
     {
