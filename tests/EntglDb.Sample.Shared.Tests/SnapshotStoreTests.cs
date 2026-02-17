@@ -18,22 +18,22 @@ public class SnapshotStoreTests : IDisposable
     private readonly BLiteOplogStore<SampleDbContext> _oplogStore;
     private readonly BLitePeerConfigurationStore<SampleDbContext> _peerConfigStore;
     private readonly SnapshotStore _snapshotStore;
-    private readonly IConflictResolver _conflictResolver;
+    private readonly TestPeerNodeConfigurationProvider _configProvider;
 
     public SnapshotStoreTests()
     {
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-snapshot-{Guid.NewGuid()}.blite");
         _context = new SampleDbContext(_testDbPath);
-        _conflictResolver = new LastWriteWinsConflictResolver();
+        _configProvider = new TestPeerNodeConfigurationProvider("test-node");
         
-        _documentStore = new SampleDocumentStore(_context, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+        _documentStore = new SampleDocumentStore(_context, _configProvider, NullLogger<SampleDocumentStore>.Instance);
         var snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
             _context,
             NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
             _context, 
             _documentStore, 
-            _conflictResolver,
+            new LastWriteWinsConflictResolver(),
             snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(
@@ -44,9 +44,10 @@ public class SnapshotStoreTests : IDisposable
             _documentStore,
             _peerConfigStore,
             _oplogStore,
-            _conflictResolver,
+            new LastWriteWinsConflictResolver(),
             NullLogger<SnapshotStore>.Instance);
     }
+
 
     [Fact]
     public async Task CreateSnapshotAsync_WritesValidJsonToStream()
@@ -125,18 +126,19 @@ public class SnapshotStoreTests : IDisposable
         try
         {
             using var newContext = new SampleDbContext(newDbPath);
-            var newDocStore = new SampleDocumentStore(newContext, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+            var newConfigProvider = new TestPeerNodeConfigurationProvider("test-new-node");
+            var newDocStore = new SampleDocumentStore(newContext, newConfigProvider, NullLogger<SampleDocumentStore>.Instance);
             var newSnapshotMetaStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
                 newContext, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
             var newOplogStore = new BLiteOplogStore<SampleDbContext>(
-                newContext, newDocStore, _conflictResolver,
+                newContext, newDocStore, new LastWriteWinsConflictResolver(),
                 newSnapshotMetaStore,
                 NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
             var newPeerStore = new BLitePeerConfigurationStore<SampleDbContext>(
                 newContext, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
             
             var newSnapshotStore = new SnapshotStore(
-                newDocStore, newPeerStore, newOplogStore, _conflictResolver,
+                newDocStore, newPeerStore, newOplogStore, new LastWriteWinsConflictResolver(),
                 NullLogger<SnapshotStore>.Instance);
 
             // Act - Replace database with snapshot
@@ -172,18 +174,19 @@ public class SnapshotStoreTests : IDisposable
             await sourceContext.Users.InsertAsync(new User { Id = "new-user", Name = "New User", Age = 25 });
             await sourceContext.SaveChangesAsync();
 
-            var sourceDocStore = new SampleDocumentStore(sourceContext, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+            var sourceConfigProvider = new TestPeerNodeConfigurationProvider("test-source-node");
+            var sourceDocStore = new SampleDocumentStore(sourceContext, sourceConfigProvider, NullLogger<SampleDocumentStore>.Instance);
             var sourceSnapshotMetaStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
                 sourceContext, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
             var sourceOplogStore = new BLiteOplogStore<SampleDbContext>(
-                sourceContext, sourceDocStore, _conflictResolver,
+                sourceContext, sourceDocStore, new LastWriteWinsConflictResolver(),
                 sourceSnapshotMetaStore,
                 NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
             var sourcePeerStore = new BLitePeerConfigurationStore<SampleDbContext>(
                 sourceContext, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
             
             var sourceSnapshotStore = new SnapshotStore(
-                sourceDocStore, sourcePeerStore, sourceOplogStore, _conflictResolver,
+                sourceDocStore, sourcePeerStore, sourceOplogStore, new LastWriteWinsConflictResolver(),
                 NullLogger<SnapshotStore>.Instance);
 
             snapshotStream = new MemoryStream();
@@ -266,6 +269,32 @@ public class SnapshotStoreTests : IDisposable
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
+        }
+    }
+
+    // Helper class for testing
+    private class TestPeerNodeConfigurationProvider : IPeerNodeConfigurationProvider
+    {
+        private readonly PeerNodeConfiguration _config;
+
+        public TestPeerNodeConfigurationProvider(string nodeId)
+        {
+            _config = new PeerNodeConfiguration
+            {
+                NodeId = nodeId,
+                TcpPort = 5000,
+                AuthToken = "test-token",
+                InterestingCollections = new List<string> { "Users", "TodoLists" },
+                OplogRetentionHours = 24,
+                MaintenanceIntervalMinutes = 60
+            };
+        }
+
+        public event PeerNodeConfigurationChangedEventHandler? ConfigurationChanged;
+
+        public Task<PeerNodeConfiguration> GetConfiguration()
+        {
+            return Task.FromResult(_config);
         }
     }
 }

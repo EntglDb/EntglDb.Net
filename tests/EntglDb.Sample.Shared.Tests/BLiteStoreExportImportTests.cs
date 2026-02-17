@@ -20,19 +20,19 @@ public class BLiteStoreExportImportTests : IDisposable
     private readonly BLiteOplogStore<SampleDbContext> _oplogStore;
     private readonly BLitePeerConfigurationStore<SampleDbContext> _peerConfigStore;
     private readonly BLiteSnapshotMetadataStore<SampleDbContext> _snapshotMetadataStore;
-    private readonly IConflictResolver _conflictResolver;
+    private readonly TestPeerNodeConfigurationProvider _configProvider;
 
     public BLiteStoreExportImportTests()
     {
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-export-import-{Guid.NewGuid()}.blite");
         _context = new SampleDbContext(_testDbPath);
-        _conflictResolver = new LastWriteWinsConflictResolver();
+        _configProvider = new TestPeerNodeConfigurationProvider("test-node");
         
-        _documentStore = new SampleDocumentStore(_context, _conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+        _documentStore = new SampleDocumentStore(_context, _configProvider, NullLogger<SampleDocumentStore>.Instance);
         _snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
             _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
-            _context, _documentStore, _conflictResolver,
+            _context, _documentStore, new LastWriteWinsConflictResolver(),
             _snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(
@@ -405,6 +405,32 @@ public class BLiteStoreExportImportTests : IDisposable
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
+        }
+    }
+
+    // Helper class for testing
+    private class TestPeerNodeConfigurationProvider : IPeerNodeConfigurationProvider
+    {
+        private readonly PeerNodeConfiguration _config;
+
+        public TestPeerNodeConfigurationProvider(string nodeId)
+        {
+            _config = new PeerNodeConfiguration
+            {
+                NodeId = nodeId,
+                TcpPort = 5000,
+                AuthToken = "test-token",
+                InterestingCollections = new List<string> { "Users", "TodoLists" },
+                OplogRetentionHours = 24,
+                MaintenanceIntervalMinutes = 60
+            };
+        }
+
+        public event PeerNodeConfigurationChangedEventHandler? ConfigurationChanged;
+
+        public Task<PeerNodeConfiguration> GetConfiguration()
+        {
+            return Task.FromResult(_config);
         }
     }
 }

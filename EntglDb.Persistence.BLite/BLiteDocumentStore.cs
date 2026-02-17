@@ -337,6 +337,32 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
         // Write directly to OplogEntries collection
         await _context.OplogEntries.InsertAsync(oplogEntry.ToEntity());
+
+        // Write DocumentMetadata for sync tracking
+        var docMetadata = EntityMappers.CreateDocumentMetadata(
+            collection, 
+            key, 
+            timestamp, 
+            isDeleted: operationType == OperationType.Delete);
+
+        var existingMetadata = _context.DocumentMetadatas
+            .Find(m => m.Collection == collection && m.Key == key)
+            .FirstOrDefault();
+
+        if (existingMetadata != null)
+        {
+            // Update existing metadata
+            existingMetadata.HlcPhysicalTime = timestamp.PhysicalTime;
+            existingMetadata.HlcLogicalCounter = timestamp.LogicalCounter;
+            existingMetadata.HlcNodeId = timestamp.NodeId;
+            existingMetadata.IsDeleted = operationType == OperationType.Delete;
+            await _context.DocumentMetadatas.UpdateAsync(existingMetadata);
+        }
+        else
+        {
+            await _context.DocumentMetadatas.InsertAsync(docMetadata);
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogDebug(

@@ -26,17 +26,18 @@ public class OplogCoordinatorIntegrationTests : IDisposable
         _configProvider = new TestPeerNodeConfigurationProvider("test-node-1");
         _context = new SampleDbContext(_testDbPath);
         
-        var conflictResolver = new LastWriteWinsConflictResolver();
-        _documentStore = new SampleDocumentStore(_context, conflictResolver, NullLogger<SampleDocumentStore>.Instance);
+        _documentStore = new SampleDocumentStore(_context, _configProvider, NullLogger<SampleDocumentStore>.Instance);
         
         // Create SnapshotMetadataStore first (needed by OplogStore for VectorClock initialization)
         var snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
             _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
         
+        
+        
         _oplogStore = new BLiteOplogStore<SampleDbContext>(
             _context, 
             _documentStore, 
-            conflictResolver,
+            new LastWriteWinsConflictResolver(),
             snapshotMetadataStore,
             NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
         
