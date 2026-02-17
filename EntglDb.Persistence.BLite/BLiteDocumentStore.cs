@@ -9,6 +9,7 @@ using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Storage.Events;
 using EntglDb.Core.Sync;
+using EntglDb.Persistence.BLite.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -23,7 +24,6 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     where TDbContext : EntglDocumentDbContext
 {
     protected readonly TDbContext _context;
-    protected readonly IOplogStore _oplogStore;
     protected readonly IPeerNodeConfigurationProvider _configProvider;
     protected readonly IConflictResolver _conflictResolver;
     protected readonly ILogger _logger;
@@ -41,13 +41,11 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
     protected BLiteDocumentStore(
         TDbContext context,
-        IOplogStore oplogStore,
         IPeerNodeConfigurationProvider configProvider,
         IConflictResolver? conflictResolver = null,
         ILogger? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        _oplogStore = oplogStore ?? throw new ArgumentNullException(nameof(oplogStore));
         _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
         _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
         _logger = logger ?? NullLogger.Instance;
@@ -319,7 +317,14 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         var config = await _configProvider.GetConfiguration();
         var nodeId = config.NodeId;
 
-        var previousHash = await _oplogStore.GetLastEntryHashAsync(nodeId, cancellationToken) ?? string.Empty;
+        // Get last hash from OplogEntries collection directly
+        var lastEntry = _context.OplogEntries
+            .Find(e => e.TimestampNodeId == nodeId)
+            .OrderByDescending(e => e.TimestampPhysicalTime)
+            .ThenByDescending(e => e.TimestampLogicalCounter)
+            .FirstOrDefault();
+
+        var previousHash = lastEntry?.Hash ?? string.Empty;
         var timestamp = GenerateTimestamp(nodeId);
 
         var oplogEntry = new OplogEntry(
@@ -330,11 +335,13 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             timestamp,
             previousHash);
 
-        await _oplogStore.AppendOplogEntryAsync(oplogEntry, cancellationToken);
+        // Write directly to OplogEntries collection
+        await _context.OplogEntries.InsertAsync(oplogEntry.ToEntity());
+        await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogDebug(
-            "Created Oplog entry: {Operation} {Collection}/{Key} at {Timestamp}",
-            operationType, collection, key, timestamp);
+            "Created Oplog entry: {Operation} {Collection}/{Key} at {Timestamp} (hash: {Hash})",
+            operationType, collection, key, timestamp, oplogEntry.Hash);
     }
 
     /// <summary>
