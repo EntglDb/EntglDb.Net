@@ -33,38 +33,42 @@ public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
     protected override async Task ApplyContentToEntityAsync(
         string collection, string key, JsonElement content, CancellationToken cancellationToken)
     {
+        UpsertEntity(collection, key, content);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    protected override async Task ApplyContentToEntitiesBatchAsync(
+        IEnumerable<(string Collection, string Key, JsonElement Content)> documents, CancellationToken cancellationToken)
+    {
+        foreach (var (collection, key, content) in documents)
+        {
+            UpsertEntity(collection, key, content);
+        }
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private void UpsertEntity(string collection, string key, JsonElement content)
+    {
         switch (collection)
         {
             case UsersCollection:
                 var user = content.Deserialize<User>()!;
                 user.Id = key;
-                
                 var existingUser = _context.Users.Find(u => u.Id == key).FirstOrDefault();
                 if (existingUser != null)
-                {
-                    await _context.Users.UpdateAsync(user);
-                }
+                    _context.Users.Update(user);
                 else
-                {
-                    await _context.Users.InsertAsync(user);
-                }
-                await _context.SaveChangesAsync(cancellationToken);
+                    _context.Users.Insert(user);
                 break;
 
             case TodoListsCollection:
                 var todoList = content.Deserialize<TodoList>()!;
                 todoList.Id = key;
-                
                 var existingTodoList = _context.TodoLists.Find(t => t.Id == key).FirstOrDefault();
                 if (existingTodoList != null)
-                {
-                    await _context.TodoLists.UpdateAsync(todoList);
-                }
+                    _context.TodoLists.Update(todoList);
                 else
-                {
-                    await _context.TodoLists.InsertAsync(todoList);
-                }
-                await _context.SaveChangesAsync(cancellationToken);
+                    _context.TodoLists.Insert(todoList);
                 break;
 
             default:
@@ -86,26 +90,30 @@ public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
     protected override async Task RemoveEntityAsync(
         string collection, string key, CancellationToken cancellationToken)
     {
+        DeleteEntity(collection, key);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    protected override async Task RemoveEntitiesBatchAsync(
+        IEnumerable<(string Collection, string Key)> documents, CancellationToken cancellationToken)
+    {
+        foreach (var (collection, key) in documents)
+        {
+            DeleteEntity(collection, key);
+        }
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private void DeleteEntity(string collection, string key)
+    {
         switch (collection)
         {
             case UsersCollection:
-                var users = _context.Users.Find(u => u.Id == key).ToList();
-                if (users.Any())
-                {
-                    await _context.Users.DeleteBulkAsync(users.Select(u => u.Id).ToList());
-                    await _context.SaveChangesAsync(cancellationToken);
-                }
+                _context.Users.Delete(key);
                 break;
-
             case TodoListsCollection:
-                var todoLists = _context.TodoLists.Find(t => t.Id == key).ToList();
-                if (todoLists.Any())
-                {
-                    await _context.TodoLists.DeleteBulkAsync(todoLists.Select(t => t.Id).ToList());
-                    await _context.SaveChangesAsync(cancellationToken);
-                }
+                _context.TodoLists.Delete(key);
                 break;
-
             default:
                 _logger.LogWarning("Attempted to remove entity from unsupported collection: {Collection}", collection);
                 break;

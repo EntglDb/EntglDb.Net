@@ -34,38 +34,42 @@ public class SampleEfCoreDocumentStore : EfCoreDocumentStore<SampleEfCoreDbConte
     protected override async Task ApplyContentToEntityAsync(
         string collection, string key, JsonElement content, CancellationToken cancellationToken)
     {
+        await UpsertEntityAsync(collection, key, content, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    protected override async Task ApplyContentToEntitiesBatchAsync(
+        IEnumerable<(string Collection, string Key, JsonElement Content)> documents, CancellationToken cancellationToken)
+    {
+        foreach (var (collection, key, content) in documents)
+        {
+            await UpsertEntityAsync(collection, key, content, cancellationToken);
+        }
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task UpsertEntityAsync(string collection, string key, JsonElement content, CancellationToken cancellationToken)
+    {
         switch (collection)
         {
             case UsersCollection:
                 var user = content.Deserialize<User>()!;
                 user.Id = key;
-
                 var existingUser = await _context.Users.FindAsync([key], cancellationToken);
                 if (existingUser != null)
-                {
                     _context.Entry(existingUser).CurrentValues.SetValues(user);
-                }
                 else
-                {
                     _context.Users.Add(user);
-                }
-                await _context.SaveChangesAsync(cancellationToken);
                 break;
 
             case TodoListsCollection:
                 var todoList = content.Deserialize<TodoList>()!;
                 todoList.Id = key;
-
                 var existingTodoList = await _context.TodoLists.FindAsync([key], cancellationToken);
                 if (existingTodoList != null)
-                {
                     _context.Entry(existingTodoList).CurrentValues.SetValues(todoList);
-                }
                 else
-                {
                     _context.TodoLists.Add(todoList);
-                }
-                await _context.SaveChangesAsync(cancellationToken);
                 break;
 
             default:
@@ -87,26 +91,32 @@ public class SampleEfCoreDocumentStore : EfCoreDocumentStore<SampleEfCoreDbConte
     protected override async Task RemoveEntityAsync(
         string collection, string key, CancellationToken cancellationToken)
     {
+        await StageDeleteAsync(collection, key, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    protected override async Task RemoveEntitiesBatchAsync(
+        IEnumerable<(string Collection, string Key)> documents, CancellationToken cancellationToken)
+    {
+        foreach (var (collection, key) in documents)
+        {
+            await StageDeleteAsync(collection, key, cancellationToken);
+        }
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task StageDeleteAsync(string collection, string key, CancellationToken cancellationToken)
+    {
         switch (collection)
         {
             case UsersCollection:
                 var user = await _context.Users.FindAsync([key], cancellationToken);
-                if (user != null)
-                {
-                    _context.Users.Remove(user);
-                    await _context.SaveChangesAsync(cancellationToken);
-                }
+                if (user != null) _context.Users.Remove(user);
                 break;
-
             case TodoListsCollection:
                 var todoList = await _context.TodoLists.FindAsync([key], cancellationToken);
-                if (todoList != null)
-                {
-                    _context.TodoLists.Remove(todoList);
-                    await _context.SaveChangesAsync(cancellationToken);
-                }
+                if (todoList != null) _context.TodoLists.Remove(todoList);
                 break;
-
             default:
                 _logger.LogWarning("Attempted to remove entity from unsupported collection: {Collection}", collection);
                 break;

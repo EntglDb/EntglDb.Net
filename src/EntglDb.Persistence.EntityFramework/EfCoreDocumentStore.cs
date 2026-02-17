@@ -58,10 +58,16 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     #region Abstract Methods - Implemented by subclass
 
     /// <summary>
-    /// Applies JSON content to an entity in the DbContext (insert or update).
+    /// Applies JSON content to a single entity (insert or update) and commits changes.
     /// </summary>
     protected abstract Task ApplyContentToEntityAsync(
         string collection, string key, JsonElement content, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Applies JSON content to multiple entities (insert or update) with a single commit.
+    /// </summary>
+    protected abstract Task ApplyContentToEntitiesBatchAsync(
+        IEnumerable<(string Collection, string Key, JsonElement Content)> documents, CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads an entity from the DbContext and returns it as JsonElement.
@@ -70,10 +76,16 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
         string collection, string key, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Removes an entity from the DbContext.
+    /// Removes a single entity from the DbContext and commits changes.
     /// </summary>
     protected abstract Task RemoveEntityAsync(
         string collection, string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes multiple entities from the DbContext with a single commit.
+    /// </summary>
+    protected abstract Task RemoveEntitiesBatchAsync(
+        IEnumerable<(string Collection, string Key)> documents, CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads all entities from a collection as JsonElements.
@@ -156,18 +168,30 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task<bool> UpdateBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
     {
-        foreach (var document in documents)
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
         {
-            await PutDocumentAsync(document, cancellationToken);
+            await ApplyContentToEntitiesBatchAsync(
+                documents.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
+        }
+        finally
+        {
+            _remoteSyncGuard.Release();
         }
         return true;
     }
 
     public async Task<bool> InsertBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
     {
-        foreach (var document in documents)
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
         {
-            await PutDocumentAsync(document, cancellationToken);
+            await ApplyContentToEntitiesBatchAsync(
+                documents.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
+        }
+        finally
+        {
+            _remoteSyncGuard.Release();
         }
         return true;
     }
@@ -193,17 +217,30 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task<bool> DeleteBatchDocumentsAsync(IEnumerable<string> documentKeys, CancellationToken cancellationToken = default)
     {
+        var parsedKeys = new List<(string Collection, string Key)>();
         foreach (var key in documentKeys)
         {
             var parts = key.Split('/');
             if (parts.Length == 2)
             {
-                await DeleteDocumentAsync(parts[0], parts[1], cancellationToken);
+                parsedKeys.Add((parts[0], parts[1]));
             }
             else
             {
                 _logger.LogWarning("Invalid document key format: {Key}", key);
             }
+        }
+
+        if (parsedKeys.Count == 0) return true;
+
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
+        {
+            await RemoveEntitiesBatchAsync(parsedKeys, cancellationToken);
+        }
+        finally
+        {
+            _remoteSyncGuard.Release();
         }
         return true;
     }
@@ -267,10 +304,8 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
         await _remoteSyncGuard.WaitAsync(cancellationToken);
         try
         {
-            foreach (var document in items)
-            {
-                await PutDocumentInternalAsync(document, cancellationToken);
-            }
+            await ApplyContentToEntitiesBatchAsync(
+                items.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
         }
         finally
         {
