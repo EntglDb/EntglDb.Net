@@ -38,6 +38,8 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         // Use Id (technical key) for deletion, not Hash (business key)
         await _context.OplogEntries.DeleteBulkAsync(_context.OplogEntries.FindAll().Select(e => e.Id));
         await _context.SaveChangesAsync(cancellationToken);
+        _vectorClock.Invalidate();
+        _cacheInitialized = false;
     }
 
     public override async Task<IEnumerable<OplogEntry>> ExportAsync(CancellationToken cancellationToken = default)

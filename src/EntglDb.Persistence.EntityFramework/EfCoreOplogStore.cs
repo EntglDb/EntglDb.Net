@@ -100,8 +100,6 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
     /// <inheritdoc />
     public override async Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
     {
-        using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-
         try
         {
             var documentKeys = oplogEntries.Select(e => (e.Collection, e.Key)).Distinct().ToList();
@@ -161,16 +159,15 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
             }), cancellationToken);
 
             _vectorClock.Invalidate();
+            _cacheInitialized = false;
             InitializeVectorClock();
 
             await _context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
 
             OnChangesApplied(oplogEntries);
         }
         catch
         {
-            await transaction.RollbackAsync(cancellationToken);
             throw;
         }
     }
@@ -415,6 +412,7 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
             await _context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             _vectorClock.Invalidate();
+            _cacheInitialized = false;
             _logger.LogInformation("Oplog store dropped successfully.");
         }
         catch

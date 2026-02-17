@@ -113,6 +113,7 @@ public abstract class OplogStore : IOplogStore
         await MergeAsync(oplogEntries, cancellationToken);
 
         _vectorClock.Invalidate();
+        _cacheInitialized = false;
         InitializeVectorClock();
         OnChangesApplied(oplogEntries);
     }
