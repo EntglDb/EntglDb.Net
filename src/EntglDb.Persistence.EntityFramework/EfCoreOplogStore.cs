@@ -28,11 +28,16 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
         IDocumentStore documentStore,
         ISnapshotMetadataStore snapshotMetadataStore,
         IConflictResolver? conflictResolver = null,
-        ILogger<EfCoreOplogStore<TDbContext>>? logger = null) : base(documentStore, conflictResolver)
+        ILogger<EfCoreOplogStore<TDbContext>>? logger = null) : base(documentStore, conflictResolver, snapshotMetadataStore)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _snapshotMetadataStore = snapshotMetadataStore ?? throw new ArgumentNullException(nameof(snapshotMetadataStore));
         _logger = logger ?? NullLogger<EfCoreOplogStore<TDbContext>>.Instance;
+        
+        // Re-initialize cache now that _context is assigned
+        // (base constructor called InitializeNodeCache but _context was null)
+        _cacheInitialized = false;
+        InitializeNodeCache();
     }
 
     /// <inheritdoc />
@@ -40,13 +45,44 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
     {
         if (_cacheInitialized) return;
 
+        // Early exit: protect against constructor initialization order
+        // InitializeNodeCache is called from base constructor before _context is assigned
+        // Don't mark as initialized - will be called again after _context is set
+        if (_context == null)
+        {
+            return;
+        }
+
         _cacheLock.Wait();
         try
         {
             if (_cacheInitialized) return;
 
-            // Query latest entry per node
-            // Explicit projection to class to avoid EF Core "EmptyProjectionMember" error with anonymous types
+            // Step 1: Load from SnapshotMetadata FIRST (base state after prune)
+            if (_snapshotMetadataStore != null)
+            {
+                try
+                {
+                    var snapshots = _snapshotMetadataStore.GetAllSnapshotMetadataAsync().GetAwaiter().GetResult();
+                    foreach (var snapshot in snapshots)
+                    {
+                        _nodeCache[snapshot.NodeId] = new NodeCacheEntry
+                        {
+                            Timestamp = new HlcTimestamp(
+                                snapshot.TimestampPhysicalTime,
+                                snapshot.TimestampLogicalCounter,
+                                snapshot.NodeId),
+                            Hash = snapshot.Hash ?? ""
+                        };
+                    }
+                }
+                catch
+                {
+                    // Ignore errors during initialization - oplog data will be used as fallback
+                }
+            }
+
+            // Step 2: Load from Oplog (Latest State - Overrides Snapshot if newer)
             var latestPerNode = _context.Set<OplogEntity>()
                 .GroupBy(o => o.TimestampNodeId)
                 .Select(g => new NodeLatestEntryResult
@@ -60,19 +96,24 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
                 .Where(x => x.MaxEntry != null)
                 .ToList();
 
-            _nodeCache.Clear();
             foreach (var node in latestPerNode)
             {
                 if (node.MaxEntry != null)
                 {
-                    _nodeCache[node.NodeId] = new NodeCacheEntry
+                    var timestamp = new HlcTimestamp(
+                        node.MaxEntry.TimestampPhysicalTime,
+                        node.MaxEntry.TimestampLogicalCounter,
+                        node.MaxEntry.TimestampNodeId);
+
+                    // Only update if newer than snapshot
+                    if (!_nodeCache.TryGetValue(node.NodeId, out var existing) || timestamp.CompareTo(existing.Timestamp) > 0)
                     {
-                        Timestamp = new HlcTimestamp(
-                            node.MaxEntry.TimestampPhysicalTime,
-                            node.MaxEntry.TimestampLogicalCounter,
-                            node.MaxEntry.TimestampNodeId),
-                        Hash = node.MaxEntry.Hash ?? ""
-                    };
+                        _nodeCache[node.NodeId] = new NodeCacheEntry
+                        {
+                            Timestamp = timestamp,
+                            Hash = node.MaxEntry.Hash ?? ""
+                        };
+                    }
                 }
             }
 

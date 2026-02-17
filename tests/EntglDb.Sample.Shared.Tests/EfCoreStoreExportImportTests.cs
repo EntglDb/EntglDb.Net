@@ -32,34 +32,34 @@ public class EfCoreStoreExportImportTests : IDisposable
     {
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-efcore-export-import-{Guid.NewGuid()}.db");
         _context = new SampleEfCoreDbContext(_testDbPath);
-        
+
         // IMPORTANT: Create database schema FIRST before instantiating stores
         _context.Database.EnsureCreated();
-        
+
         _conflictResolver = new LastWriteWinsConflictResolver();
-        
+
         _documentStore = new SampleEfCoreDocumentStore(_context, _conflictResolver, NullLogger<SampleEfCoreDocumentStore>.Instance);
-        
+
         // Create SnapshotMetadataStore first (needed by OplogStore)
         _snapshotMetadataStore = new EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>(
             _context, NullLogger<EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>>.Instance);
-        
+
         // OplogStore requires: context, documentStore, snapshotMetadataStore, conflictResolver, logger
         // OplogStore constructor calls InitializeNodeCache which queries the database
         _oplogStore = new EfCoreOplogStore<SampleEfCoreDbContext>(
-            _context, 
+            _context,
             _documentStore,
             _snapshotMetadataStore,
             _conflictResolver,
             NullLogger<EfCoreOplogStore<SampleEfCoreDbContext>>.Instance);
-        
+
         _peerConfigStore = new EfCorePeerConfigurationStore<SampleEfCoreDbContext>(
             _context, NullLogger<EfCorePeerConfigurationStore<SampleEfCoreDbContext>>.Instance);
     }
 
     #region OplogStore Tests
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task OplogStore_ExportAsync_ReturnsAllEntries()
     {
         // Arrange
@@ -77,7 +77,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Contains(exported, e => e.Key == "key2");
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task OplogStore_ImportAsync_AddsEntries()
     {
         // Arrange
@@ -97,7 +97,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Contains(exported, e => e.Key == "imported2");
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task OplogStore_MergeAsync_OnlyAddsNewEntries()
     {
         // Arrange - Add existing entry
@@ -119,7 +119,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal(2, exported.Count); // existing + new, not 3
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task OplogStore_DropAsync_ClearsAllEntries()
     {
         // Arrange
@@ -138,7 +138,7 @@ public class EfCoreStoreExportImportTests : IDisposable
 
     #region PeerConfigurationStore Tests
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task PeerConfigStore_ExportAsync_ReturnsAllPeers()
     {
         // Arrange
@@ -154,7 +154,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Contains(exported, p => p.NodeId == "peer2");
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task PeerConfigStore_ImportAsync_AddsPeers()
     {
         // Arrange
@@ -172,7 +172,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal(2, exported.Count);
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task PeerConfigStore_MergeAsync_OnlyAddsNewPeers()
     {
         // Arrange - Add existing peer
@@ -193,7 +193,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal(2, exported.Count);
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task PeerConfigStore_DropAsync_ClearsAllPeers()
     {
         // Arrange
@@ -212,7 +212,7 @@ public class EfCoreStoreExportImportTests : IDisposable
 
     #region SnapshotMetadataStore Tests
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task SnapshotMetadataStore_ExportAsync_ReturnsAllMetadata()
     {
         // Arrange
@@ -230,7 +230,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Contains(exported, m => m.NodeId == "node2");
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task SnapshotMetadataStore_ImportAsync_AddsMetadata()
     {
         // Arrange
@@ -248,7 +248,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal(2, exported.Count);
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task SnapshotMetadataStore_MergeAsync_OnlyAddsNewMetadata()
     {
         // Arrange - Add existing metadata
@@ -269,7 +269,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal(2, exported.Count);
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task SnapshotMetadataStore_DropAsync_ClearsAllMetadata()
     {
         // Arrange
@@ -288,7 +288,7 @@ public class EfCoreStoreExportImportTests : IDisposable
 
     #region DocumentStore Tests
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task DocumentStore_ExportAsync_ReturnsAllDocuments()
     {
         // Arrange
@@ -305,7 +305,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Contains(exported, d => d.Key == "u2");
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task DocumentStore_ImportAsync_AddsDocuments()
     {
         // Arrange
@@ -327,7 +327,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal("Imported 2", u2.Name);
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task DocumentStore_MergeAsync_UsesConflictResolution()
     {
         // Arrange - Add existing document
@@ -353,7 +353,7 @@ public class EfCoreStoreExportImportTests : IDisposable
         Assert.Equal(25, user.Age);
     }
 
-    [Fact(Skip = "EfCoreOplogStore initialization issue - InitializeNodeCache queries DB before schema is ready")]
+    [Fact]
     public async Task DocumentStore_DropAsync_ClearsAllDocuments()
     {
         // Arrange
@@ -416,7 +416,7 @@ public class EfCoreStoreExportImportTests : IDisposable
     {
         _documentStore?.Dispose();
         _context?.Dispose();
-        
+
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
