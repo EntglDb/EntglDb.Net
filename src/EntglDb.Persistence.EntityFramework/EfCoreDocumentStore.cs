@@ -29,10 +29,11 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     protected readonly ILogger _logger;
 
     /// <summary>
-    /// Thread-local flag to suppress Oplog creation during remote sync operations.
-    /// When true, write to DB only (Oplog entry already exists from remote).
+    /// Semaphore used to suppress Oplog creation during remote sync.
+    /// CurrentCount == 0 ? sync in progress, skip Oplog.
+    /// CurrentCount == 1 ? no sync, create OplogEntry.
     /// </summary>
-    private static readonly AsyncLocal<bool> _isRemoteSync = new AsyncLocal<bool>();
+    private readonly SemaphoreSlim _remoteSyncGuard = new SemaphoreSlim(1, 1);
 
     // HLC state for generating timestamps for local changes
     private long _lastPhysicalTime;
@@ -136,14 +137,21 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task<bool> PutDocumentAsync(Document document, CancellationToken cancellationToken = default)
     {
-        await ApplyContentToEntityAsync(document.Collection, document.Key, document.Content, cancellationToken);
-
-        if (!_isRemoteSync.Value)
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
         {
-            await CreateOplogEntryAsync(document.Collection, document.Key, OperationType.Put, document.Content, cancellationToken);
+            await PutDocumentInternalAsync(document, cancellationToken);
         }
-
+        finally
+        {
+            _remoteSyncGuard.Release();
+        }
         return true;
+    }
+
+    private async Task PutDocumentInternalAsync(Document document, CancellationToken cancellationToken)
+    {
+        await ApplyContentToEntityAsync(document.Collection, document.Key, document.Content, cancellationToken);
     }
 
     public async Task<bool> UpdateBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
@@ -166,14 +174,21 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task<bool> DeleteDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
     {
-        await RemoveEntityAsync(collection, key, cancellationToken);
-
-        if (!_isRemoteSync.Value)
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
         {
-            await CreateOplogEntryAsync(collection, key, OperationType.Delete, null, cancellationToken);
+            await DeleteDocumentInternalAsync(collection, key, cancellationToken);
         }
-
+        finally
+        {
+            _remoteSyncGuard.Release();
+        }
         return true;
+    }
+
+    private async Task DeleteDocumentInternalAsync(string collection, string key, CancellationToken cancellationToken)
+    {
+        await RemoveEntityAsync(collection, key, cancellationToken);
     }
 
     public async Task<bool> DeleteBatchDocumentsAsync(IEnumerable<string> documentKeys, CancellationToken cancellationToken = default)
@@ -199,7 +214,7 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
         if (existing == null)
         {
-            await PutDocumentAsync(incoming, cancellationToken);
+            await PutDocumentInternalAsync(incoming, cancellationToken);
             return incoming;
         }
 
@@ -213,7 +228,7 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
         if (resolution.ShouldApply && resolution.MergedDocument != null)
         {
-            await PutDocumentAsync(resolution.MergedDocument, cancellationToken);
+            await PutDocumentInternalAsync(resolution.MergedDocument, cancellationToken);
             return resolution.MergedDocument;
         }
 
@@ -249,23 +264,23 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task ImportAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default)
     {
-        _isRemoteSync.Value = true;
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
         try
         {
             foreach (var document in items)
             {
-                await PutDocumentAsync(document, cancellationToken);
+                await PutDocumentInternalAsync(document, cancellationToken);
             }
         }
         finally
         {
-            _isRemoteSync.Value = false;
+            _remoteSyncGuard.Release();
         }
     }
 
     public async Task MergeAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default)
     {
-        _isRemoteSync.Value = true;
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
         try
         {
             foreach (var document in items)
@@ -275,7 +290,7 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
         }
         finally
         {
-            _isRemoteSync.Value = false;
+            _remoteSyncGuard.Release();
         }
     }
 
@@ -382,15 +397,22 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     /// </summary>
     public IDisposable BeginRemoteSync()
     {
-        _isRemoteSync.Value = true;
-        return new RemoteSyncScope();
+        _remoteSyncGuard.Wait();
+        return new RemoteSyncScope(_remoteSyncGuard);
     }
 
     private class RemoteSyncScope : IDisposable
     {
+        private readonly SemaphoreSlim _guard;
+
+        public RemoteSyncScope(SemaphoreSlim guard)
+        {
+            _guard = guard;
+        }
+
         public void Dispose()
         {
-            _isRemoteSync.Value = false;
+            _guard.Release();
         }
     }
 
@@ -398,5 +420,6 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public virtual void Dispose()
     {
+        _remoteSyncGuard.Dispose();
     }
 }

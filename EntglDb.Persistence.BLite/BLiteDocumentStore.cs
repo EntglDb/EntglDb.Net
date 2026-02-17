@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using BLite.Core.CDC;
+using BLite.Core.Collections;
 using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
@@ -11,6 +13,8 @@ using EntglDb.Core.Sync;
 using EntglDb.Persistence.BLite.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+
+using BLiteOperationType = BLite.Core.Transactions.OperationType;
 
 namespace EntglDb.Persistence.BLite;
 
@@ -28,10 +32,14 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     protected readonly ILogger _logger;
 
     /// <summary>
-    /// Thread-local flag to suppress Oplog creation during remote sync operations.
-    /// When true, write to DB only (Oplog entry already exists from remote).
+    /// Semaphore used to suppress CDC-triggered OplogEntry creation during remote sync.
+    /// CurrentCount == 0 ? sync in progress, CDC must skip.
+    /// CurrentCount == 1 ? no sync, CDC creates OplogEntry.
     /// </summary>
-    private static readonly AsyncLocal<bool> _isRemoteSync = new AsyncLocal<bool>();
+    private readonly SemaphoreSlim _remoteSyncGuard = new SemaphoreSlim(1, 1);
+
+    private readonly List<IDisposable> _cdcWatchers = new();
+    private readonly HashSet<string> _registeredCollections = new();
 
     // HLC state for generating timestamps for local changes
     private long _lastPhysicalTime;
@@ -52,6 +60,76 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         _lastPhysicalTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _logicalCounter = 0;
     }
+
+    #region CDC Registration
+
+    /// <summary>
+    /// Registers a BLite collection for CDC tracking.
+    /// Call in subclass constructor for each collection to sync.
+    /// </summary>
+    /// <typeparam name="TEntity">The entity type.</typeparam>
+    /// <param name="collectionName">The logical collection name used in Oplog.</param>
+    /// <param name="collection">The BLite DocumentCollection.</param>
+    /// <param name="keySelector">Function to extract the entity key.</param>
+    protected void WatchCollection<TEntity>(
+        string collectionName,
+        DocumentCollection<string, TEntity> collection,
+        Func<TEntity, string> keySelector)
+        where TEntity : class
+    {
+        _registeredCollections.Add(collectionName);
+        
+        var watcher = collection.Watch(capturePayload: true)
+            .Subscribe(new CdcObserver<TEntity>(collectionName, keySelector, this));
+        _cdcWatchers.Add(watcher);
+    }
+
+    /// <summary>
+    /// Generic CDC observer. Forwards BLite change events to OnLocalChangeDetectedAsync.
+    /// Automatically skips events when remote sync is in progress.
+    /// </summary>
+    private class CdcObserver<TEntity> : IObserver<ChangeStreamEvent<string, TEntity>>
+        where TEntity : class
+    {
+        private readonly string _collectionName;
+        private readonly Func<TEntity, string> _keySelector;
+        private readonly BLiteDocumentStore<TDbContext> _store;
+
+        public CdcObserver(
+            string collectionName,
+            Func<TEntity, string> keySelector,
+            BLiteDocumentStore<TDbContext> store)
+        {
+            _collectionName = collectionName;
+            _keySelector = keySelector;
+            _store = store;
+        }
+
+        public void OnNext(ChangeStreamEvent<string, TEntity> changeEvent)
+        {
+            if (_store._remoteSyncGuard.CurrentCount == 0) return;
+
+            var entityId = changeEvent.DocumentId?.ToString() ?? "";
+
+            if (changeEvent.Type == BLiteOperationType.Delete)
+            {
+                _store.OnLocalChangeDetectedAsync(_collectionName, entityId, OperationType.Delete, null)
+                    .GetAwaiter().GetResult();
+            }
+            else if (changeEvent.Entity != null)
+            {
+                var content = JsonSerializer.SerializeToElement(changeEvent.Entity);
+                var key = _keySelector(changeEvent.Entity);
+                _store.OnLocalChangeDetectedAsync(_collectionName, key, OperationType.Put, content)
+                    .GetAwaiter().GetResult();
+            }
+        }
+
+        public void OnError(Exception error) { }
+        public void OnCompleted() { }
+    }
+
+    #endregion
 
     #region Abstract Methods - Implemented by subclass
 
@@ -97,7 +175,10 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
     #region IDocumentStore Implementation
 
-    public abstract IEnumerable<string> InterestedCollection { get; }
+    /// <summary>
+    /// Returns the collections registered via WatchCollection.
+    /// </summary>
+    public IEnumerable<string> InterestedCollection => _registeredCollections;
 
     public async Task<Document?> GetDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
     {
@@ -131,16 +212,21 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
     public async Task<bool> PutDocumentAsync(Document document, CancellationToken cancellationToken = default)
     {
-        // Apply to DbContext
-        await ApplyContentToEntityAsync(document.Collection, document.Key, document.Content, cancellationToken);
-
-        // Create Oplog entry ONLY if this is a local change (not from remote sync)
-        if (!_isRemoteSync.Value)
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
         {
-            await CreateOplogEntryAsync(document.Collection, document.Key, OperationType.Put, document.Content, cancellationToken);
+            await PutDocumentInternalAsync(document, cancellationToken);
         }
-
+        finally
+        {
+            _remoteSyncGuard.Release();
+        }
         return true;
+    }
+
+    private async Task PutDocumentInternalAsync(Document document, CancellationToken cancellationToken)
+    {
+        await ApplyContentToEntityAsync(document.Collection, document.Key, document.Content, cancellationToken);
     }
 
     public async Task<bool> UpdateBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
@@ -163,16 +249,21 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
     public async Task<bool> DeleteDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
     {
-        // Remove from DbContext
-        await RemoveEntityAsync(collection, key, cancellationToken);
-
-        // Create Oplog entry ONLY if this is a local change
-        if (!_isRemoteSync.Value)
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
+        try
         {
-            await CreateOplogEntryAsync(collection, key, OperationType.Delete, null, cancellationToken);
+            await DeleteDocumentInternalAsync(collection, key, cancellationToken);
         }
-
+        finally
+        {
+            _remoteSyncGuard.Release();
+        }
         return true;
+    }
+
+    private async Task DeleteDocumentInternalAsync(string collection, string key, CancellationToken cancellationToken)
+    {
+        await RemoveEntityAsync(collection, key, cancellationToken);
     }
 
     public async Task<bool> DeleteBatchDocumentsAsync(IEnumerable<string> documentKeys, CancellationToken cancellationToken = default)
@@ -199,7 +290,8 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         
         if (existing == null)
         {
-            await PutDocumentAsync(incoming, cancellationToken);
+            // Use internal method - guard not acquired yet in single-document merge
+            await PutDocumentInternalAsync(incoming, cancellationToken);
             return incoming;
         }
 
@@ -214,7 +306,7 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
         if (resolution.ShouldApply && resolution.MergedDocument != null)
         {
-            await PutDocumentAsync(resolution.MergedDocument, cancellationToken);
+            await PutDocumentInternalAsync(resolution.MergedDocument, cancellationToken);
             return resolution.MergedDocument;
         }
 
@@ -250,25 +342,25 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
     public async Task ImportAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default)
     {
-        // Set remote sync flag to prevent Oplog creation
-        _isRemoteSync.Value = true;
+        // Acquire guard to prevent Oplog creation during import
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
         try
         {
             foreach (var document in items)
             {
-                await PutDocumentAsync(document, cancellationToken);
+                await PutDocumentInternalAsync(document, cancellationToken);
             }
         }
         finally
         {
-            _isRemoteSync.Value = false;
+            _remoteSyncGuard.Release();
         }
     }
 
     public async Task MergeAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default)
     {
-        // Set remote sync flag to prevent Oplog creation
-        _isRemoteSync.Value = true;
+        // Acquire guard to prevent Oplog creation during merge
+        await _remoteSyncGuard.WaitAsync(cancellationToken);
         try
         {
             foreach (var document in items)
@@ -278,13 +370,35 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         }
         finally
         {
-            _isRemoteSync.Value = false;
+            _remoteSyncGuard.Release();
         }
     }
 
     #endregion
 
     #region Oplog Management
+
+    /// <summary>
+    /// Returns true if a remote sync operation is in progress (guard acquired).
+    /// CDC listeners should check this before creating OplogEntry.
+    /// </summary>
+    protected bool IsRemoteSyncInProgress => _remoteSyncGuard.CurrentCount == 0;
+
+    /// <summary>
+    /// Called by subclass CDC listeners when a local change is detected.
+    /// Creates OplogEntry + DocumentMetadata only if no remote sync is in progress.
+    /// </summary>
+    protected async Task OnLocalChangeDetectedAsync(
+        string collection,
+        string key,
+        OperationType operationType,
+        JsonElement? content,
+        CancellationToken cancellationToken = default)
+    {
+        if (IsRemoteSyncInProgress) return;
+
+        await CreateOplogEntryAsync(collection, key, operationType, content, cancellationToken);
+    }
 
     private HlcTimestamp GenerateTimestamp(string nodeId)
     {
@@ -370,20 +484,27 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     }
 
     /// <summary>
-    /// Marks the start of remote sync operations (suppresses Oplog creation).
+    /// Marks the start of remote sync operations (suppresses CDC-triggered Oplog creation).
     /// Use in using statement: using (store.BeginRemoteSync()) { ... }
     /// </summary>
     public IDisposable BeginRemoteSync()
     {
-        _isRemoteSync.Value = true;
-        return new RemoteSyncScope();
+        _remoteSyncGuard.Wait();
+        return new RemoteSyncScope(_remoteSyncGuard);
     }
 
     private class RemoteSyncScope : IDisposable
     {
+        private readonly SemaphoreSlim _guard;
+
+        public RemoteSyncScope(SemaphoreSlim guard)
+        {
+            _guard = guard;
+        }
+
         public void Dispose()
         {
-            _isRemoteSync.Value = false;
+            _guard.Release();
         }
     }
 
@@ -391,6 +512,11 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
     public virtual void Dispose()
     {
-        // Subclasses can override to dispose resources
+        foreach (var watcher in _cdcWatchers)
+        {
+            try { watcher.Dispose(); } catch { }
+        }
+        _cdcWatchers.Clear();
+        _remoteSyncGuard.Dispose();
     }
 }

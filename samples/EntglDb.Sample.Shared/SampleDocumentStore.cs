@@ -3,15 +3,13 @@ using EntglDb.Core.Network;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.BLite;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 
 namespace EntglDb.Sample.Shared;
 
 /// <summary>
 /// Document store implementation for EntglDb Sample using BLite persistence.
-/// Extends BLiteDocumentStore to automatically handle Oplog creation.
-/// Maps between typed entities (User, TodoList) and generic Document objects.
+/// Extends BLiteDocumentStore to automatically handle Oplog creation via CDC.
 /// </summary>
 public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
 {
@@ -24,9 +22,11 @@ public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
         ILogger<SampleDocumentStore>? logger = null)
         : base(context, configProvider, new LastWriteWinsConflictResolver(), logger)
     {
+        // Register CDC watchers for local change detection
+        // InterestedCollection is automatically populated
+        WatchCollection(UsersCollection, context.Users, u => u.Id);
+        WatchCollection(TodoListsCollection, context.TodoLists, t => t.Id);
     }
-
-    public override IEnumerable<string> InterestedCollection => new[] { UsersCollection, TodoListsCollection };
 
     #region Abstract Method Implementations
 
