@@ -36,14 +36,14 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
         _logger = logger ?? NullLogger<EfCoreOplogStore<TDbContext>>.Instance;
         
         // Re-initialize now that _context is assigned
-        _cacheInitialized = false;
+        _vectorClock.IsInitialized = false;
         InitializeVectorClock();
     }
 
     /// <inheritdoc />
     protected override void InitializeVectorClock()
     {
-        if (_cacheInitialized) return;
+        if (_vectorClock.IsInitialized) return;
 
         // Early exit: protect against constructor initialization order
         if (_context == null) return;
@@ -93,7 +93,7 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
             }
         }
 
-        _cacheInitialized = true;
+        _vectorClock.IsInitialized = true;
         _logger.LogInformation("Vector clock initialized from oplog data");
     }
 
@@ -159,7 +159,6 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
             }), cancellationToken);
 
             _vectorClock.Invalidate();
-            _cacheInitialized = false;
             InitializeVectorClock();
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -412,7 +411,6 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
             await _context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             _vectorClock.Invalidate();
-            _cacheInitialized = false;
             _logger.LogInformation("Oplog store dropped successfully.");
         }
         catch

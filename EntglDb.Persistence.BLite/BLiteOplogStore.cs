@@ -39,7 +39,6 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         await _context.OplogEntries.DeleteBulkAsync(_context.OplogEntries.FindAll().Select(e => e.Id));
         await _context.SaveChangesAsync(cancellationToken);
         _vectorClock.Invalidate();
-        _cacheInitialized = false;
     }
 
     public override async Task<IEnumerable<OplogEntry>> ExportAsync(CancellationToken cancellationToken = default)
@@ -146,12 +145,12 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
 
     protected override void InitializeVectorClock()
     {
-        if (_cacheInitialized) return;
+        if (_vectorClock.IsInitialized) return;
 
         // Early check: if context or OplogEntries is null, skip initialization
         if (_context?.OplogEntries == null)
         {
-            _cacheInitialized = true;
+            _vectorClock.IsInitialized = true;
             return;
         }
 
@@ -200,7 +199,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
             }
         }
 
-        _cacheInitialized = true;
+        _vectorClock.IsInitialized = true;
     }
 
     protected override async Task InsertOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)

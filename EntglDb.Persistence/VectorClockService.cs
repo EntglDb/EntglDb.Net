@@ -18,6 +18,9 @@ public class VectorClockService : IVectorClockService
     private readonly Dictionary<string, NodeCacheEntry> _cache = new Dictionary<string, NodeCacheEntry>(StringComparer.Ordinal);
 
     /// <inheritdoc />
+    public bool IsInitialized { get; set; }
+
+    /// <inheritdoc />
     public void Update(OplogEntry entry)
     {
         _lock.Wait();
@@ -124,6 +127,7 @@ public class VectorClockService : IVectorClockService
         try
         {
             _cache.Clear();
+            IsInitialized = false;
         }
         finally
         {

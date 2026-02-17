@@ -19,8 +19,6 @@ public abstract class OplogStore : IOplogStore
     protected readonly ISnapshotMetadataStore? _snapshotMetadataStore;
     protected readonly IVectorClockService _vectorClock;
 
-    protected bool _cacheInitialized = false;
-
     public event EventHandler<ChangesAppliedEventArgs> ChangesApplied;
 
     public virtual void OnChangesApplied(IEnumerable<OplogEntry> appliedEntries)
@@ -113,7 +111,6 @@ public abstract class OplogStore : IOplogStore
         await MergeAsync(oplogEntries, cancellationToken);
 
         _vectorClock.Invalidate();
-        _cacheInitialized = false;
         InitializeVectorClock();
         OnChangesApplied(oplogEntries);
     }

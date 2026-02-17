@@ -10,6 +10,12 @@ namespace EntglDb.Core.Storage;
 public interface IVectorClockService
 {
     /// <summary>
+    /// Indicates whether the cache has been populated with initial data.
+    /// Reset to false by <see cref="Invalidate"/>.
+    /// </summary>
+    bool IsInitialized { get; set; }
+
+    /// <summary>
     /// Updates the cache with a new OplogEntry's timestamp and hash.
     /// Called by both DocumentStore (local CDC) and OplogStore (remote sync).
     /// </summary>
@@ -38,7 +44,8 @@ public interface IVectorClockService
     void UpdateNode(string nodeId, HlcTimestamp timestamp, string hash);
 
     /// <summary>
-    /// Invalidates the entire cache, forcing re-initialization on next access.
+    /// Clears the cache and resets <see cref="IsInitialized"/> to false,
+    /// forcing re-initialization on next access.
     /// </summary>
     void Invalidate();
 }
