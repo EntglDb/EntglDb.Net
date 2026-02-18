@@ -12,11 +12,11 @@ namespace EntglDb.AspNet.HealthChecks;
 /// </summary>
 public class EntglDbHealthCheck : IHealthCheck
 {
-    private readonly IPeerStore _store;
+    private readonly IOplogStore _oplogStore;
 
-    public EntglDbHealthCheck(IPeerStore store)
+    public EntglDbHealthCheck(IOplogStore oplogStore)
     {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _oplogStore = oplogStore ?? throw new ArgumentNullException(nameof(oplogStore));
     }
 
     public async Task<HealthCheckResult> CheckHealthAsync(
@@ -26,7 +26,7 @@ public class EntglDbHealthCheck : IHealthCheck
         try
         {
             // Simple health check: try to get latest timestamp
-            var timestamp = await _store.GetLatestTimestampAsync(cancellationToken);
+            var timestamp = await _oplogStore.GetLatestTimestampAsync(cancellationToken);
             
             return HealthCheckResult.Healthy(
                 $"EntglDb is healthy. Latest timestamp: {timestamp.PhysicalTime}");

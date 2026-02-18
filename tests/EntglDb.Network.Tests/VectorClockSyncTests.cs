@@ -220,7 +220,7 @@ public class VectorClockSyncTests
     }
 
     // Mock store for testing
-    private class MockPeerStore : IPeerStore
+    private class MockPeerStore : IOplogStore
     {
         public VectorClock VectorClock { get; } = new VectorClock();
         public List<OplogEntry> OplogEntries { get; } = new List<OplogEntry>();
@@ -232,12 +232,17 @@ public class VectorClockSyncTests
             return Task.FromResult(VectorClock);
         }
 
-        public Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, CancellationToken cancellationToken = default)
+        public Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default)
         {
-            var result = OplogEntries
-                .Where(e => e.Timestamp.NodeId == nodeId && e.Timestamp.CompareTo(since) > 0)
-                .OrderBy(e => e.Timestamp);
-            return Task.FromResult<IEnumerable<OplogEntry>>(result);
+            var query = OplogEntries
+                .Where(e => e.Timestamp.NodeId == nodeId && e.Timestamp.CompareTo(since) > 0);
+            
+            if (collections != null && collections.Any())
+            {
+                query = query.Where(e => collections.Contains(e.Collection));
+            }
+            
+            return Task.FromResult<IEnumerable<OplogEntry>>(query.OrderBy(e => e.Timestamp).ToList());
         }
 
         // Minimal stub implementations
@@ -253,7 +258,17 @@ public class VectorClockSyncTests
         public Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default) => Task.FromResult<OplogEntry?>(null);
         public Task<string?> GetLastEntryHashAsync(string nodeId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
         public Task<HlcTimestamp> GetLatestTimestampAsync(CancellationToken cancellationToken = default) => Task.FromResult(new HlcTimestamp(0, 0, "test"));
-        public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, CancellationToken cancellationToken = default) => Task.FromResult(Enumerable.Empty<OplogEntry>());
+        public Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default)
+        {
+            var query = OplogEntries.Where(e => e.Timestamp.CompareTo(timestamp) > 0);
+            
+            if (collections != null && collections.Any())
+            {
+                query = query.Where(e => collections.Contains(e.Collection));
+            }
+            
+            return Task.FromResult<IEnumerable<OplogEntry>>(query.ToList());
+        }
         public Task<IEnumerable<RemotePeerConfiguration>> GetRemotePeersAsync(CancellationToken cancellationToken = default) => Task.FromResult(Enumerable.Empty<RemotePeerConfiguration>());
         public Task<IEnumerable<Document>> QueryDocumentsAsync(string collection, QueryNode? queryExpression, int? skip = null, int? take = null, string? orderBy = null, bool ascending = true, CancellationToken cancellationToken = default) => Task.FromResult(Enumerable.Empty<Document>());
         public Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -286,6 +301,36 @@ public class VectorClockSyncTests
         }
 
         public Task ClearAllDataAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<RemotePeerConfiguration?> GetRemotePeerAsync(string nodeId, CancellationToken cancellationToken)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task DropAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<IEnumerable<OplogEntry>> ExportAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task ImportAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task MergeAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();
         }

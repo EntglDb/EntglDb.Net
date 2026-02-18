@@ -8,12 +8,14 @@ message HandshakeRequest {
   string node_id = 1;
   string auth_token = 2;
   repeated string supported_compression = 3; // v4
+  repeated string interesting_collections = 4; // v5
 }
 
 message HandshakeResponse {
   string node_id = 1;
   bool accepted = 2;
   string selected_compression = 3; // v4
+  repeated string interesting_collections = 4; // v5
 }
 
 message GetClockRequest {
@@ -42,6 +44,7 @@ message PullChangesRequest {
   int64 since_wall = 1;
   int32 since_logic = 2;
   string since_node = 3;
+  repeated string collections = 4; // v5: Filter by collection
 }
 
 message ChangeSetResponse {

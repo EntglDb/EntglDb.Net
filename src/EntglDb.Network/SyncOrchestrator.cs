@@ -22,7 +22,10 @@ namespace EntglDb.Network;
 public class SyncOrchestrator : ISyncOrchestrator
 {
     private readonly IDiscoveryService _discovery;
-    private readonly IPeerStore _store;
+    private readonly IOplogStore _oplogStore;
+    private readonly IDocumentStore _documentStore;
+    private readonly ISnapshotMetadataStore _snapshotMetadataStore;
+    private readonly ISnapshotService _snapshotService;
     private readonly IPeerNodeConfigurationProvider _peerNodeConfigurationProvider;
     private readonly ILogger<SyncOrchestrator> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -46,14 +49,20 @@ public class SyncOrchestrator : ISyncOrchestrator
 
     public SyncOrchestrator(
         IDiscoveryService discovery,
-        IPeerStore store,
+        IOplogStore oplogStore,
+        IDocumentStore documentStore,
+        ISnapshotMetadataStore snapshotStore,
+        ISnapshotService snapshotService,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
         ILoggerFactory loggerFactory,
         IPeerHandshakeService? handshakeService = null,
         INetworkTelemetryService? telemetry = null)
     {
         _discovery = discovery;
-        _store = store;
+        _oplogStore = oplogStore;
+        _documentStore = documentStore;
+        _snapshotMetadataStore = snapshotStore;
+        _snapshotService = snapshotService;
         _peerNodeConfigurationProvider = peerNodeConfigurationProvider;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<SyncOrchestrator>();
@@ -171,8 +180,13 @@ public class SyncOrchestrator : ISyncOrchestrator
                     return true;
                 }).ToList();
 
-                // Gossip Fanout: Pick 3 random peers from eligible set
-                var targets = eligiblePeers.OrderBy(x => _random.Next()).Take(3).ToList();
+                // Interest-Aware Gossip: Prioritize peers sharing interests with us
+                var localInterests = _documentStore.InterestedCollection.ToList();
+                var targets = eligiblePeers
+                    .OrderByDescending(p => p.InterestingCollections.Any(ci => localInterests.Contains(ci)))
+                    .ThenBy(x => _random.Next())
+                    .Take(3)
+                    .ToList();
 
                 // NetStandard 2.0 fallback: Use Task.WhenAll
                 var tasks = targets.Select(peer => TrySyncWithPeer(peer, token));
@@ -187,7 +201,7 @@ public class SyncOrchestrator : ISyncOrchestrator
                     {
                         var retentionHours = config.OplogRetentionHours;
                         var cutoff = new HlcTimestamp(DateTimeOffset.UtcNow.AddHours(-retentionHours).ToUnixTimeMilliseconds(), 0, config.NodeId);
-                        await _store.PruneOplogAsync(cutoff, token);
+                        await _oplogStore.PruneOplogAsync(cutoff, token);
                         _lastMaintenanceTime = now;
                         _logger.LogInformation("Maintenance completed successfully (Retention: {RetentionHours}h).", retentionHours);
                     }
@@ -247,7 +261,7 @@ public class SyncOrchestrator : ISyncOrchestrator
             }
 
             // Handshake (idempotent)
-            if (!await client.HandshakeAsync(config.NodeId, config.AuthToken, token))
+            if (!await client.HandshakeAsync(config.NodeId, config.AuthToken, _documentStore.InterestedCollection, token))
             {
                 _logger.LogWarning("Handshake rejected by {NodeId}", peer.NodeId);
                 shouldRemoveClient = true;
@@ -256,7 +270,7 @@ public class SyncOrchestrator : ISyncOrchestrator
 
             // 1. Exchange Vector Clocks
             var remoteVectorClock = await client.GetVectorClockAsync(token);
-            var localVectorClock = await _store.GetVectorClockAsync(token);
+            var localVectorClock = await _oplogStore.GetVectorClockAsync(token);
 
             _logger.LogDebug("Vector Clock - Local: {Local}, Remote: {Remote}", localVectorClock, remoteVectorClock);
 
@@ -265,6 +279,7 @@ public class SyncOrchestrator : ISyncOrchestrator
 
             // 3. PULL: Identify nodes where remote is ahead
             var nodesToPull = localVectorClock.GetNodesWithUpdates(remoteVectorClock).ToList();
+            var nodesToPush = localVectorClock.GetNodesToPush(remoteVectorClock).ToList();
             if (nodesToPull.Any())
             {
                 _logger.LogInformation("Pulling changes from {PeerNodeId} for {Count} nodes: {Nodes}",
@@ -278,7 +293,8 @@ public class SyncOrchestrator : ISyncOrchestrator
                     _logger.LogDebug("Pulling Node {NodeId}: Local={LocalTs}, Remote={RemoteTs}",
                         nodeId, localTs, remoteTs);
 
-                    var changes = await client.PullChangesFromNodeAsync(nodeId, localTs, token);
+                    // PASS LOCAL INTERESTS TO PULL
+                    var changes = await client.PullChangesFromNodeAsync(nodeId, localTs, _documentStore.InterestedCollection, token);
                     if (changes != null && changes.Count > 0)
                     {
                         var result = await ProcessInboundBatchAsync(client, peer.NodeId, changes, token);
@@ -293,7 +309,6 @@ public class SyncOrchestrator : ISyncOrchestrator
             }
 
             // 4. PUSH: Identify nodes where local is ahead
-            var nodesToPush = localVectorClock.GetNodesToPush(remoteVectorClock).ToList();
             if (nodesToPush.Any())
             {
                 _logger.LogInformation("Pushing changes to {PeerNodeId} for {Count} nodes: {Nodes}",
@@ -302,13 +317,15 @@ public class SyncOrchestrator : ISyncOrchestrator
                 foreach (var nodeId in nodesToPush)
                 {
                     var remoteTs = remoteVectorClock.GetTimestamp(nodeId);
-                    var changes = await _store.GetOplogForNodeAfterAsync(nodeId, remoteTs, token);
+                    
+                    // PUSH FILTERING: Pass remote receiver's interests to oplogStore for efficient retrieval
+                    var remoteInterests = client.RemoteInterests;
+                    var changes = (await _oplogStore.GetOplogForNodeAfterAsync(nodeId, remoteTs, remoteInterests, token)).ToList();
 
-                    var changesList = changes.ToList();
-                    if (changesList.Any())
+                    if (changes.Any())
                     {
-                        _logger.LogDebug("Pushing {Count} changes for Node {NodeId}", changesList.Count, nodeId);
-                        await client.PushChangesAsync(changesList, token);
+                        _logger.LogDebug("Pushing {Count} filtered changes for Node {NodeId}", changes.Count, nodeId);
+                        await client.PushChangesAsync(changes, token);
                     }
                 }
             }
@@ -434,7 +451,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     }
 
     /// <summary>
-    /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to store.
+    /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to oplogStore.
     /// Extracted to enforce Single Responsibility Principle.
     /// </summary>
     private enum SyncBatchResult
@@ -446,7 +463,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     }
 
     /// <summary>
-    /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to store.
+    /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to oplogStore.
     /// Extracted to enforce Single Responsibility Principle.
     /// </summary>
     private async Task<SyncBatchResult> ProcessInboundBatchAsync(TcpPeerClient client, string peerNodeId, IList<OplogEntry> changes, CancellationToken token)
@@ -488,7 +505,7 @@ public class SyncOrchestrator : ISyncOrchestrator
 
             // Check linkage with Local State
             var firstEntry = authorChain[0];
-            var localHeadHash = await _store.GetLastEntryHashAsync(authorNodeId, token);
+            var localHeadHash = await _oplogStore.GetLastEntryHashAsync(authorNodeId, token);
 
             _logger.LogDebug("Processing chain for Node {AuthorId}: FirstEntry.PrevHash={PrevHash}, FirstEntry.Hash={Hash}, LocalHeadHash={LocalHead}",
                 authorNodeId, firstEntry.PreviousHash, firstEntry.Hash, localHeadHash ?? "(null)");
@@ -496,7 +513,7 @@ public class SyncOrchestrator : ISyncOrchestrator
             if (localHeadHash != null && firstEntry.PreviousHash != localHeadHash)
             {
                 // Check if entry starts from snapshot boundary (valid case after pruning)
-                var snapshotHash = await _store.GetSnapshotHashAsync(authorNodeId, token);
+                var snapshotHash = await _snapshotMetadataStore.GetSnapshotHashAsync(authorNodeId, token);
                 
                 if (snapshotHash != null && firstEntry.PreviousHash == snapshotHash)
                 {
@@ -548,7 +565,7 @@ public class SyncOrchestrator : ISyncOrchestrator
                         }
 
                         // Apply Missing Chain First
-                        await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), missingChain, token);
+                        await _oplogStore.ApplyBatchAsync(missingChain, token);
                         _logger.LogInformation("Gap Recovery Applied Successfully.");
                     }
                     else
@@ -574,8 +591,8 @@ public class SyncOrchestrator : ISyncOrchestrator
                 _logger.LogWarning("First contact with Node {AuthorId} at explicit state (Not Genesis). Accepting.", authorNodeId);
             }
 
-            // Apply original batch (grouped by node for clarity, but store usually handles bulk)
-            await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), authorChain, token);
+            // Apply original batch (grouped by node for clarity, but oplogStore usually handles bulk)
+            await _oplogStore.ApplyBatchAsync(authorChain, token);
         }
 
         return SyncBatchResult.Success;
@@ -600,11 +617,11 @@ public class SyncOrchestrator : ISyncOrchestrator
             {
                 if (mergeOnly)
                 {
-                    await _store.MergeSnapshotAsync(fs, token);
+                    await _snapshotService.MergeSnapshotAsync(fs, token);
                 }
                 else
                 {
-                    await _store.ReplaceDatabaseAsync(fs, token);
+                    await _snapshotService.ReplaceDatabaseAsync(fs, token);
                 }
             }
             

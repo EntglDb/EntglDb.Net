@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>1.0.0</Version>
+    <Authors>MrDevRobot</Authors>
+    <Description>BLite persistence provider for EntglDb. High-performance embedded document database for .NET 10.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>p2p;database;blite;persistence;storage;embedded;document-db</PackageTags>
+    <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>BLiteDocumentStore.README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BLite" Version="1.0.4" />
+    <PackageReference Include="BLite.SourceGenerators" Version="1.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="BLiteDocumentStore.README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EntglDb.Persistence\EntglDb.Persistence.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -27,7 +27,7 @@ public class SecureHandshakeService : IPeerHandshakeService
         using var ecdh = ECDiffieHellman.Create();
         ecdh.KeySize = 256;
 
-        // 1. Export & Send Public Key
+        // 1. ExportAsync & Send Public Key
         var myPublicKey = ecdh.ExportSubjectPublicKeyInfo();
         var lenBytes = BitConverter.GetBytes(myPublicKey.Length);
         await stream.WriteAsync(lenBytes, 0, 4, token);

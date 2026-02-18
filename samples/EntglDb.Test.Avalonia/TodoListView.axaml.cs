@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using EntglDb.Core;
+using EntglDb.Legacy;
 using EntglDb.Sample.Shared;
 using System;
 using System.Collections.Generic;

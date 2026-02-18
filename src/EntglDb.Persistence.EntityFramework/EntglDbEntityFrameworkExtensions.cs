@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
+using EntglDb.Persistence.EntityFramework.Entities;
 
 namespace EntglDb.Persistence.EntityFramework;
 
@@ -16,23 +17,7 @@ public static class EntglDbEntityFrameworkExtensions
     /// Adds Entity Framework Core persistence to EntglDb.
     /// You must configure the DbContext separately using AddDbContext with your chosen database provider.
     /// </summary>
-    /// <example>
-    /// // SQL Server example
-    /// services.AddDbContext&lt;EntglDbContext&gt;(options =>
-    ///     options.UseSqlServer(connectionString));
-    /// services.AddEntglDbEntityFramework();
-    /// 
-    /// // PostgreSQL example
-    /// services.AddDbContext&lt;EntglDbContext&gt;(options =>
-    ///     options.UseNpgsql(connectionString));
-    /// services.AddEntglDbEntityFramework();
-    /// 
-    /// // SQLite example
-    /// services.AddDbContext&lt;EntglDbContext&gt;(options =>
-    ///     options.UseSqlite(connectionString));
-    /// services.AddEntglDbEntityFramework();
-    /// </example>
-    public static IServiceCollection AddEntglDbEntityFramework(this IServiceCollection services)
+    public static IServiceCollection AddEntglDbEntityFramework<TDbContext>(this IServiceCollection services) where TDbContext : DbContext
     {
         if (services == null) throw new ArgumentNullException(nameof(services));
 
@@ -40,8 +25,20 @@ public static class EntglDbEntityFrameworkExtensions
         services.TryAddSingleton<IConflictResolver, LastWriteWinsConflictResolver>();
 
         // Register EF Core Store
-        services.TryAddSingleton<IPeerStore, EfCorePeerStore>();
+        services.TryAddSingleton<IOplogStore, EfCoreOplogStore<TDbContext>>();
+        services.TryAddSingleton<IPeerConfigurationStore, EfCorePeerConfigurationStore<TDbContext>>();
+        services.TryAddSingleton<ISnapshotMetadataStore, EfCoreSnapshotMetadaStore<TDbContext>>();
 
         return services;
+    }
+
+    public static ModelBuilder ApplyEntglDbEntityFrameworkConfigurations(this ModelBuilder modelBuilder)
+    {
+        if (modelBuilder == null) throw new ArgumentNullException(nameof(modelBuilder));
+        modelBuilder.ApplyConfiguration(new OplogEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new RemotePeerEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new SnapshotMetadataEntityConfiguration());
+        modelBuilder.ApplyConfiguration(new DocumentMetadataEntityConfiguration());
+        return modelBuilder;
     }
 }

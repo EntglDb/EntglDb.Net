@@ -13,6 +13,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Lifter.Avalonia;
 using EntglDb.Core.Network;
+using EntglDb.Legacy;
 
 namespace EntglStudio;
 

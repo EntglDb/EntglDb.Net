@@ -78,4 +78,17 @@ public readonly struct HlcTimestamp : IComparable<HlcTimestamp>, IComparable, IE
     public static bool operator >=(HlcTimestamp left, HlcTimestamp right) => left.CompareTo(right) >= 0;
 
     public override string ToString() => FormattableString.Invariant($"{PhysicalTime}:{LogicalCounter}:{NodeId}");
+
+    public static HlcTimestamp Parse(string s)
+    {
+        if (string.IsNullOrEmpty(s)) throw new ArgumentNullException(nameof(s));
+        var parts = s.Split(':');
+        if (parts.Length != 3) throw new FormatException("Invalid HlcTimestamp format. Expected 'PhysicalTime:LogicalCounter:NodeId'.");
+        if (!long.TryParse(parts[0], out var physicalTime))
+            throw new FormatException("Invalid PhysicalTime component in HlcTimestamp.");
+        if (!int.TryParse(parts[1], out var logicalCounter))
+            throw new FormatException("Invalid LogicalCounter component in HlcTimestamp.");
+        var nodeId = parts[2];
+        return new HlcTimestamp(physicalTime, logicalCounter, nodeId);
+    }
 }

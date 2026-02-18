@@ -22,9 +22,6 @@ namespace EntglDb.Core
             services.TryAddSingleton<IRetryPolicy, RetryPolicy>();
             services.TryAddSingleton<IEntglDbHealthCheck, EntglDbHealthCheck>();
 
-            // Database Facade
-            services.TryAddSingleton<IPeerDatabase, PeerDatabase>();
-
             return services;
         }
     }

@@ -24,7 +24,9 @@ namespace EntglDb.Network;
 /// </summary>
 internal class TcpSyncServer : ISyncServer
 {
-    private readonly IPeerStore _store;
+    private readonly IOplogStore _oplogStore;
+    private readonly IDocumentStore _documentStore;
+    private readonly ISnapshotService _snapshotStore;
     private readonly ILogger<TcpSyncServer> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
     private CancellationTokenSource? _cts;
@@ -40,27 +42,32 @@ internal class TcpSyncServer : ISyncServer
     private readonly INetworkTelemetryService? _telemetry;
 
     /// <summary>
-    /// Initializes a new instance of the TcpSyncServer class with the specified peer store, configuration provider,
+    /// Initializes a new instance of the TcpSyncServer class with the specified peer oplogStore, configuration provider,
     /// logger, and authenticator.
     /// </summary>
     /// <remarks>The server automatically restarts when the configuration provided by
     /// peerNodeConfigurationProvider changes. This ensures that configuration updates are applied without requiring
     /// manual intervention.</remarks>
-    /// <param name="store">The peer store used to manage and persist peer information for the server.</param>
+    /// <param name="oplogStore">The peer oplogStore used to manage and persist peer information for the server.</param>
+    /// <param name="snapshotStore">The snapshot store used to create and manage database snapshots for synchronization.</param>
     /// <param name="peerNodeConfigurationProvider">The provider that supplies configuration settings for the peer node and notifies the server of configuration
     /// changes.</param>
     /// <param name="logger">The logger used to record informational and error messages for the server instance.</param>
     /// <param name="authenticator">The authenticator responsible for validating peer connections to the server.</param>
     /// <param name="handshakeService">The service used to perform secure handshake (optional).</param>
     public TcpSyncServer(
-        IPeerStore store, 
+        IOplogStore oplogStore, 
+        IDocumentStore documentStore,
+        ISnapshotService snapshotStore,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider, 
         ILogger<TcpSyncServer> logger, 
         IAuthenticator authenticator,
         IPeerHandshakeService handshakeService,
-        EntglDb.Network.Telemetry.INetworkTelemetryService? telemetry = null)
+        INetworkTelemetryService? telemetry = null)
     {
-        _store = store;
+        _oplogStore = oplogStore;
+        _documentStore = documentStore;
+        _snapshotStore = snapshotStore;
         _logger = logger;
         _authenticator = authenticator;
         _handshakeService = handshakeService;
@@ -231,6 +238,7 @@ internal class TcpSyncServer : ISyncServer
                 
                 bool useCompression = false;
                 CipherState? cipherState = null;
+                List<string> remoteInterests = new();
 
                 // Perform Secure Handshake (if service is available)
                 var config = await _configProvider.GetConfiguration();
@@ -263,6 +271,10 @@ internal class TcpSyncServer : ISyncServer
                     {
                         var hReq = HandshakeRequest.Parser.ParseFrom(payload);
                         _logger.LogDebug("Received HandshakeReq from Node {NodeId}", hReq.NodeId);
+                        
+                        // Track remote peer interests
+                        remoteInterests = hReq.InterestingCollections.ToList();
+                        
                         bool valid = await _authenticator.ValidateAsync(hReq.NodeId, hReq.AuthToken);
                         if (!valid)
                         {
@@ -272,6 +284,13 @@ internal class TcpSyncServer : ISyncServer
                         }
 
                         var hRes = new HandshakeResponse { NodeId = config.NodeId, Accepted = true };
+                        
+                        // Include local interests from IDocumentStore in response for push filtering
+                        foreach (var coll in _documentStore.InterestedCollection)
+                        {
+                            hRes.InterestingCollections.Add(coll);
+                        }
+
                         if (CompressionHelper.IsBrotliSupported && hReq.SupportedCompression.Contains("brotli"))
                         {
                             hRes.SelectedCompression = "brotli";
@@ -288,7 +307,7 @@ internal class TcpSyncServer : ISyncServer
                     switch (type)
                     {
                         case MessageType.GetClockReq:
-                            var clock = await _store.GetLatestTimestampAsync(token);
+                            var clock = await _oplogStore.GetLatestTimestampAsync(token);
                             response = new ClockResponse
                             {
                                 HlcWall = clock.PhysicalTime,
@@ -299,7 +318,7 @@ internal class TcpSyncServer : ISyncServer
                             break;
 
                         case MessageType.GetVectorClockReq:
-                            var vectorClock = await _store.GetVectorClockAsync(token);
+                            var vectorClock = await _oplogStore.GetVectorClockAsync(token);
                             var vcRes = new VectorClockResponse();
                             foreach (var nodeId in vectorClock.NodeIds)
                             {
@@ -318,7 +337,11 @@ internal class TcpSyncServer : ISyncServer
                         case MessageType.PullChangesReq:
                             var pReq = PullChangesRequest.Parser.ParseFrom(payload);
                             var since = new HlcTimestamp(pReq.SinceWall, pReq.SinceLogic, pReq.SinceNode);
-                            var oplog = await _store.GetOplogAfterAsync(since, token);
+                            
+                            // Use collection filter from request
+                            var filter = pReq.Collections.Any() ? pReq.Collections : null;
+                            var oplog = await _oplogStore.GetOplogAfterAsync(since, filter, token);
+                            
                             var csRes = new ChangeSetResponse();
                             foreach (var e in oplog)
                             {
@@ -351,7 +374,7 @@ internal class TcpSyncServer : ISyncServer
                                 e.Hash          // Restore Hash
                             ));
 
-                            await _store.ApplyBatchAsync(Enumerable.Empty<Document>(), entries, token);
+                            await _oplogStore.ApplyBatchAsync(entries, token);
 
                             response = new AckResponse { Success = true };
                             resType = MessageType.AckRes;
@@ -359,7 +382,7 @@ internal class TcpSyncServer : ISyncServer
 
                         case MessageType.GetChainRangeReq:
                             var rangeReq = GetChainRangeRequest.Parser.ParseFrom(payload);
-                            var rangeEntries = await _store.GetChainRangeAsync(rangeReq.StartHash, rangeReq.EndHash, token);
+                            var rangeEntries = await _oplogStore.GetChainRangeAsync(rangeReq.StartHash, rangeReq.EndHash, token);
                             var rangeRes = new ChainRangeResponse();
                             
                             if (!rangeEntries.Any() && rangeReq.StartHash != rangeReq.EndHash)
@@ -397,7 +420,7 @@ internal class TcpSyncServer : ISyncServer
                                 // Create backup
                                 using (var fs = File.Create(tempFile))
                                 {
-                                    await _store.CreateSnapshotAsync(fs, token);
+                                    await _snapshotStore.CreateSnapshotAsync(fs, token);
                                 }
                                 
                                 using (var fs = File.OpenRead(tempFile))

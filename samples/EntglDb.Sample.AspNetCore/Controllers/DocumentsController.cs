@@ -3,6 +3,7 @@ using EntglDb.Core.Storage;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using System.Linq.Expressions;
+using EntglDb.Legacy;
 
 namespace EntglDb.Sample.AspNetCore.Controllers;
 

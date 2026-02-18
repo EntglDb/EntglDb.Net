@@ -4,15 +4,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EntglDb.Core;
 using EntglDb.Core.Network;
+using EntglDb.Core.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EntglDb.Network;
 
 /// <summary>
-/// Composite discovery service that combines UDP LAN discovery with persistent remote peers from the database.
+/// Composite discovery service that combines UDP LAN discovery with persistent remote peers from the peerConfigurationStore.
 /// Periodically refreshes the remote peer list and merges with actively discovered LAN peers.
 /// 
 /// Remote peer configurations are stored in a synchronized collection that is automatically
@@ -22,7 +22,7 @@ namespace EntglDb.Network;
 public class CompositeDiscoveryService : IDiscoveryService
 {
     private readonly IDiscoveryService _udpDiscovery;
-    private readonly IPeerDatabase _database;
+    private readonly IPeerConfigurationStore _peerConfigurationStore;
     private readonly ILogger<CompositeDiscoveryService> _logger;
     private readonly TimeSpan _refreshInterval;
     private const string RemotePeersCollectionName = "_system_remote_peers";
@@ -35,24 +35,24 @@ public class CompositeDiscoveryService : IDiscoveryService
     /// Initializes a new instance of the CompositeDiscoveryService class.
     /// </summary>
     /// <param name="udpDiscovery">UDP-based LAN discovery service.</param>
-    /// <param name="database">Database instance for accessing the synchronized remote peers collection.</param>
+    /// <param name="peerConfigurationStore">Database instance for accessing the synchronized remote peers collection.</param>
     /// <param name="logger">Logger instance.</param>
-    /// <param name="refreshInterval">Interval for refreshing remote peers from database. Defaults to 5 minutes.</param>
+    /// <param name="refreshInterval">Interval for refreshing remote peers from peerConfigurationStore. Defaults to 5 minutes.</param>
     public CompositeDiscoveryService(
         IDiscoveryService udpDiscovery,
-        IPeerDatabase database,
+        IPeerConfigurationStore peerConfigurationStore,
         ILogger<CompositeDiscoveryService>? logger = null,
         TimeSpan? refreshInterval = null)
     {
         _udpDiscovery = udpDiscovery ?? throw new ArgumentNullException(nameof(udpDiscovery));
-        _database = database ?? throw new ArgumentNullException(nameof(database));
+        _peerConfigurationStore = peerConfigurationStore ?? throw new ArgumentNullException(nameof(peerConfigurationStore));
         _logger = logger ?? NullLogger<CompositeDiscoveryService>.Instance;
         _refreshInterval = refreshInterval ?? TimeSpan.FromMinutes(5);
     }
 
     public IEnumerable<PeerNode> GetActivePeers()
     {
-        // Merge LAN peers from UDP discovery with remote peers from database
+        // Merge LAN peers from UDP discovery with remote peers from peerConfigurationStore
         var lanPeers = _udpDiscovery.GetActivePeers();
         var remotePeers = _remotePeers.Values;
 
@@ -153,8 +153,8 @@ public class CompositeDiscoveryService : IDiscoveryService
     {
         try
         {
-            var collection = _database.Collection<RemotePeerConfiguration>(RemotePeersCollectionName);
-            var remoteConfigs = await collection.Find(p => p.IsEnabled);
+            var peers = await _peerConfigurationStore.GetRemotePeersAsync();
+            var remoteConfigs = peers.Where(p => p.IsEnabled);
             var now = DateTimeOffset.UtcNow;
 
             // Update remote peers dictionary

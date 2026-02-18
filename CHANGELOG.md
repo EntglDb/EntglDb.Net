@@ -16,6 +16,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="1.0.0"></a>
+## [1.0.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.0.0) (2026-02-18)
+
+### Features
+
+* Add BLiteDocumentStore abstract base class ([7dd5777](https://www.github.com/EntglDb/EntglDb.Net/commit/7dd577740fa041c8e488fa11ab2d8615f7e32e69))
+* Add DocumentMetadataStore for HLC timestamp tracking ([26f92d9](https://www.github.com/EntglDb/EntglDb.Net/commit/26f92d9e31d086f69cc07b8abe15f2dffdfc0102))
+* Add EfCoreDocumentStore abstract base class ([0805cd9](https://www.github.com/EntglDb/EntglDb.Net/commit/0805cd9566710ce5b562261ea1632b0b9b0da98e))
+* Complete BLite persistence with snapshot support ([09bb7c4](https://www.github.com/EntglDb/EntglDb.Net/commit/09bb7c4b470e9654bf7589daf0ea7921f252a032))
+
+### Bug Fixes
+
+* EfCoreOplogStore now initializes NodeCache correctly ([d5da920](https://www.github.com/EntglDb/EntglDb.Net/commit/d5da920a4a1f7ec6add08012309d66d8b271ae00))
+* OplogStore now uses SnapshotMetadata for VectorClock initialization ([ae1b2ac](https://www.github.com/EntglDb/EntglDb.Net/commit/ae1b2accd26415454b6c1025257b689a2d8e5d96))
+* Remove circular dependency from BLiteDocumentStore ([d344889](https://www.github.com/EntglDb/EntglDb.Net/commit/d344889b96b9956040892589abaa739401875bb5))
+* TcpSyncServer returns entries for all nodes instead of requested node ([da869a0](https://www.github.com/EntglDb/EntglDb.Net/commit/da869a0a173045316fbf6f215358b626edb793e0))
+* Transaction crash in ApplyBatchAsync for both BLite and EfCore ([af48383](https://www.github.com/EntglDb/EntglDb.Net/commit/af48383268ddb862c1877008f33e720b7333bc8a))
+* Vector Clock always empty - OplogStore cache not updated by CDC ([1136604](https://www.github.com/EntglDb/EntglDb.Net/commit/1136604e06f0389f1527c649b2490b71712c3213))
+* VectorClock stays empty after Invalidate - _cacheInitialized never reset ([2cccb5d](https://www.github.com/EntglDb/EntglDb.Net/commit/2cccb5d60a4a34c117ebc7b7a5dbc8d4c1354f16))
+
+### Breaking Changes
+
+* update positioning from P2P database to sync middleware ([a396b60](https://www.github.com/EntglDb/EntglDb.Net/commit/a396b60a1020876c92e7d75cb7b6e5e14e43ae69))
+
 <a name="0.9.1"></a>
 ## [0.9.1](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v0.9.1) (2026-01-28)
 
