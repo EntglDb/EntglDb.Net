@@ -3,7 +3,6 @@
   <ItemGroup>
     <PackageReference Include="Lifter.Core" Version="1.1.0" />
     <ProjectReference Include="..\..\src\EntglDb.Core\EntglDb.Core.csproj" />
-    <ProjectReference Include="..\..\EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj" />
     <ProjectReference Include="..\..\src\EntglDb.Network\EntglDb.Network.csproj" />
   </ItemGroup>
 
@@ -22,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj" />
     <ProjectReference Include="..\EntglDb.Sample.Shared\EntglDb.Sample.Shared.csproj" />
   </ItemGroup>
 

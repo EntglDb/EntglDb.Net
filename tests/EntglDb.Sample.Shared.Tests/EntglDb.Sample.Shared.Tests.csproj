@@ -21,7 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\samples\EntglDb.Sample.Shared\EntglDb.Sample.Shared.csproj" />
-    <ProjectReference Include="..\..\EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj" />
+    <ProjectReference Include="..\..\src\EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj" />
+    <ProjectReference Include="..\..\src\EntglDb.Persistence\EntglDb.Persistence.csproj" />
   </ItemGroup>
 
 </Project>
