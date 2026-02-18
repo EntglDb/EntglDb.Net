@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="1.0.1"></a>
+## [1.0.1](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.0.1) (2026-02-18)
+
+### Bug Fixes
+
+* adds support to Set in BLite context ([5521e29](https://www.github.com/EntglDb/EntglDb.Net/commit/5521e298df6654850548ad8b8e76e24f9cb57971))
+
 <a name="1.0.0"></a>
 ## [1.0.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.0.0) (2026-02-18)
 
