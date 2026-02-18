@@ -22,14 +22,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\assets\icon.png" Link="icon.png">
-      <PackagePath>\</PackagePath>
-      <Pack>true</Pack>
-    </None>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\EntglDb.Core\EntglDb.Core.csproj" />
+    <ProjectReference Include="..\EntglDb.Core\EntglDb.Core.csproj" />
   </ItemGroup>
 
 </Project>

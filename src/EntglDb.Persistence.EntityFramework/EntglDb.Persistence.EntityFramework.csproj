@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\EntglDb.Persistence\EntglDb.Persistence.csproj" />
+    <ProjectReference Include="..\EntglDb.Persistence\EntglDb.Persistence.csproj" />
     <ProjectReference Include="..\EntglDb.Core\EntglDb.Core.csproj" />
   </ItemGroup>
 
