@@ -18,12 +18,14 @@ EntglDb.Persistence sits between the core abstractions (`EntglDb.Core`) and conc
 
 ```
 EntglDb.Core (interfaces)
-       ↓
+       |
+       v
 EntglDb.Persistence (base implementations)
-       ↓
-┌──────────────┬────────────────────────────┐
-│              │                            │
-BLite          EntityFramework         (Other Providers)
+       |
+       v
+    +------------------+------------------------+
+    |                  |                        |
+  BLite         EntityFramework          (Other Providers)
 ```
 
 ## When To Use This Package

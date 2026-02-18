@@ -11,15 +11,15 @@
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)
 
-EntglDb is not a database � it's a **sync layer** that plugs into your existing data store and enables automatic peer-to-peer replication across nodes in a mesh network.
+EntglDb is not a database - it's a **sync layer** that plugs into your existing data store and enables automatic peer-to-peer replication across nodes in a mesh network.
 
-[Architecture](#architecture) � [Quick Start](#quick-start) � [Integration Guide](#integrating-with-your-database) � [Documentation](#documentation)
+[Architecture](#architecture) | [Quick Start](#quick-start) | [Integration Guide](#integrating-with-your-database) | [Documentation](#documentation)
 
 </div>
 
 ---
 
-## ?? Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [Architecture](#architecture)
@@ -36,48 +36,48 @@ EntglDb is not a database � it's a **sync layer** that plugs into your existin
 
 ---
 
-## ?? Overview
+## Overview
 
 **EntglDb** is a lightweight, embeddable **data synchronization middleware** for .NET. It observes changes in your database via **Change Data Capture (CDC)**, records them in an append-only **Oplog**, and replicates them across nodes connected via a **P2P mesh network**.
 
 Your application continues to read and write to its database as usual. EntglDb works in the background.
 
-> **?? Designed for Local Area Networks (LAN)**  
+> **[LAN] Designed for Local Area Networks (LAN)**  
 > Built for trusted environments: offices, retail stores, edge deployments. Cross-platform (Windows, Linux, macOS).
 
-> **?? Cloud Ready**  
+> **[Cloud] Cloud Ready**  
 > ASP.NET Core hosting with Entity Framework Core support (SQL Server, PostgreSQL, MySQL, SQLite) and OAuth2 authentication for public deployments.
 
 ---
 
-## ??? Architecture
+## Architecture
 
 ```
-????????????????????????????????????????????????????????
-?                  Your Application                     ?
-?  db.Users.InsertAsync(user)                           ?
-?  db.Users.Find(u => u.Age > 18)                       ?
-????????????????????????????????????????????????????????
-               ? uses your DbContext directly
-????????????????????????????????????????????????????????
-?         Your Database (BLite / EF Core)               ?
-?  ??????????????????????????????????????????????????  ?
-?  ?  Users    ?  Orders    ?  Products    ?  ...    ?  ?
-?  ??????????????????????????????????????????????????  ?
-?        ? CDC (Change Data Capture)                     ?
-?        ?                                              ?
-?  ??????????????????????????????????????????????????  ?
-?  ?  EntglDb Sync Engine                           ?  ?
-?  ?  � Oplog (append-only hash-chained journal)    ?  ?
-?  ?  � Vector Clock (causal ordering)              ?  ?
-?  ?  � Conflict Resolution (LWW / Custom Merge)    ?  ?
-?  ??????????????????????????????????????????????????  ?
-????????????????????????????????????????????????????????
-              ? P2P Network (TCP + UDP Discovery)
-????????????????????????????????????????????????????????
-?           Other Nodes (same setup)                    ?
-?  Node-A ?????????? Node-B ?????????? Node-C          ?
-????????????????????????????????????????????????????????
++---------------------------------------------------+
+|                  Your Application                 |
+|  db.Users.InsertAsync(user)                       |
+|  db.Users.Find(u => u.Age > 18)                   |
++---------------------------------------------------+
+               | uses your DbContext directly
++---------------------------------------------------+
+|         Your Database (BLite / EF Core)           |
+|  +---------------------------------------------+  |
+|  |  Users    |  Orders    |  Products    | ...   |
+|  +---------------------------------------------+  |
+|        | CDC (Change Data Capture)                |
+|        |                                          |
+|  +---------------------------------------------+  |
+|  |  EntglDb Sync Engine                       |  |
+|  |  - Oplog (append-only hash-chained journal)|  |
+|  |  - Vector Clock (causal ordering)          |  |
+|  |  - Conflict Resolution (LWW / Custom Merge)|  |
+|  +---------------------------------------------+  |
++---------------------------------------------------+
+              | P2P Network (TCP + UDP Discovery)
++---------------------------------------------------+
+|           Other Nodes (same setup)                |
+|  Node-A <-----> Node-B <-----> Node-C             |
++---------------------------------------------------+
 ```
 
 ### Core Concepts
@@ -85,27 +85,27 @@ Your application continues to read and write to its database as usual. EntglDb w
 | Concept | Description |
 |---------|-------------|
 | **Oplog** | Append-only journal of changes, hash-chained per node for integrity |
-| **Vector Clock** | Tracks causal ordering � knows who has what across the mesh |
-| **CDC** | Change Data Capture � watches your registered collections for local writes |
-| **Document Store** | Your bridge class � maps between your entities and the sync engine |
+| **Vector Clock** | Tracks causal ordering - knows who has what across the mesh |
+| **CDC** | Change Data Capture - watches your registered collections for local writes |
+| **Document Store** | Your bridge class - maps between your entities and the sync engine |
 | **Conflict Resolution** | Pluggable strategy (Last-Write-Wins or custom recursive merge) |
 | **VectorClockService** | Shared singleton keeping the Vector Clock in sync between CDC and OplogStore |
 
 ### Sync Flow
 
 ```
-Local Write ? CDC Trigger ? OplogEntry Created ? VectorClock Updated
-                                                        ?
-                                                        ?
+Local Write -> CDC Trigger -> OplogEntry Created -> VectorClock Updated
+                                                        |
+                                                        v
                                                   SyncOrchestrator
                                                   (gossip every 2s)
-                                                        ?
-                                              ?????????????????????
-                                              ?                   ?
+                                                        |
+                                              +---------+----------+
+                                              |                    |
                                           Push changes       Pull changes
                                           to peers           from peers
-                                              ?                   ?
-                                              ?                   ?
+                                              |                    |
+                                              v                    v
                                         Remote node          Apply to local
                                         applies via          OplogStore +
                                         ApplyBatchAsync      DocumentStore
@@ -113,38 +113,38 @@ Local Write ? CDC Trigger ? OplogEntry Created ? VectorClock Updated
 
 ---
 
-## ? Key Features
+## Key Features
 
-### ?? Selective Collection Sync
-Only collections registered via `WatchCollection()` are tracked. Your database can have hundreds of tables � only the ones you opt-in participate in replication.
+### [Select] Selective Collection Sync
+Only collections registered via `WatchCollection()` are tracked. Your database can have hundreds of tables - only the ones you opt-in participate in replication.
 
-### ?? Interest-Aware Gossip
+### [Gossip] Interest-Aware Gossip
 Nodes advertise which collections they sync. The orchestrator prioritizes peers sharing common interests, reducing unnecessary traffic.
 
-### ?? Offline First
-- Read/write operations work offline � they're direct database operations
+### [Offline] Offline First
+- Read/write operations work offline - they're direct database operations
 - Automatic sync when peers reconnect
 - Oplog-based gap recovery and snapshot fallback
 
-### ?? Secure Networking
+### [Secure] Secure Networking
 - Noise Protocol handshake with ECDH key exchange
 - AES-256 encryption for data in transit
 - HMAC authentication
 - Brotli compression for bandwidth efficiency
 
-### ?? Conflict Resolution
-- **Last Write Wins (LWW)** � default, HLC timestamp-based
-- **Recursive Merge** � deep JSON merge for concurrent edits
-- **Custom** � implement `IConflictResolver` for your business logic
+### [Conflict] Conflict Resolution
+- **Last Write Wins (LWW)** - default, HLC timestamp-based
+- **Recursive Merge** - deep JSON merge for concurrent edits
+- **Custom** - implement `IConflictResolver` for your business logic
 
-### ?? Cloud Infrastructure
+### [Cloud] Cloud Infrastructure
 - ASP.NET Core hosting (Single/Multi cluster modes)
 - Entity Framework Core: SQL Server, PostgreSQL, MySQL, SQLite
 - OAuth2 JWT authentication
 
 ---
 
-## ?? Installation
+## Installation
 
 ### Packages
 
@@ -170,7 +170,7 @@ dotnet add package EntglDb.Network
 
 ---
 
-## ?? Quick Start
+## Quick Start
 
 ### 1. Define Your Database Context
 
@@ -198,7 +198,7 @@ public class MyDocumentStore : BLiteDocumentStore<MyDbContext>
         ILogger<MyDocumentStore>? logger = null)
         : base(context, configProvider, vectorClockService, logger: logger)
     {
-        // Register collections for CDC � only these will be synced
+        // Register collections for CDC - only these will be synced
         WatchCollection("Customers", context.Customers, c => c.Id);
         WatchCollection("Orders", context.Orders, o => o.Id);
     }
@@ -304,7 +304,7 @@ public class MyService
 
     public async Task CreateCustomer(string name)
     {
-        // Write directly � EntglDb handles sync automatically
+        // Write directly - EntglDb handles sync automatically
         await _db.Customers.InsertAsync(
             new Customer { Id = Guid.NewGuid().ToString(), Name = name });
         await _db.SaveChangesAsync();
@@ -318,7 +318,7 @@ public class MyService
 
     public async Task<List<Customer>> GetYoungCustomers()
     {
-        // Read directly from your DB � no EntglDb API
+        // Read directly from your DB - no EntglDb API
         return _db.Customers.Find(c => c.Age < 30).ToList();
     }
 }
@@ -326,11 +326,11 @@ public class MyService
 
 ---
 
-## ?? Integrating with Your Database
+## Integrating with Your Database
 
 If you have an **existing database** and want to add P2P sync:
 
-### Step 1 � Wrap your context
+### Step 1 - Wrap your context
 
 Create a `DbContext` extending `EntglDocumentDbContext` (BLite) or use EF Core directly. This can wrap your existing collections/tables.
 
@@ -345,7 +345,7 @@ public class MyExistingDbContext : EntglDocumentDbContext
 }
 ```
 
-### Step 2 � Create a DocumentStore
+### Step 2 - Create a DocumentStore
 
 Extend `BLiteDocumentStore<T>` or implement against EF Core. This is the **bridge** between your data model and the sync engine.
 
@@ -365,7 +365,7 @@ public class MyDocumentStore : BLiteDocumentStore<MyExistingDbContext>
 }
 ```
 
-### Step 3 � Register only what you need
+### Step 3 - Register only what you need
 
 Call `WatchCollection()` in the constructor for each collection you want to replicate. Everything else is ignored by the sync engine.
 
@@ -381,7 +381,7 @@ public MyDocumentStore(...)
 }
 ```
 
-### Step 4 � Implement the mapping methods
+### Step 4 - Implement the mapping methods
 
 EntglDb stores data as `JsonElement`. You provide four mapping methods:
 
@@ -473,32 +473,32 @@ protected override async Task ApplyContentToEntitiesBatchAsync(
 
 ```
 Your Code: db.Users.InsertAsync(user)
-                    ?
-                    ?
+                    |
+                    v
 BLite/EF Core: SaveChangesAsync()
-                    ?
-                    ? CDC fires (WatchCollection observer)
+                    |
+                    | CDC fires (WatchCollection observer)
 DocumentStore: CreateOplogEntryAsync()
-                    ?
-                    ??? OplogEntry written (hash-chained, HLC timestamped)
-                    ??? VectorClockService.Update() ? sync sees it immediately
-                              ?
-                              ?
+                    |
+                    +-> OplogEntry written (hash-chained, HLC timestamped)
+                    +-> VectorClockService.Update() -> sync sees it immediately
+                              |
+                              v
                     SyncOrchestrator (background, every 2s)
-                    ??? Compare VectorClocks with peers
-                    ??? Push local changes (interest-filtered)
-                    ??? Pull remote changes ? ApplyBatchAsync
-                              ?
-                              ?
+                    +-> Compare VectorClocks with peers
+                    +-> Push local changes (interest-filtered)
+                    +-> Pull remote changes -> ApplyBatchAsync
+                              |
+                              v
                     Remote DocumentStore: ApplyContentToEntityAsync()
-                              ?
-                              ?
+                              |
+                              v
                     Remote Database: Updated!
 ```
 
 ---
 
-## ?? Cloud Deployment
+## Cloud Deployment
 
 EntglDb supports ASP.NET Core hosting with Entity Framework Core for cloud deployments.
 
@@ -550,7 +550,7 @@ builder.Services.AddEntglDbAspNetSingleCluster(options =>
 
 ---
 
-## ??? Production Features
+## Production Features
 
 ### Configuration
 
@@ -610,18 +610,18 @@ Console.WriteLine($"Peers: {status.ConnectedPeers}");
 
 ---
 
-## ?? Use Cases
+## Use Cases
 
-### ? Ideal For
+### Ideal For
 
-- **Retail POS Systems** � Terminals syncing inventory and sales across a store
-- **Office Applications** � Shared task lists, calendars, CRM data on LAN
-- **Edge Computing** � Distributed sensors and controllers at a facility
-- **Offline-First Apps** � Work without internet, sync when connected
-- **Multi-Site Replication** � Keep regional databases in sync (over VPN)
-- **Existing Database Modernization** � Add P2P sync without rewriting your app
+- **Retail POS Systems** - Terminals syncing inventory and sales across a store
+- **Office Applications** - Shared task lists, calendars, CRM data on LAN
+- **Edge Computing** - Distributed sensors and controllers at a facility
+- **Offline-First Apps** - Work without internet, sync when connected
+- **Multi-Site Replication** - Keep regional databases in sync (over VPN)
+- **Existing Database Modernization** - Add P2P sync without rewriting your app
 
-### ? Not Designed For
+### Not Designed For
 
 - **Public internet without HTTPS/VPN** (P2P mesh mode, use ASP.NET Core mode instead)
 - **Sub-millisecond consistency requirements** (eventual consistency model, typical convergence < 5s)
@@ -630,34 +630,34 @@ Console.WriteLine($"Peers: {status.ConnectedPeers}");
 
 ---
 
-## ?? Documentation
+## Documentation
 
 ### Getting Started
 
-- **[Sample Application](samples/EntglDb.Sample.Console/)** � Complete two-node sync example with interactive CLI
-- **[Quick Start Guide](#quick-start)** � 5-minute setup
-- **[Integration Guide](#integrating-with-your-database)** � Add sync to existing DB
+- **[Sample Application](samples/EntglDb.Sample.Console/)** - Complete two-node sync example with interactive CLI
+- **[Quick Start Guide](#quick-start)** - 5-minute setup
+- **[Integration Guide](#integrating-with-your-database)** - Add sync to existing DB
 
 ### Concepts
 
-- **[Architecture & Concepts](docs/architecture.md)** � HLC, Gossip, Vector Clocks, Hash Chains
-- **[Conflict Resolution](docs/conflict-resolution.md)** � LWW vs Recursive Merge
-- **[Oplog & CDC](docs/oplog-cdc.md)** � How change tracking works
+- **[Architecture & Concepts](docs/architecture.md)** - HLC, Gossip, Vector Clocks, Hash Chains
+- **[Conflict Resolution](docs/conflict-resolution.md)** - LWW vs Recursive Merge
+- **[Oplog & CDC](docs/oplog-cdc.md)** - How change tracking works
 
 ### Deployment
 
-- **[Production Guide](docs/production-hardening.md)** � Configuration, monitoring, best practices
-- **[Cloud Deployment](docs/cloud-deployment.md)** � ASP.NET Core, EF Core, OAuth2
-- **[Deployment Modes](docs/deployment-modes.md)** � Single vs Multi cluster
+- **[Production Guide](docs/production-hardening.md)** - Configuration, monitoring, best practices
+- **[Cloud Deployment](docs/cloud-deployment.md)** - ASP.NET Core, EF Core, OAuth2
+- **[Deployment Modes](docs/deployment-modes.md)** - Single vs Multi cluster
 
 ### API
 
-- **[API Reference](docs/api-reference.md)** � Complete API documentation
-- **[Persistence Providers](docs/persistence-providers.md)** � BLite, EF Core, custom
+- **[API Reference](docs/api-reference.md)** - Complete API documentation
+- **[Persistence Providers](docs/persistence-providers.md)** - BLite, EF Core, custom
 
 ---
 
-## ?? Examples
+## Examples
 
 See [`samples/EntglDb.Sample.Console/`](samples/EntglDb.Sample.Console/) for a complete working example with:
 
@@ -683,7 +683,7 @@ dotnet run -- node-2 8581
 
 ---
 
-## ??? Roadmap
+## Roadmap
 
 - [x] Core P2P mesh networking (v0.1.0)
 - [x] Secure networking (ECDH + AES-256) (v0.6.0)
@@ -701,7 +701,7 @@ dotnet run -- node-2 8581
 
 ---
 
-## ?? Contributing
+## Contributing
 
 We welcome contributions! EntglDb is open-source and we'd love your help.
 
@@ -737,11 +737,11 @@ dotnet run
 
 ### Areas We Need Help
 
-- ?? **Bug Reports** � Found an issue? Let us know!
-- ?? **Documentation** � Improve guides and examples
-- ? **Features** � Implement items from the roadmap
-- ?? **Testing** � Add integration and performance tests
-- ?? **Samples** � Build example applications
+- **[Bug] Bug Reports** - Found an issue? Let us know!
+- **[Docs] Documentation** - Improve guides and examples
+- **[Feature] Features** - Implement items from the roadmap
+- **[Test] Testing** - Add integration and performance tests
+- **[Sample] Samples** - Build example applications
 
 ### Code of Conduct
 
@@ -749,7 +749,7 @@ Be respectful, inclusive, and constructive. We're all here to learn and build gr
 
 ---
 
-## ?? License
+## License
 
 EntglDb is licensed under the **MIT License**.
 
@@ -769,18 +769,18 @@ See [LICENSE](LICENSE) file for full details.
 
 ---
 
-## Give it a Star! ?
+## Give it a Star!
 
 If you find EntglDb useful, please **give it a star** on GitHub! It helps others discover the project and motivates us to keep improving it.
 
 <div align="center">
 
-### [? Star on GitHub](https://github.com/EntglDb/EntglDb.Net)
+### [Star on GitHub](https://github.com/EntglDb/EntglDb.Net)
 
-**Thank you for your support!** ??
+**Thank you for your support!**
 
-**Built with ?? for the .NET community**
+**Built with care for the .NET community**
 
-[Report Bug](https://github.com/EntglDb/EntglDb.Net/issues) � [Request Feature](https://github.com/EntglDb/EntglDb.Net/issues) � [Discussions](https://github.com/EntglDb/EntglDb.Net/discussions)
+[Report Bug](https://github.com/EntglDb/EntglDb.Net/issues) | [Request Feature](https://github.com/EntglDb/EntglDb.Net/issues) | [Discussions](https://github.com/EntglDb/EntglDb.Net/discussions)
 
 </div>
