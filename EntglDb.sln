@@ -35,9 +35,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.AspNet", "src\Entgl
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Sample.AspNetCore", "samples\EntglDb.Sample.AspNetCore\EntglDb.Sample.AspNetCore.csproj", "{76946C01-6BB4-4A8E-8410-E4F3110F632C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence", "EntglDb.Persistence\EntglDb.Persistence.csproj", "{9F5A71BA-B68D-488B-91AC-FD7112935CE5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence", "src\EntglDb.Persistence\EntglDb.Persistence.csproj", "{9F5A71BA-B68D-488B-91AC-FD7112935CE5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence.BLite", "EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj", "{FB6EDA39-9860-4BD5-89D3-BCD8BB2FEDB9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Persistence.BLite", "src\EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj", "{FB6EDA39-9860-4BD5-89D3-BCD8BB2FEDB9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntglDb.Sample.Shared.Tests", "tests\EntglDb.Sample.Shared.Tests\EntglDb.Sample.Shared.Tests.csproj", "{B1182AF0-7E95-4CC0-A82D-3CBE1C13F7ED}"
 EndProject

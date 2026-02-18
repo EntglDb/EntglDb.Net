@@ -1,4 +1,4 @@
-﻿# EntglDb.Persistence
+# EntglDb.Persistence
 
 Base persistence abstractions and implementations for **EntglDb** - provides foundational storage components used by all persistence providers.
 
