@@ -16,7 +16,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>MrDevRobot</Authors>
     <Description>ASP.NET Core integration for EntglDb with health checks, hosted services, and multi-cluster support.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
