@@ -22,7 +22,7 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>MrDevRobot</Authors>
     <Description>Entity Framework Core persistence provider for EntglDb. Generic implementation supporting any EF Core database provider (SQL Server, PostgreSQL, MySQL, SQLite, etc).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
