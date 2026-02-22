@@ -1,4 +1,5 @@
-﻿using EntglDb.Core;
+﻿using BLite.Core.Query;
+using EntglDb.Core;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.BLite.Entities;
@@ -48,48 +49,52 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
 
     public override async Task<IEnumerable<OplogEntry>> GetChainRangeAsync(string startHash, string endHash, CancellationToken cancellationToken = default)
     {
-        var startRow = _context.OplogEntries.FindById(startHash);
-        var endRow = _context.OplogEntries.FindById(endHash);
+        var startRow = await _context.OplogEntries.FindByIdAsync(startHash, cancellationToken);
+        var endRow = await _context.OplogEntries.FindByIdAsync(endHash, cancellationToken);
 
         if (startRow == null || endRow == null) return [];
 
         var nodeId = startRow.TimestampNodeId;
 
         // 2. Fetch range (Start < Entry <= End)
-        var entities = _context.OplogEntries
-            .Find(o => o.TimestampNodeId == nodeId &&
+        return await _context.OplogEntries
+            .AsQueryable()
+            .Where(o => o.TimestampNodeId == nodeId &&
                        ((o.TimestampPhysicalTime > startRow.TimestampPhysicalTime) ||
                         (o.TimestampPhysicalTime == startRow.TimestampPhysicalTime && o.TimestampLogicalCounter > startRow.TimestampLogicalCounter)) &&
                        ((o.TimestampPhysicalTime < endRow.TimestampPhysicalTime) ||
                         (o.TimestampPhysicalTime == endRow.TimestampPhysicalTime && o.TimestampLogicalCounter <= endRow.TimestampLogicalCounter)))
             .OrderBy(o => o.TimestampPhysicalTime)
             .ThenBy(o => o.TimestampLogicalCounter)
-            .ToList();
-
-        return entities.ToDomain();
+            .Select(e => e.ToDomain())
+            .ToListAsync(cancellationToken);
     }
 
     public override async Task<OplogEntry?> GetEntryByHashAsync(string hash, CancellationToken cancellationToken = default)
     {
         // Hash is now a regular indexed property, not the Key
-        return _context.OplogEntries.Find(o => o.Hash == hash).FirstOrDefault()?.ToDomain();
+        return await _context.OplogEntries.AsQueryable()
+            .Where(o => o.Hash == hash)
+            .Select(o => o.ToDomain())
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public override async Task<IEnumerable<OplogEntry>> GetOplogAfterAsync(HlcTimestamp timestamp, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default)
     {
         var query = _context.OplogEntries
-            .Find(o => (o.TimestampPhysicalTime > timestamp.PhysicalTime) ||
+            .AsQueryable()
+            .Where(o => (o.TimestampPhysicalTime > timestamp.PhysicalTime) ||
                        (o.TimestampPhysicalTime == timestamp.PhysicalTime && o.TimestampLogicalCounter > timestamp.LogicalCounter));
         if (collections != null)
         {
             var collectionSet = new HashSet<string>(collections);
             query = query.Where(o => collectionSet.Contains(o.Collection));
         }
-        return query
+        return await query
             .OrderBy(o => o.TimestampPhysicalTime)
             .ThenBy(o => o.TimestampLogicalCounter)
-            .ToDomain()
-            .ToList();
+            .Select(e => e.ToDomain())
+            .ToListAsync(cancellationToken);
     }
 
     public override async Task<IEnumerable<OplogEntry>> GetOplogForNodeAfterAsync(string nodeId, HlcTimestamp since, IEnumerable<string>? collections = null, CancellationToken cancellationToken = default)
@@ -103,11 +108,11 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
             var collectionSet = new HashSet<string>(collections);
             query = query.Where(o => collectionSet.Contains(o.Collection));
         }
-        return query
+        return await query
             .OrderBy(o => o.TimestampPhysicalTime)
             .ThenBy(o => o.TimestampLogicalCounter)
-            .ToDomain()
-            .ToList();
+            .Select(e => e.ToDomain())
+            .ToListAsync(cancellationToken);
     }
 
     public override async Task ImportAsync(IEnumerable<OplogEntry> items, CancellationToken cancellationToken = default)
@@ -124,7 +129,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
         foreach (var item in items)
         {
             // Hash is now a regular indexed property, not the Key
-            var existing = _context.OplogEntries.Find(o => o.Hash == item.Hash).FirstOrDefault();
+            var existing = await _context.OplogEntries.AsQueryable().FirstOrDefaultAsync(o => o.Hash == item.Hash, cancellationToken);
             if (existing == null)
             {
                 await _context.OplogEntries.InsertAsync(item.ToEntity());
@@ -135,11 +140,11 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
 
     public override async Task PruneOplogAsync(HlcTimestamp cutoff, CancellationToken cancellationToken = default)
     {
-        var toDelete = _context.OplogEntries.AsQueryable()
+        var toDelete = await _context.OplogEntries.AsQueryable()
             .Where(o => (o.TimestampPhysicalTime < cutoff.PhysicalTime) ||
                        (o.TimestampPhysicalTime == cutoff.PhysicalTime && o.TimestampLogicalCounter <= cutoff.LogicalCounter))
             .Select(o => o.Hash)
-            .ToList();
+            .ToListAsync(cancellationToken);
         await _context.OplogEntries.DeleteBulkAsync(toDelete);
     }
 
@@ -209,18 +214,18 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
 
     protected override async Task<string?> QueryLastHashForNodeAsync(string nodeId, CancellationToken cancellationToken = default)
     {
-        var lastEntry = _context.OplogEntries.AsQueryable()
+        var lastEntry = await _context.OplogEntries.AsQueryable()
             .Where(o => o.TimestampNodeId == nodeId)
             .OrderByDescending(o => o.TimestampPhysicalTime)
             .ThenByDescending(o => o.TimestampLogicalCounter)
-            .FirstOrDefault();
+            .FirstOrDefaultAsync(cancellationToken);
         return lastEntry?.Hash;
     }
 
     protected override async Task<(long Wall, int Logic)?> QueryLastHashTimestampFromOplogAsync(string hash, CancellationToken cancellationToken = default)
     {
         // Hash is now a regular indexed property, not the Key
-        var entry = _context.OplogEntries.Find(o => o.Hash == hash).FirstOrDefault();
+        var entry = await _context.OplogEntries.AsQueryable().FirstOrDefaultAsync(o => o.Hash == hash, cancellationToken);
         if (entry == null) return null;
         return (entry.TimestampPhysicalTime, entry.TimestampLogicalCounter);
     }

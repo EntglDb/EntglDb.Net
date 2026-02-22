@@ -1,4 +1,5 @@
-﻿using EntglDb.Core.Network;
+﻿using BLite.Core.Query;
+using EntglDb.Core.Network;
 using EntglDb.Persistence.BLite.Entities;
 using EntglDb.Persistence.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -45,7 +46,7 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
     {
         _logger.LogWarning("Dropping peer configuration store - all remote peer configurations will be permanently deleted!");
         // Use Id (technical key) for deletion, not NodeId (business key)
-        var allIds = await Task.Run(() => _context.RemotePeerConfigurations.FindAll().Select(p => p.Id).ToList(), cancellationToken);
+        var allIds = await _context.RemotePeerConfigurations.AsQueryable().Select(p => p.Id).ToListAsync(cancellationToken);
         await _context.RemotePeerConfigurations.DeleteBulkAsync(allIds);
         await _context.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Peer configuration store dropped successfully.");
@@ -54,27 +55,30 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
     /// <inheritdoc />
     public override async Task<IEnumerable<RemotePeerConfiguration>> ExportAsync(CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => _context.RemotePeerConfigurations.FindAll().ToDomain().ToList(), cancellationToken);
+        return await _context.RemotePeerConfigurations.AsQueryable().Select(e => e.ToDomain()).ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task<RemotePeerConfiguration?> GetRemotePeerAsync(string nodeId, CancellationToken cancellationToken)
     {
         // NodeId is now a regular indexed property, not the Key
-        return await Task.Run(() => _context.RemotePeerConfigurations.Find(p => p.NodeId == nodeId).FirstOrDefault()?.ToDomain(), cancellationToken);
+        return await _context.RemotePeerConfigurations.AsQueryable()
+            .Where(p => p.NodeId == nodeId)
+            .Select(p => p.ToDomain())
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task<IEnumerable<RemotePeerConfiguration>> GetRemotePeersAsync(CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => _context.RemotePeerConfigurations.FindAll().ToDomain().ToList(), cancellationToken);
+        return await _context.RemotePeerConfigurations.AsQueryable().Select(e => e.ToDomain()).ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task RemoveRemotePeerAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         // NodeId is now a regular indexed property, not the Key
-        var peer = await Task.Run(() => _context.RemotePeerConfigurations.Find(p => p.NodeId == nodeId).FirstOrDefault(), cancellationToken);
+        var peer = await _context.RemotePeerConfigurations.AsQueryable().FirstOrDefaultAsync(p => p.NodeId == nodeId, cancellationToken);
         if (peer != null)
         {
             await _context.RemotePeerConfigurations.DeleteAsync(peer.Id);
@@ -91,7 +95,7 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
     public override async Task SaveRemotePeerAsync(RemotePeerConfiguration peer, CancellationToken cancellationToken = default)
     {
         // NodeId is now a regular indexed property, not the Key
-        var existing = await Task.Run(() => _context.RemotePeerConfigurations.Find(p => p.NodeId == peer.NodeId).FirstOrDefault(), cancellationToken);
+        var existing = await _context.RemotePeerConfigurations.AsQueryable().FirstOrDefaultAsync(p => p.NodeId == peer.NodeId, cancellationToken);
 
         if (existing == null)
         {

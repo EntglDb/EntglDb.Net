@@ -1,3 +1,4 @@
+using BLite.Core.Query;
 using EntglDb.Core;
 using EntglDb.Core.Storage;
 using EntglDb.Persistence.BLite.Entities;
@@ -25,9 +26,8 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     /// <inheritdoc />
     public override async Task<DocumentMetadata?> GetMetadataAsync(string collection, string key, CancellationToken cancellationToken = default)
     {
-        var entity = _context.DocumentMetadatas
-            .Find(m => m.Collection == collection && m.Key == key)
-            .FirstOrDefault();
+        var entity = await _context.DocumentMetadatas.AsQueryable()
+            .FirstOrDefaultAsync(m => m.Collection == collection && m.Key == key, cancellationToken);
 
         return entity != null ? ToDomain(entity) : null;
     }
@@ -35,18 +35,19 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     /// <inheritdoc />
     public override async Task<IEnumerable<DocumentMetadata>> GetMetadataByCollectionAsync(string collection, CancellationToken cancellationToken = default)
     {
-        return _context.DocumentMetadatas
-            .Find(m => m.Collection == collection)
-            .Select(ToDomain)
-            .ToList();
+        return await _context.DocumentMetadatas
+            .AsQueryable()
+            .Where(m => m.Collection == collection)
+            .Select(e => ToDomain(e))
+            .ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task UpsertMetadataAsync(DocumentMetadata metadata, CancellationToken cancellationToken = default)
     {
-        var existing = _context.DocumentMetadatas
-            .Find(m => m.Collection == metadata.Collection && m.Key == metadata.Key)
-            .FirstOrDefault();
+        var existing = await _context.DocumentMetadatas
+            .AsQueryable()
+            .FirstOrDefaultAsync(m => m.Collection == metadata.Collection && m.Key == metadata.Key, cancellationToken);
 
         if (existing == null)
         {
@@ -69,9 +70,9 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     {
         foreach (var metadata in metadatas)
         {
-            var existing = _context.DocumentMetadatas
-                .Find(m => m.Collection == metadata.Collection && m.Key == metadata.Key)
-                .FirstOrDefault();
+            var existing = await _context.DocumentMetadatas
+                .AsQueryable()
+                .FirstOrDefaultAsync(m => m.Collection == metadata.Collection && m.Key == metadata.Key, cancellationToken);
 
             if (existing == null)
             {
@@ -93,9 +94,9 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     /// <inheritdoc />
     public override async Task MarkDeletedAsync(string collection, string key, HlcTimestamp timestamp, CancellationToken cancellationToken = default)
     {
-        var existing = _context.DocumentMetadatas
-            .Find(m => m.Collection == collection && m.Key == key)
-            .FirstOrDefault();
+        var existing = await _context.DocumentMetadatas
+            .AsQueryable()
+            .FirstOrDefaultAsync(m => m.Collection == collection && m.Key == key, cancellationToken);
 
         if (existing == null)
         {
@@ -135,17 +136,17 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
             query = query.Where(m => collectionSet.Contains(m.Collection));
         }
 
-        return query
+        return await query
             .OrderBy(m => m.HlcPhysicalTime)
             .ThenBy(m => m.HlcLogicalCounter)
-            .Select(ToDomain)
-            .ToList();
+            .Select(e => ToDomain(e))
+            .ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task DropAsync(CancellationToken cancellationToken = default)
     {
-        var allIds = _context.DocumentMetadatas.FindAll().Select(m => m.Id).ToList();
+        var allIds = await _context.DocumentMetadatas.AsQueryable().Select(m => m.Id).ToListAsync(cancellationToken);
         await _context.DocumentMetadatas.DeleteBulkAsync(allIds);
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -153,7 +154,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     /// <inheritdoc />
     public override async Task<IEnumerable<DocumentMetadata>> ExportAsync(CancellationToken cancellationToken = default)
     {
-        return _context.DocumentMetadatas.FindAll().Select(ToDomain).ToList();
+        return await _context.DocumentMetadatas.AsQueryable().Select(e => ToDomain(e)).ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -171,9 +172,9 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     {
         foreach (var item in items)
         {
-            var existing = _context.DocumentMetadatas
-                .Find(m => m.Collection == item.Collection && m.Key == item.Key)
-                .FirstOrDefault();
+            var existing = await _context.DocumentMetadatas
+                .AsQueryable()
+                .FirstOrDefaultAsync(m => m.Collection == item.Collection && m.Key == item.Key, cancellationToken);
 
             if (existing == null)
             {

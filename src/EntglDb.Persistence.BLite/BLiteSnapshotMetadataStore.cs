@@ -1,4 +1,5 @@
-﻿using EntglDb.Core;
+﻿using BLite.Core.Query;
+using EntglDb.Core;
 using EntglDb.Persistence.BLite.Entities;
 using EntglDb.Persistence.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -49,7 +50,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     public override async Task DropAsync(CancellationToken cancellationToken = default)
     {
         // Use Id (technical key) for deletion, not NodeId (business key)
-        var allIds = await Task.Run(() => _context.SnapshotMetadatas.FindAll().Select(s => s.Id).ToList(), cancellationToken);
+        var allIds = await _context.SnapshotMetadatas.AsQueryable().Select(s => s.Id).ToListAsync(cancellationToken);
         await _context.SnapshotMetadatas.DeleteBulkAsync(allIds);
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -57,15 +58,17 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     /// <inheritdoc />
     public override async Task<IEnumerable<SnapshotMetadata>> ExportAsync(CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => _context.SnapshotMetadatas.FindAll().ToDomain().ToList(), cancellationToken);
+        return await _context.SnapshotMetadatas.AsQueryable().Select(e => e.ToDomain()).ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task<string?> GetSnapshotHashAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         // NodeId is now a regular indexed property, not the Key
-        var snapshot = await Task.Run(() => _context.SnapshotMetadatas.Find(s => s.NodeId == nodeId).FirstOrDefault(), cancellationToken);
-        return snapshot?.Hash;
+        return await _context.SnapshotMetadatas.AsQueryable()
+            .Where(s => s.NodeId == nodeId)
+            .Select(s => s.Hash)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <inheritdoc />
@@ -91,7 +94,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
         foreach (var metadata in items)
         {
             // NodeId is now a regular indexed property, not the Key
-            var existing = await Task.Run(() => _context.SnapshotMetadatas.Find(s => s.NodeId == metadata.NodeId).FirstOrDefault(), cancellationToken);
+            var existing = await _context.SnapshotMetadatas.AsQueryable().FirstOrDefaultAsync(s => s.NodeId == metadata.NodeId, cancellationToken);
 
             if (existing == null)
             {
@@ -119,7 +122,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     public override async Task UpdateSnapshotMetadataAsync(SnapshotMetadata existingMeta, CancellationToken cancellationToken)
     {
         // NodeId is now a regular indexed property, not the Key - find existing by NodeId
-        var existing = await Task.Run(() => _context.SnapshotMetadatas.Find(s => s.NodeId == existingMeta.NodeId).FirstOrDefault(), cancellationToken);
+        var existing = await _context.SnapshotMetadatas.AsQueryable().FirstOrDefaultAsync(s => s.NodeId == existingMeta.NodeId, cancellationToken);
         if (existing != null)
         {
             existing.NodeId = existingMeta.NodeId;
@@ -135,12 +138,15 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     public override async Task<SnapshotMetadata?> GetSnapshotMetadataAsync(string nodeId, CancellationToken cancellationToken = default)
     {
         // NodeId is now a regular indexed property, not the Key
-        return await Task.Run(() => _context.SnapshotMetadatas.Find(s => s.NodeId == nodeId).FirstOrDefault()?.ToDomain(), cancellationToken);
+        return await _context.SnapshotMetadatas.AsQueryable()
+            .Where(s => s.NodeId == nodeId)
+            .Select(s => s.ToDomain())
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public override async Task<IEnumerable<SnapshotMetadata>> GetAllSnapshotMetadataAsync(CancellationToken cancellationToken = default)
     {
-        return await Task.Run(() => _context.SnapshotMetadatas.FindAll().ToDomain().ToList(), cancellationToken);
+        return await _context.SnapshotMetadatas.AsQueryable().Select(e => e.ToDomain()).ToListAsync(cancellationToken);
     }
 }

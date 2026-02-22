@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BLite.Core.CDC;
 using BLite.Core.Collections;
+using BLite.Core.Query;
 using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
@@ -455,11 +456,12 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         var nodeId = config.NodeId;
 
         // Get last hash from OplogEntries collection directly
-        var lastEntry = _context.OplogEntries
-            .Find(e => e.TimestampNodeId == nodeId)
+        var lastEntry = await _context.OplogEntries
+            .AsQueryable()
+            .Where(e => e.TimestampNodeId == nodeId)
             .OrderByDescending(e => e.TimestampPhysicalTime)
             .ThenByDescending(e => e.TimestampLogicalCounter)
-            .FirstOrDefault();
+            .FirstOrDefaultAsync(cancellationToken);
 
         var previousHash = lastEntry?.Hash ?? string.Empty;
         var timestamp = GenerateTimestamp(nodeId);
@@ -482,9 +484,10 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             timestamp, 
             isDeleted: operationType == OperationType.Delete);
 
-        var existingMetadata = _context.DocumentMetadatas
-            .Find(m => m.Collection == collection && m.Key == key)
-            .FirstOrDefault();
+        var existingMetadata = await _context.DocumentMetadatas
+            .AsQueryable()
+            .Where(m => m.Collection == collection && m.Key == key)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (existingMetadata != null)
         {
