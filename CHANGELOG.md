@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="1.1.0"></a>
+## [1.1.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.1.0) (2026-02-22)
+
+### Features
+
+* full async read and writes for BLite ([e49d44a](https://www.github.com/EntglDb/EntglDb.Net/commit/e49d44a3390e4029ab878aff36b8d788157b6bf9))
+
 <a name="1.0.3"></a>
 ## [1.0.3](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.0.3) (2026-02-19)
 
