@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="1.1.1"></a>
+## [1.1.1](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.1.1) (2026-03-02)
+
+### Bug Fixes
+
+* corrects the samples ([cc8dc82](https://www.github.com/EntglDb/EntglDb.Net/commit/cc8dc82d719baae8b47eb8671f3460f9d8fdcea2))
+
 <a name="1.1.0"></a>
 ## [1.1.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v1.1.0) (2026-02-22)
 
