@@ -5,7 +5,8 @@ using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
 using EntglDb.Network;
 using EntglDb.Network.Security;
-using EntglDb.Persistence.Sqlite;
+using EntglDb.Persistence.BLite;
+using EntglDb.Sample.Shared;
 using Lifter.Avalonia;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,14 +45,20 @@ public class App : HostedApplication<MainView>
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "EntglDbTest");
         }
+        Directory.CreateDirectory(basePath);
+        var databasePath = Path.Combine(basePath, "avalonia.blite");
+
+        // Register configuration provider
+        var nodeId = configuration["Database:NodeId"] ?? "test-node-avalonia";
+        var tcpPort = int.TryParse(configuration["EntglDb:Network:TcpPort"], out var p) ? p : 0;
+        var authToken = configuration["EntglDb:Node:AuthToken"] ?? "demo-secret-key";
+        IPeerNodeConfigurationProvider configProvider = new StaticPeerNodeConfigurationProvider(
+            new PeerNodeConfiguration { NodeId = nodeId, TcpPort = tcpPort, AuthToken = authToken });
+        services.AddSingleton<IPeerNodeConfigurationProvider>(configProvider);
 
         // Register EntglDb Services using Fluent Extensions
         services.AddEntglDbCore()
-                .AddEntglDbSqlite(options =>
-                {
-                    options.BasePath = basePath;
-                    options.UsePerCollectionTables = true; // Use new per-collection tables
-                })
-                .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
+                .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath))
+                .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
     }
 }

@@ -1,19 +1,15 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using EntglDb.Core;
-using EntglDb.Legacy;
 using EntglDb.Sample.Shared;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace EntglDb.Test.Avalonia;
 
 public partial class TodoListView : UserControl
 {
-    private readonly IPeerDatabase _database;
-    private readonly IPeerCollection<TodoList> _todoCollection;
+    private readonly SampleDbContext _db;
     private TodoList? _selectedList;
     private List<TodoList> _allLists = new();
 
@@ -22,20 +18,17 @@ public partial class TodoListView : UserControl
         InitializeComponent();
     }
 
-    public TodoListView(IPeerDatabase database) : this()
+    public TodoListView(SampleDbContext db) : this()
     {
-        _database = database;
-        _todoCollection = _database.Collection<TodoList>();
-        
-        _ = LoadListsAsync();
+        _db = db;
+        LoadLists();
     }
 
-    private async Task LoadListsAsync()
+    private void LoadLists()
     {
         try
         {
-            var lists = await _todoCollection.Find(t => true);
-            _allLists = lists.ToList();
+            _allLists = _db.TodoLists.FindAll().ToList();
             ListsBox.ItemsSource = _allLists.Select(l => $"{l.Name} ({l.Items.Count})").ToList();
         }
         catch (Exception ex)
@@ -106,7 +99,8 @@ public partial class TodoListView : UserControl
         if (sender is global::Avalonia.Controls.CheckBox cb && cb.Tag is TodoItem item && _selectedList != null)
         {
             item.Completed = cb.IsChecked ?? false;
-            await _todoCollection.Put(_selectedList);
+            await _db.TodoLists.UpdateAsync(_selectedList);
+            await _db.SaveChangesAsync();
         }
     }
 
@@ -115,7 +109,8 @@ public partial class TodoListView : UserControl
         if (sender is global::Avalonia.Controls.Button btn && btn.Tag is TodoItem item && _selectedList != null)
         {
             _selectedList.Items.Remove(item);
-            await _todoCollection.Put(_selectedList);
+            await _db.TodoLists.UpdateAsync(_selectedList);
+            await _db.SaveChangesAsync();
             RenderItems();
         }
     }
@@ -126,8 +121,8 @@ public partial class TodoListView : UserControl
 
         var newItem = new TodoItem { Task = NewItemTaskEntry.Text, Completed = false };
         _selectedList.Items.Add(newItem);
-        
-        await _todoCollection.Put(_selectedList);
+        await _db.TodoLists.UpdateAsync(_selectedList);
+        await _db.SaveChangesAsync();
         
         NewItemTaskEntry.Text = string.Empty;
         RenderItems();
@@ -143,20 +138,22 @@ public partial class TodoListView : UserControl
             Items = new List<TodoItem>()
         };
 
-        await _todoCollection.Put(newList);
+        await _db.TodoLists.InsertAsync(newList);
+        await _db.SaveChangesAsync();
         
         NewListNameEntry.Text = string.Empty;
-        await LoadListsAsync();
+        LoadLists();
     }
 
     private async void OnDeleteListClicked(object? sender, RoutedEventArgs e)
     {
         if (_selectedList == null) return;
 
-        await _todoCollection.Delete(_selectedList.Id);
+        await _db.TodoLists.DeleteAsync(_selectedList.Id);
+        await _db.SaveChangesAsync();
         _selectedList = null;
         
-        await LoadListsAsync();
+        LoadLists();
         OnListSelected(null, null!);
     }
 }

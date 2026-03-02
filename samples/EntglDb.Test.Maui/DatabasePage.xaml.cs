@@ -1,4 +1,4 @@
-using EntglDb.Core.Storage;
+using EntglDb.Sample.Shared;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 
@@ -6,14 +6,14 @@ namespace EntglDb.Test.Maui;
 
 public partial class DatabasePage : ContentPage
 {
-    private readonly IPeerStore _store;
+    private readonly SampleDbContext _db;
     public ObservableCollection<CollectionViewModel> Collections { get; } = new();
     public ICommand RefreshCommand { get; }
 
-    public DatabasePage(IPeerStore store)
+    public DatabasePage(SampleDbContext db)
     {
         InitializeComponent();
-        _store = store;
+        _db = db;
         RefreshCommand = new Command(async () => await LoadCollections());
         BindingContext = this;
     }
@@ -24,25 +24,23 @@ public partial class DatabasePage : ContentPage
         await LoadCollections();
     }
 
-    private async Task LoadCollections()
+    private Task LoadCollections()
     {
         try
         {
-            var cols = await _store.GetCollectionsAsync();
             Collections.Clear();
-            foreach (var c in cols)
-            {
-                Collections.Add(new CollectionViewModel { Name = c });
-            }
+            Collections.Add(new CollectionViewModel { Name = "Users" });
+            Collections.Add(new CollectionViewModel { Name = "TodoLists" });
         }
         catch (Exception ex)
         {
-            await DisplayAlert("Error", $"Failed to load collections: {ex.Message}", "OK");
+            _ = DisplayAlert("Error", $"Failed to load collections: {ex.Message}", "OK");
         }
         finally
         {
             CollectionsRefreshView.IsRefreshing = false;
         }
+        return Task.CompletedTask;
     }
 
     private async void OnCollectionSelected(object sender, SelectionChangedEventArgs e)
@@ -50,7 +48,7 @@ public partial class DatabasePage : ContentPage
         if (e.CurrentSelection.FirstOrDefault() is CollectionViewModel selected)
         {
             CollectionsCollectionView.SelectedItem = null; // Deselect
-            await Navigation.PushAsync(new CollectionPage(_store, selected.Name));
+            await Navigation.PushAsync(new CollectionPage(_db, selected.Name));
         }
     }
 }

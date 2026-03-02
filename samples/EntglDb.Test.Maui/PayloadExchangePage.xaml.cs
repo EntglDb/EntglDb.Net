@@ -1,17 +1,16 @@
-using EntglDb.Core;
-using EntglDb.Legacy;
+using EntglDb.Sample.Shared;
 using System.Text.Json;
 
 namespace EntglDb.Test.Maui;
 
 public partial class PayloadExchangePage : ContentPage
 {
-    private readonly IPeerDatabase _database;
+    private readonly SampleDbContext _db;
 
-    public PayloadExchangePage(IPeerDatabase database)
+    public PayloadExchangePage(SampleDbContext db)
     {
         InitializeComponent();
-        _database = database;
+        _db = db;
     }
 
     protected override void OnAppearing()
@@ -96,14 +95,10 @@ public partial class PayloadExchangePage : ContentPage
                 id = idProp.ToString();
             }
 
-            var collectionRef = _database.Collection(collection);
-            
-            // PeerCollection.Put handles HLC ticking and Oplog appending.
-            // We pass the parsed JsonElement. PeerCollection.Put expects an object to serialize, 
-            // but passing a JsonElement works because JsonSerializer handles it correctly.
-            // We need to use Put(key, document)
-            
-            await collectionRef.Put(id, jsonElement);
+            // Insert as a User for sync testing purposes
+            var user = new User { Id = id, Name = "payload-test", Age = 0, Address = new Address { City = "PayloadTest" } };
+            await _db.Users.InsertAsync(user);
+            await _db.SaveChangesAsync();
             
             StatusLabel.Text = $"Saved document {id} to '{collection}' at {DateTime.Now.ToLongTimeString()}";
             StatusLabel.TextColor = Colors.Green;

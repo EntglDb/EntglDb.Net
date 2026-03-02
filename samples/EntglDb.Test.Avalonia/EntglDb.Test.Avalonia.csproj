@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -11,7 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\EntglDb.Core\EntglDb.Core.csproj" />
     <ProjectReference Include="..\..\src\EntglDb.Network\EntglDb.Network.csproj" />
-    <ProjectReference Include="..\..\src\EntglDb.Persistence.Sqlite\EntglDb.Persistence.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\EntglDb.Persistence.BLite\EntglDb.Persistence.BLite.csproj" />
     <ProjectReference Include="..\EntglDb.Sample.Shared\EntglDb.Sample.Shared.csproj" />
   </ItemGroup>
 

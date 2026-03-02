@@ -11,21 +11,20 @@ using System.Linq;
 using System.Threading.Tasks;
 using EntglDb.Sample.Shared;
 using EntglDb.Core.Network;
-using EntglDb.Legacy;
 
 namespace EntglDb.Test.Avalonia;
 
 public partial class MainView : UserControl, IHostedView
 {
-    private readonly IPeerDatabase _database;
+    private readonly SampleDbContext _db;
     private readonly IEntglDbNode _node;
     private readonly ILogger<MainView> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
     private readonly DispatcherTimer _timer;
 
-    public MainView(IPeerDatabase database, IEntglDbNode node, IPeerNodeConfigurationProvider peerNodeConfigurationProvider, ILogger<MainView> logger)
+    public MainView(SampleDbContext db, IEntglDbNode node, IPeerNodeConfigurationProvider peerNodeConfigurationProvider, ILogger<MainView> logger)
     {
-        _database = database;
+        _db = db;
         _node = node;
         _logger = logger;
         _configProvider = peerNodeConfigurationProvider;
@@ -78,18 +77,15 @@ public partial class MainView : UserControl, IHostedView
 
         try
         {
-            // Use strongly typed collection
-            var collection = _database.Collection<User>("users");
-            
             var user = new User
-            { 
+            {
                 Id = KeyEntry.Text,
-                Name = ValueEntry.Text, 
+                Name = ValueEntry.Text,
                 Age = new Random().Next(18, 99),
                 Address = new Address { City = "Avalonia City" }
             };
-            
-            await collection.Put(user);
+            await _db.Users.InsertAsync(user);
+            await _db.SaveChangesAsync();
             AppendLog($"Saved '{user.Id}' to 'users'");
             
             KeyEntry.Text = string.Empty;
@@ -112,9 +108,7 @@ public partial class MainView : UserControl, IHostedView
 
         try
         {
-            var collection = _database.Collection<User>("users");
-            var user = await collection.Get(KeyEntry.Text);
-            
+            var user = _db.Users.FindById(KeyEntry.Text);
             if (user != null)
             {
                 AppendLog($"Found: {user.Name} ({user.Age})");
@@ -142,30 +136,28 @@ public partial class MainView : UserControl, IHostedView
     private async void OnSpamClicked(object? sender, RoutedEventArgs e)
     {
         AppendLog("Starting Spam (5 records)...");
-        var collection = _database.Collection<User>("users");
         for (int i = 0; i < 5; i++)
         {
             var key = $"Spam-{i}-{DateTime.Now.Ticks}";
             var user = new User
-            { 
+            {
                 Id = key,
                 Name = $"SpamUser {i}",
                 Age = 20 + i,
                 Address = new Address { City = "SpamTown" }
             };
-            
-            await collection.Put(user);
+            await _db.Users.InsertAsync(user);
             AppendLog($"Spammed: {key}");
             await Task.Delay(100);
         }
+        await _db.SaveChangesAsync();
         AppendLog("Spam finished.");
     }
 
-    private async void OnCountClicked(object? sender, RoutedEventArgs e)
+    private void OnCountClicked(object? sender, RoutedEventArgs e)
     {
-        var collection = _database.Collection<User>("users");
-        var all = await collection.Find(x => true);
-        AppendLog($"Total Users: {all.Count()}");
+        var count = _db.Users.FindAll().Count();
+        AppendLog($"Total Users: {count}");
     }
 
     private void OnClearLogsClicked(object? sender, RoutedEventArgs e)
@@ -178,7 +170,7 @@ public partial class MainView : UserControl, IHostedView
         var window = (global::Avalonia.Controls.Window?)this.VisualRoot;
         if (window != null)
         {
-            var todoView = new TodoListView(_database);
+            var todoView = new TodoListView(_db);
             
             var dialog = new global::Avalonia.Controls.Window
             {
@@ -269,8 +261,6 @@ public partial class MainView : UserControl, IHostedView
             
             try
             {
-                var todoCollection = _database.Collection<TodoList>();
-                
                 var list = new TodoList 
                 { 
                     Name = "Shopping Demo",
@@ -281,33 +271,36 @@ public partial class MainView : UserControl, IHostedView
                     }
                 };
                 
-                await todoCollection.Put(list);
+                await _db.TodoLists.InsertAsync(list);
+                await _db.SaveChangesAsync();
                 log.Text += $"✓ Created '{list.Name}'\n";
                 await Task.Delay(100);
                 
-                var listA = await todoCollection.Get(list.Id);
+                var listA = _db.TodoLists.FindById(list.Id);
                 if (listA != null)
                 {
                     listA.Items[0].Completed = true;
                     listA.Items.Add(new TodoItem { Task = "Buy eggs", Completed = false });
-                    await todoCollection.Put(listA);
+                    await _db.TodoLists.UpdateAsync(listA);
+                    await _db.SaveChangesAsync();
                     log.Text += "📝 Edit A: milk ✓, +eggs\n";
                 }
                 
                 await Task.Delay(100);
                 
-                var listB = await todoCollection.Get(list.Id);
+                var listB = _db.TodoLists.FindById(list.Id);
                 if (listB != null)
                 {
                     listB.Items[1].Completed = true;
                     listB.Items.Add(new TodoItem { Task = "Buy cheese", Completed = false });
-                    await todoCollection.Put(listB);
+                    await _db.TodoLists.UpdateAsync(listB);
+                    await _db.SaveChangesAsync();
                     log.Text += "📝 Edit B: bread ✓, +cheese\n\n";
                 }
                 
                 await Task.Delay(200);
                 
-                var merged = await todoCollection.Get(list.Id);
+                var merged = _db.TodoLists.FindById(list.Id);
                 if (merged != null)
                 {
                     var resolver = MergeRadio.IsChecked == true ? "RecursiveMerge" : "LWW";

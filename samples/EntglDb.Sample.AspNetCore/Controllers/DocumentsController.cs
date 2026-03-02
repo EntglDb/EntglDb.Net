@@ -1,9 +1,6 @@
-using EntglDb.Core;
-using EntglDb.Core.Storage;
+using EntglDb.Sample.Shared;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
-using System.Linq.Expressions;
-using EntglDb.Legacy;
 
 namespace EntglDb.Sample.AspNetCore.Controllers;
 
@@ -11,49 +8,58 @@ namespace EntglDb.Sample.AspNetCore.Controllers;
 [Route("api/[controller]")]
 public class DocumentsController : ControllerBase
 {
-    private readonly IPeerDatabase _db;
+    private readonly SampleDbContext _db;
 
-    public DocumentsController(IPeerDatabase db)
+    public DocumentsController(SampleDbContext db)
     {
         _db = db;
     }
 
     [HttpGet("{collection}/{id}")]
-    public async Task<IActionResult> GetDocument(string collection, string id)
+    public IActionResult GetDocument(string collection, string id)
     {
-        var col = _db.Collection(collection);
-        // Using object or JsonElement depending on serializer behavior. 
-        // EntglDb uses System.Text.Json usually. 
-        var doc = await col.Get<JsonElement>(id);
-        
-        // Check if doc is ValueKind.Undefined (default struct) to determine "not found"? 
-        // Or generic Get returns default(T)? JsonElement default is Undefined.
-        if (doc.ValueKind == JsonValueKind.Undefined)
-            return NotFound();
-
-        return Ok(doc);
+        return collection.ToLower() switch
+        {
+            "users" => _db.Users.FindById(id) is { } u ? Ok(u) : NotFound(),
+            "todolists" => _db.TodoLists.FindById(id) is { } t ? Ok(t) : NotFound(),
+            _ => NotFound()
+        };
     }
 
     [HttpPost("{collection}")]
     public async Task<IActionResult> SaveDocument(string collection, [FromBody] JsonElement content)
     {
         string id = content.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? Guid.NewGuid().ToString() : Guid.NewGuid().ToString();
-        
-        var col = _db.Collection(collection);
-        await col.Put(id, content);
-        
+
+        switch (collection.ToLower())
+        {
+            case "users":
+                var user = JsonSerializer.Deserialize<User>(content.GetRawText());
+                if (user == null) return BadRequest();
+                user.Id = id;
+                await _db.Users.InsertAsync(user);
+                break;
+            case "todolists":
+                var list = JsonSerializer.Deserialize<TodoList>(content.GetRawText());
+                if (list == null) return BadRequest();
+                list.Id = id;
+                await _db.TodoLists.InsertAsync(list);
+                break;
+            default:
+                return NotFound();
+        }
+        await _db.SaveChangesAsync();
         return Ok(new { Message = "Saved", Id = id });
     }
 
     [HttpGet("{collection}")]
-    public async Task<IActionResult> ListDocuments(string collection)
+    public IActionResult ListDocuments(string collection)
     {
-        var col = _db.Collection(collection);
-        // Find all. Using a dummy expression that is true.
-        // Identify if expression translator supports it.
-        // Assuming simple scan is supported.
-        Expression<Func<JsonElement, bool>> predicate = x => true;
-        var docs = await col.Find(predicate);
-        return Ok(docs);
+        return collection.ToLower() switch
+        {
+            "users" => Ok(_db.Users.FindAll().ToList()),
+            "todolists" => Ok(_db.TodoLists.FindAll().ToList()),
+            _ => NotFound()
+        };
     }
 }

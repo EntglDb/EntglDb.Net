@@ -1,9 +1,8 @@
 using EntglDb.Core;
 using EntglDb.Core.Network;
-using EntglDb.Core.Storage;
 using EntglDb.Network;
-using EntglDb.Persistence.EntityFramework;
-using Microsoft.EntityFrameworkCore;
+using EntglDb.Persistence.BLite;
+using EntglDb.Sample.Shared;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,11 +28,13 @@ builder.Services.AddHealthChecks()
 builder.Services.AddSingleton<AspNetPeerNodeConfigurationProvider>();
 
 // Configure EntglDb
-builder.Services.AddDbContext<EntglDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("EntglDbConnection")), ServiceLifetime.Singleton);
+var dataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+Directory.CreateDirectory(dataPath);
+var nodeName = builder.Configuration["EntglDb:NodeName"] ?? "AspNetSampleNode";
+var databasePath = Path.Combine(dataPath, $"{nodeName}.blite");
 
 builder.Services.AddEntglDbCore()
-    .AddEntglDbEntityFramework()
+    .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath))
     .AddEntglDbNetwork<AspNetPeerNodeConfigurationProvider>(useHostedService: true);
 
 var app = builder.Build();
@@ -56,47 +57,35 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<EntglDbContext>();
-    db.Database.EnsureCreated();
-}
-
 app.MapControllers();
 app.MapHealthChecks("/health");
 
 // API: Get Available Collections
-app.MapGet("/api/collections", async (IPeerStore store) => 
+app.MapGet("/api/collections", (SampleDbContext db) =>
 {
-    var collections = await store.GetCollectionsAsync();
-    return Results.Ok(collections);
+    return Results.Ok(new[] { "Users", "TodoLists" });
 })
 .WithName("GetCollections");
 
 // API: Get Connected Peers
 app.MapGet("/api/peers", (IDiscoveryService discovery) =>
 {
-    // Lists peers discovered via UDP
     var activePeers = discovery.GetActivePeers();
     return Results.Ok(activePeers);
 })
 .WithName("GetPeers");
 
 // API: Get Telemetry
-app.MapGet("/api/telemetry", async (IPeerStore store, EntglDb.Network.Telemetry.INetworkTelemetryService telemetry) =>
+app.MapGet("/api/telemetry", (SampleDbContext db, EntglDb.Network.Telemetry.INetworkTelemetryService telemetry) =>
 {
-    var vectorClock = await store.GetVectorClockAsync();
-    var collections = await store.GetCollectionsAsync();
-    var counts = new Dictionary<string, int>();
-    
-    foreach(var col in collections)
+    var counts = new Dictionary<string, int>
     {
-        counts[col] = await store.CountDocumentsAsync(col, null);
-    }
+        ["Users"] = db.Users.FindAll().Count(),
+        ["TodoLists"] = db.TodoLists.FindAll().Count()
+    };
 
-    return Results.Ok(new 
-    { 
-        VectorClock = vectorClock,
+    return Results.Ok(new
+    {
         DocumentCounts = counts,
         NetworkStats = telemetry.GetSnapshot(),
         Timestamp = DateTime.UtcNow
@@ -136,26 +125,25 @@ public class AspNetPeerNodeConfigurationProvider : IPeerNodeConfigurationProvide
 
 public class EntglDbHealth : Microsoft.Extensions.Diagnostics.HealthChecks.IHealthCheck
 {
-    private readonly IPeerStore _store;
+    private readonly SampleDbContext _db;
 
-    public EntglDbHealth(IPeerStore store)
+    public EntglDbHealth(SampleDbContext db)
     {
-        _store = store;
+        _db = db;
     }
 
-    public async Task<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult> CheckHealthAsync(
-        Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext context, 
+    public Task<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult> CheckHealthAsync(
+        Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Simple check: try to read latest timestamp
-            await _store.GetLatestTimestampAsync(cancellationToken);
-            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("EntglDb is reachable");
+            _ = _db.Users.FindAll().Count();
+            return Task.FromResult(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("EntglDb is reachable"));
         }
         catch (Exception ex)
         {
-            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("EntglDb is unreachable", ex);
+            return Task.FromResult(Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("EntglDb is unreachable", ex));
         }
     }
 }

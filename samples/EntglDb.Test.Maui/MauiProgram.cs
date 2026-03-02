@@ -5,7 +5,8 @@ using Lifter.Maui;
 using EntglDb.Core;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
-using EntglDb.Persistence.Sqlite;
+using EntglDb.Persistence.BLite;
+using EntglDb.Sample.Shared;
 using EntglDb.Network;
 using EntglDb.Network.Security;
 using EntglDb.Core.Network;
@@ -55,50 +56,54 @@ public static class MauiProgram
         builder.Logging.AddProvider(new InMemoryLoggerProvider(logs));
 
 		// EntglDb Services
-		// Conflict Resolution - Read from preferences
-		var resolverType = Preferences.Default.Get("ConflictResolver", "Merge");
-		if (resolverType == "Merge")
-		{
-			builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
-		}
+		// Conflict Resolution
+		builder.Services.AddSingleton<IConflictResolver, RecursiveNodeMergeConflictResolver>();
 
-        // Create/Retrieve Persistent Node Id
-        var nodeId = Preferences.Default.Get("NodeId", string.Empty);
-        if (string.IsNullOrEmpty(nodeId) || nodeId.StartsWith("Maui"))
+        // Config provider and db path resolved lazily inside factory lambdas,
+        // after MAUI platform is fully initialized.
+        builder.Services.AddSingleton<IPeerNodeConfigurationProvider>(sp =>
         {
-            nodeId = Guid.NewGuid().ToString();
-            Preferences.Default.Set("NodeId", nodeId);
-        }
-
-		IPeerNodeConfigurationProvider peerNodeConfigurationProvider = new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
-		{
-			NodeId = $"CHANGEME-{nodeId}",
-            TcpPort = 5001,
-			AuthToken = "Test-Cluster-Key",
-			OplogRetentionHours = 2,
-			MaintenanceIntervalMinutes = 5,
-            KnownPeers = new List<KnownPeerConfiguration> 
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var nodeIdFile = Path.Combine(appDataPath, "entgldb-node-id.txt");
+            string nodeId;
+            if (File.Exists(nodeIdFile))
+                nodeId = File.ReadAllText(nodeIdFile).Trim();
+            else
             {
-                new KnownPeerConfiguration 
-                { 
-                    NodeId = "AspNetSampleNode", 
-                    Host = DeviceInfo.Platform == DevicePlatform.Android ? "10.0.2.2" : "localhost", 
-                    Port = 6001 
-                }
+                nodeId = Guid.NewGuid().ToString();
+                File.WriteAllText(nodeIdFile, nodeId);
             }
-        });
 
-		builder.Services.AddSingleton(peerNodeConfigurationProvider);
+            return new StaticPeerNodeConfigurationProvider(new PeerNodeConfiguration
+            {
+                NodeId = $"maui-{nodeId}",
+                TcpPort = 5001,
+                AuthToken = "Test-Cluster-Key",
+                OplogRetentionHours = 2,
+                MaintenanceIntervalMinutes = 5,
+                KnownPeers = new List<KnownPeerConfiguration>
+                {
+                    new KnownPeerConfiguration
+                    {
+                        NodeId = "AspNetSampleNode",
+#if ANDROID
+                        Host = "10.0.2.2",
+#else
+                        Host = "localhost",
+#endif
+                        Port = 6001
+                    }
+                }
+            });
+        });
 
         // EntglDb Core Services
         builder.Services.AddEntglDbCore()
-						.AddEntglDbSqlite(options =>
-						{
-							options.BasePath = FileSystem.AppDataDirectory;
-							options.UsePerCollectionTables = true; // Use new per-collection tables
-						})
-						.AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
-
+                        .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(
+                            sp => new SampleDbContext(Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                "app.blite")))
+                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 #if DEBUG
 		builder.Logging.AddDebug();
 #endif

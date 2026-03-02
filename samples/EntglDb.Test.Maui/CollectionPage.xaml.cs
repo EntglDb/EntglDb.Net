@@ -1,12 +1,13 @@
-using EntglDb.Core.Storage;
+using EntglDb.Sample.Shared;
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Windows.Input;
 
 namespace EntglDb.Test.Maui;
 
 public partial class CollectionPage : ContentPage
 {
-    private readonly IPeerStore _store;
+    private readonly SampleDbContext _db;
     public string CollectionName { get; }
     
     public ObservableCollection<DocumentViewModel> Documents { get; } = new();
@@ -23,12 +24,12 @@ public partial class CollectionPage : ContentPage
         }
     }
 
-    public CollectionPage(IPeerStore store, string collectionName)
+    public CollectionPage(SampleDbContext db, string collectionName)
     {
         InitializeComponent();
-        _store = store;
+        _db = db;
         CollectionName = collectionName;
-        Title = collectionName; // Bindable but setting directly works well for Page Title
+        Title = collectionName;
         RefreshCommand = new Command(async () => await LoadDocuments());
         BindingContext = this;
     }
@@ -39,39 +40,43 @@ public partial class CollectionPage : ContentPage
         await LoadDocuments();
     }
 
-    private async Task LoadDocuments()
+    private Task LoadDocuments()
     {
         try
         {
-            // Limit to 100 for now
-            var docs = await _store.QueryDocumentsAsync(CollectionName, null, 0, 100, "Key", true);
-            var count = await _store.CountDocumentsAsync(CollectionName, null);
-            
-            DocumentCount = count;
             Documents.Clear();
-            foreach (var d in docs)
+            if (CollectionName == "Users")
             {
-                var jsonText = d.Content.ValueKind != System.Text.Json.JsonValueKind.Undefined ? d.Content.GetRawText() : "null";
-                var shortText = jsonText.Trim().Replace("\n", "").Replace("\r", "");
-                if (shortText.Length > 50) shortText = shortText.Substring(0, 50) + "...";
-                
-                Documents.Add(new DocumentViewModel
+                var allItems = _db.Users.FindAll().ToList();
+                DocumentCount = allItems.Count;
+                foreach (var item in allItems.Take(100))
                 {
-                    Key = d.Key,
-                    Timestamp = d.UpdatedAt.ToString(),
-                    Payload = jsonText,
-                    ShortPayload = shortText
-                });
+                    var json = JsonSerializer.Serialize(item);
+                    var shortText = json.Length > 50 ? json[..50] + "..." : json;
+                    Documents.Add(new DocumentViewModel { Key = item.Id, Timestamp = "-", Payload = json, ShortPayload = shortText });
+                }
+            }
+            else if (CollectionName == "TodoLists")
+            {
+                var allItems = _db.TodoLists.FindAll().ToList();
+                DocumentCount = allItems.Count;
+                foreach (var item in allItems.Take(100))
+                {
+                    var json = JsonSerializer.Serialize(item);
+                    var shortText = json.Length > 50 ? json[..50] + "..." : json;
+                    Documents.Add(new DocumentViewModel { Key = item.Id, Timestamp = "-", Payload = json, ShortPayload = shortText });
+                }
             }
         }
         catch (Exception ex)
         {
-           await DisplayAlert("Error", $"Failed to load documents: {ex.Message}", "OK");
+            _ = DisplayAlert("Error", $"Failed to load documents: {ex.Message}", "OK");
         }
         finally
         {
             DocsRefreshView.IsRefreshing = false;
         }
+        return Task.CompletedTask;
     }
 
     private async void OnDocumentSelected(object sender, SelectionChangedEventArgs e)
