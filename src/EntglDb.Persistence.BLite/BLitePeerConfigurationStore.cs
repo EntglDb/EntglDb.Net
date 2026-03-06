@@ -47,7 +47,7 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
         _logger.LogWarning("Dropping peer configuration store - all remote peer configurations will be permanently deleted!");
         // Use Id (technical key) for deletion, not NodeId (business key)
         var allIds = await _context.RemotePeerConfigurations.AsQueryable().Select(p => p.Id).ToListAsync(cancellationToken);
-        await _context.RemotePeerConfigurations.DeleteBulkAsync(allIds);
+        await _context.RemotePeerConfigurations.DeleteBulkAsync(allIds, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Peer configuration store dropped successfully.");
     }
@@ -81,7 +81,7 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
         var peer = await _context.RemotePeerConfigurations.AsQueryable().FirstOrDefaultAsync(p => p.NodeId == nodeId, cancellationToken);
         if (peer != null)
         {
-            await _context.RemotePeerConfigurations.DeleteAsync(peer.Id);
+            await _context.RemotePeerConfigurations.DeleteAsync(peer.Id, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Removed remote peer configuration: {NodeId}", nodeId);
         }
@@ -99,7 +99,7 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
 
         if (existing == null)
         {
-            await _context.RemotePeerConfigurations.InsertAsync(peer.ToEntity());
+            await _context.RemotePeerConfigurations.InsertAsync(peer.ToEntity(), cancellationToken);
         }
         else
         {
@@ -111,7 +111,7 @@ public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore wh
             existing.InterestsJson = peer.InterestingCollections.Count > 0
                 ? System.Text.Json.JsonSerializer.Serialize(peer.InterestingCollections)
                 : "";
-            await _context.RemotePeerConfigurations.UpdateAsync(existing);
+            await _context.RemotePeerConfigurations.UpdateAsync(existing, cancellationToken);
         }
 
         await _context.SaveChangesAsync(cancellationToken);

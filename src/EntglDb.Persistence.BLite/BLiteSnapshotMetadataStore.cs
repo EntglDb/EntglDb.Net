@@ -51,7 +51,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     {
         // Use Id (technical key) for deletion, not NodeId (business key)
         var allIds = await _context.SnapshotMetadatas.AsQueryable().Select(s => s.Id).ToListAsync(cancellationToken);
-        await _context.SnapshotMetadatas.DeleteBulkAsync(allIds);
+        await _context.SnapshotMetadatas.DeleteBulkAsync(allIds, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -76,7 +76,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     {
         foreach (var metadata in items)
         {
-            await _context.SnapshotMetadatas.InsertAsync(metadata.ToEntity());
+            await _context.SnapshotMetadatas.InsertAsync(metadata.ToEntity(), cancellationToken);
         }
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -84,7 +84,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
     /// <inheritdoc />
     public override async Task InsertSnapshotMetadataAsync(SnapshotMetadata metadata, CancellationToken cancellationToken = default)
     {
-        await _context.SnapshotMetadatas.InsertAsync(metadata.ToEntity());
+        await _context.SnapshotMetadatas.InsertAsync(metadata.ToEntity(), cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -98,7 +98,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
 
             if (existing == null)
             {
-                await _context.SnapshotMetadatas.InsertAsync(metadata.ToEntity());
+                await _context.SnapshotMetadatas.InsertAsync(metadata.ToEntity(), cancellationToken);
             }
             else
             {
@@ -111,7 +111,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
                     existing.TimestampPhysicalTime = metadata.TimestampPhysicalTime;
                     existing.TimestampLogicalCounter = metadata.TimestampLogicalCounter;
                     existing.Hash = metadata.Hash;
-                    await _context.SnapshotMetadatas.UpdateAsync(existing);
+                    await _context.SnapshotMetadatas.UpdateAsync(existing, cancellationToken);
                 }
             }
         }
@@ -129,7 +129,7 @@ public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore wher
             existing.TimestampPhysicalTime = existingMeta.TimestampPhysicalTime;
             existing.TimestampLogicalCounter = existingMeta.TimestampLogicalCounter;
             existing.Hash = existingMeta.Hash;
-            await _context.SnapshotMetadatas.UpdateAsync(existing);
+            await _context.SnapshotMetadatas.UpdateAsync(existing, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
         }
     }

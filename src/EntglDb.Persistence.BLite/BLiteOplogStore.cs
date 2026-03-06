@@ -37,7 +37,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
     public override async Task DropAsync(CancellationToken cancellationToken = default)
     {
         // Use Id (technical key) for deletion, not Hash (business key)
-        await _context.OplogEntries.DeleteBulkAsync(_context.OplogEntries.FindAll().Select(e => e.Id));
+        await _context.OplogEntries.DeleteBulkAsync(_context.OplogEntries.FindAll().Select(e => e.Id), cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
         _vectorClock.Invalidate();
     }
@@ -119,7 +119,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
     {
         foreach (var item in items)
         {
-            await _context.OplogEntries.InsertAsync(item.ToEntity());
+            await _context.OplogEntries.InsertAsync(item.ToEntity(), cancellationToken);
         }
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -132,7 +132,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
             var existing = await _context.OplogEntries.AsQueryable().FirstOrDefaultAsync(o => o.Hash == item.Hash, cancellationToken);
             if (existing == null)
             {
-                await _context.OplogEntries.InsertAsync(item.ToEntity());
+                await _context.OplogEntries.InsertAsync(item.ToEntity(), cancellationToken);
             }
         }
         await _context.SaveChangesAsync(cancellationToken);
@@ -145,7 +145,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
                        (o.TimestampPhysicalTime == cutoff.PhysicalTime && o.TimestampLogicalCounter <= cutoff.LogicalCounter))
             .Select(o => o.Hash)
             .ToListAsync(cancellationToken);
-        await _context.OplogEntries.DeleteBulkAsync(toDelete);
+        await _context.OplogEntries.DeleteBulkAsync(toDelete, cancellationToken);
     }
 
     protected override void InitializeVectorClock()
@@ -209,7 +209,7 @@ public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDo
 
     protected override async Task InsertOplogEntryAsync(OplogEntry entry, CancellationToken cancellationToken = default)
     {
-        await _context.OplogEntries.InsertAsync(entry.ToEntity());
+        await _context.OplogEntries.InsertAsync(entry.ToEntity(), cancellationToken);
     }
 
     protected override async Task<string?> QueryLastHashForNodeAsync(string nodeId, CancellationToken cancellationToken = default)

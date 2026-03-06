@@ -475,7 +475,7 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             previousHash);
 
         // Write directly to OplogEntries collection
-        await _context.OplogEntries.InsertAsync(oplogEntry.ToEntity());
+        await _context.OplogEntries.InsertAsync(oplogEntry.ToEntity(), cancellationToken);
 
         // Write DocumentMetadata for sync tracking
         var docMetadata = EntityMappers.CreateDocumentMetadata(
@@ -496,11 +496,11 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             existingMetadata.HlcLogicalCounter = timestamp.LogicalCounter;
             existingMetadata.HlcNodeId = timestamp.NodeId;
             existingMetadata.IsDeleted = operationType == OperationType.Delete;
-            await _context.DocumentMetadatas.UpdateAsync(existingMetadata);
+            await _context.DocumentMetadatas.UpdateAsync(existingMetadata, cancellationToken);
         }
         else
         {
-            await _context.DocumentMetadatas.InsertAsync(docMetadata);
+            await _context.DocumentMetadatas.InsertAsync(docMetadata, cancellationToken);
         }
 
         await _context.SaveChangesAsync(cancellationToken);

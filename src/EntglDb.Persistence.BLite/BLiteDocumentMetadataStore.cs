@@ -51,7 +51,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
 
         if (existing == null)
         {
-            await _context.DocumentMetadatas.InsertAsync(ToEntity(metadata));
+            await _context.DocumentMetadatas.InsertAsync(ToEntity(metadata), cancellationToken);
         }
         else
         {
@@ -59,7 +59,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
             existing.HlcLogicalCounter = metadata.UpdatedAt.LogicalCounter;
             existing.HlcNodeId = metadata.UpdatedAt.NodeId;
             existing.IsDeleted = metadata.IsDeleted;
-            await _context.DocumentMetadatas.UpdateAsync(existing);
+            await _context.DocumentMetadatas.UpdateAsync(existing, cancellationToken);
         }
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -76,7 +76,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
 
             if (existing == null)
             {
-                await _context.DocumentMetadatas.InsertAsync(ToEntity(metadata));
+                await _context.DocumentMetadatas.InsertAsync(ToEntity(metadata), cancellationToken);
             }
             else
             {
@@ -84,7 +84,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
                 existing.HlcLogicalCounter = metadata.UpdatedAt.LogicalCounter;
                 existing.HlcNodeId = metadata.UpdatedAt.NodeId;
                 existing.IsDeleted = metadata.IsDeleted;
-                await _context.DocumentMetadatas.UpdateAsync(existing);
+                await _context.DocumentMetadatas.UpdateAsync(existing, cancellationToken);
             }
         }
 
@@ -109,7 +109,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
                 HlcLogicalCounter = timestamp.LogicalCounter,
                 HlcNodeId = timestamp.NodeId,
                 IsDeleted = true
-            });
+            }, cancellationToken);
         }
         else
         {
@@ -117,7 +117,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
             existing.HlcLogicalCounter = timestamp.LogicalCounter;
             existing.HlcNodeId = timestamp.NodeId;
             existing.IsDeleted = true;
-            await _context.DocumentMetadatas.UpdateAsync(existing);
+            await _context.DocumentMetadatas.UpdateAsync(existing, cancellationToken);
         }
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -147,7 +147,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     public override async Task DropAsync(CancellationToken cancellationToken = default)
     {
         var allIds = await _context.DocumentMetadatas.AsQueryable().Select(m => m.Id).ToListAsync(cancellationToken);
-        await _context.DocumentMetadatas.DeleteBulkAsync(allIds);
+        await _context.DocumentMetadatas.DeleteBulkAsync(allIds, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -162,7 +162,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
     {
         foreach (var item in items)
         {
-            await _context.DocumentMetadatas.InsertAsync(ToEntity(item));
+            await _context.DocumentMetadatas.InsertAsync(ToEntity(item), cancellationToken);
         }
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -178,7 +178,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
 
             if (existing == null)
             {
-                await _context.DocumentMetadatas.InsertAsync(ToEntity(item));
+                await _context.DocumentMetadatas.InsertAsync(ToEntity(item), cancellationToken);
             }
             else
             {
@@ -190,7 +190,7 @@ public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore wher
                     existing.HlcLogicalCounter = item.UpdatedAt.LogicalCounter;
                     existing.HlcNodeId = item.UpdatedAt.NodeId;
                     existing.IsDeleted = item.IsDeleted;
-                    await _context.DocumentMetadatas.UpdateAsync(existing);
+                    await _context.DocumentMetadatas.UpdateAsync(existing, cancellationToken);
                 }
             }
         }
