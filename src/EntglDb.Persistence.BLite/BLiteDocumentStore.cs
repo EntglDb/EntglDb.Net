@@ -77,15 +77,20 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     /// <param name="keySelector">Function to extract the entity key.</param>
     protected void WatchCollection<TEntity>(
         string collectionName,
-        DocumentCollection<string, TEntity> collection,
+        IDocumentCollection<string, TEntity> collection,
         Func<TEntity, string> keySelector)
         where TEntity : class
     {
         _registeredCollections.Add(collectionName);
         
-        var watcher = collection.Watch(capturePayload: true)
-            .Subscribe(new CdcObserver<TEntity>(collectionName, keySelector, this));
-        _cdcWatchers.Add(watcher);
+        var watcher = collection is DocumentCollection<string, TEntity> docCollection
+            ? docCollection.Watch(capturePayload: true)
+                .Subscribe(new CdcObserver<TEntity>(collectionName, keySelector, this))
+            : null;
+        if (watcher != null)
+        {
+            _cdcWatchers.Add(watcher);
+        }
     }
 
     /// <summary>
