@@ -65,19 +65,28 @@ namespace EntglDb.Network.Protocol
             {
                 using (_telemetry?.StartMetric(MetricType.EncryptionTime))
                 {
-                    // Inner data: [Type (1)] [Compression (1)] [Payload (N)]
-                    var dataToEncrypt = new byte[2 + payloadBytes.Length];
-                    dataToEncrypt[0] = (byte)type;
-                    dataToEncrypt[1] = compressionFlag;
-                    Buffer.BlockCopy(payloadBytes, 0, dataToEncrypt, 2, payloadBytes.Length);
-
-                    var (ciphertext, iv, tag) = CryptoHelper.Encrypt(dataToEncrypt, cipherState.EncryptKey);
+                    // Inner data layout: [Type (1)] [Compression (1)] [Payload (N)]
+                    // Use a pooled buffer to avoid a per-message heap allocation.
+                    int encryptInputLen = 2 + payloadBytes.Length;
+                    byte[] encryptBuf = System.Buffers.ArrayPool<byte>.Shared.Rent(encryptInputLen);
+                    (byte[] ciphertext, byte[] iv, byte[] tag) encrypted;
+                    try
+                    {
+                        encryptBuf[0] = (byte)type;
+                        encryptBuf[1] = compressionFlag;
+                        Buffer.BlockCopy(payloadBytes, 0, encryptBuf, 2, payloadBytes.Length);
+                        encrypted = CryptoHelper.Encrypt(encryptBuf, 0, encryptInputLen, cipherState.EncryptKey);
+                    }
+                    finally
+                    {
+                        System.Buffers.ArrayPool<byte>.Shared.Return(encryptBuf);
+                    }
 
                     var env = new SecureEnvelope
                     {
-                        Ciphertext = ByteString.CopyFrom(ciphertext),
-                        Nonce = ByteString.CopyFrom(iv),
-                        AuthTag = ByteString.CopyFrom(tag)
+                        Ciphertext = ByteString.CopyFrom(encrypted.ciphertext),
+                        Nonce = ByteString.CopyFrom(encrypted.iv),
+                        AuthTag = ByteString.CopyFrom(encrypted.tag)
                     };
 
                     payloadBytes = env.ToByteArray();

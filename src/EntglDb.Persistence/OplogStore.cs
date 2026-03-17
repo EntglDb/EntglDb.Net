@@ -65,14 +65,29 @@ public abstract class OplogStore : IOplogStore
     /// <inheritdoc />
     public async virtual Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
     {
-        var documentKeys = oplogEntries.Select(e => (e.Collection, e.Key)).Distinct().ToList();
+        // Single pass: build grouped+sorted entries and collect distinct keys simultaneously
+        var orderdedEntriesPerCollectionKey = new Dictionary<(string Collection, string Key), List<OplogEntry>>();
+        var documentKeys = new List<(string Collection, string Key)>();
+        foreach (var e in oplogEntries)
+        {
+            var k = (e.Collection, e.Key);
+            if (!orderdedEntriesPerCollectionKey.TryGetValue(k, out var list))
+            {
+                list = new List<OplogEntry>();
+                orderdedEntriesPerCollectionKey[k] = list;
+                documentKeys.Add(k);
+            }
+            list.Add(e);
+        }
+        foreach (var list in orderdedEntriesPerCollectionKey.Values)
+        {
+            list.Sort(static (a, b) =>
+            {
+                var cmp = a.Timestamp.PhysicalTime.CompareTo(b.Timestamp.PhysicalTime);
+                return cmp != 0 ? cmp : a.Timestamp.LogicalCounter.CompareTo(b.Timestamp.LogicalCounter);
+            });
+        }
         var documentsToFetch = await _documentStore.GetDocumentsAsync(documentKeys, cancellationToken);
-
-        var orderdedEntriesPerCollectionKey = oplogEntries
-            .GroupBy(e => (e.Collection, e.Key))
-            .ToDictionary(g => g.Key, g => g.OrderBy(e => e.Timestamp.PhysicalTime)
-                                             .ThenBy(e => e.Timestamp.LogicalCounter)
-                                             .ToList());
 
         foreach (var entry in orderdedEntriesPerCollectionKey)
         {

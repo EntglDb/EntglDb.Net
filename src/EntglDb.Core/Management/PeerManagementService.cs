@@ -42,7 +42,7 @@ public class PeerManagementService : IPeerManagementService
         ValidateAddress(address);
         ValidateOAuth2Config(oauth2Config);
 
-        var oauth2Json = JsonSerializer.Serialize(oauth2Config);
+        var oauth2Json = JsonSerializer.Serialize(oauth2Config, EntglDbCoreJsonContext.Default.OAuth2Configuration);
 
         var config = new RemotePeerConfiguration
         {

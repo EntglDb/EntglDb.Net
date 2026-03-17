@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -18,6 +17,8 @@ public class NetworkTelemetryService : INetworkTelemetryService, IDisposable
     private readonly ILogger<NetworkTelemetryService> _logger;
     private readonly string _persistencePath;
     
+    private static readonly MetricType[] _allMetricTypes = (MetricType[])Enum.GetValues(typeof(MetricType));
+
     // Aggregation State
     // We keep 30m of history with 1s resolution = 1800 buckets.
     private const int MaxHistorySeconds = 1800;
@@ -67,7 +68,7 @@ public class NetworkTelemetryService : INetworkTelemetryService, IDisposable
 
         lock (_lock)
         {
-            foreach (var type in Enum.GetValues(typeof(MetricType)).Cast<MetricType>())
+            foreach (var type in _allMetricTypes)
             {
                 var typeDict = new Dictionary<int, double>();
                 foreach (var w in windows)
@@ -157,7 +158,7 @@ public class NetworkTelemetryService : INetworkTelemetryService, IDisposable
             bw.Write((byte)1); // Version
             bw.Write(DateTimeOffset.UtcNow.ToUnixTimeSeconds()); // Timestamp
             
-            foreach (var type in Enum.GetValues(typeof(MetricType)).Cast<MetricType>())
+            foreach (var type in _allMetricTypes)
             {
                 bw.Write((int)type);
                 foreach (var w in windows)
@@ -212,11 +213,12 @@ internal class MetricBucket
     private readonly double[] _sums;
     private readonly int[] _counts;
 
+    private static readonly int _typeCount = Enum.GetValues(typeof(MetricType)).Length;
+
     public MetricBucket()
     {
-        var typeCount = Enum.GetValues(typeof(MetricType)).Length;
-        _sums = new double[typeCount];
-        _counts = new int[typeCount];
+        _sums = new double[_typeCount];
+        _counts = new int[_typeCount];
     }
 
     public void Reset()

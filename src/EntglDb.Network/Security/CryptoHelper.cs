@@ -11,6 +11,12 @@ public static class CryptoHelper
     private const int MacSize = 32; // 256 bits (HMACSHA256)
 
     public static (byte[] ciphertext, byte[] iv, byte[] tag) Encrypt(byte[] plaintext, byte[] key)
+        => Encrypt(plaintext, 0, plaintext.Length, key);
+
+    /// <summary>
+    /// Encrypts a slice of <paramref name="plaintext"/> (e.g. a pooled rented buffer).
+    /// </summary>
+    public static (byte[] ciphertext, byte[] iv, byte[] tag) Encrypt(byte[] plaintext, int offset, int count, byte[] key)
     {
         using var aes = Aes.Create();
         aes.Key = key;
@@ -18,11 +24,10 @@ public static class CryptoHelper
         var iv = aes.IV;
 
         using var encryptor = aes.CreateEncryptor();
-        var ciphertext = encryptor.TransformFinalBlock(plaintext, 0, plaintext.Length);
+        var ciphertext = encryptor.TransformFinalBlock(plaintext, offset, count);
 
-        // Compute HMAC
+        // Compute HMAC — authenticate IV + Ciphertext
         using var hmac = new HMACSHA256(key);
-        // Authenticate IV + Ciphertext
         var toSign = new byte[iv.Length + ciphertext.Length];
         Buffer.BlockCopy(iv, 0, toSign, 0, iv.Length);
         Buffer.BlockCopy(ciphertext, 0, toSign, iv.Length, ciphertext.Length);

@@ -8,6 +8,12 @@ namespace EntglDb.Core;
 /// Implements value semantics and comparable interfaces.
 /// </summary>
 public readonly struct HlcTimestamp : IComparable<HlcTimestamp>, IComparable, IEquatable<HlcTimestamp>
+#if NET6_0_OR_GREATER
+    , ISpanFormattable
+#endif
+#if NET8_0_OR_GREATER
+    , IUtf8SpanFormattable
+#endif
 {
     public long PhysicalTime { get; }
     public int LogicalCounter { get; }
@@ -79,16 +85,96 @@ public readonly struct HlcTimestamp : IComparable<HlcTimestamp>, IComparable, IE
 
     public override string ToString() => FormattableString.Invariant($"{PhysicalTime}:{LogicalCounter}:{NodeId}");
 
+#if NET6_0_OR_GREATER
+    /// <summary>
+    /// Implements IFormattable (required by ISpanFormattable). Ignores format/provider — always uses invariant format.
+    /// </summary>
+    public string ToString(string? format, IFormatProvider? formatProvider) => ToString();
+
+    /// <summary>
+    /// Formats into a char span — allows string.Create / interpolation handlers to avoid allocation.
+    /// </summary>
+    public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+    {
+        charsWritten = 0;
+        if (!PhysicalTime.TryFormat(destination, out int w1, "D", System.Globalization.CultureInfo.InvariantCulture)) return false;
+        charsWritten += w1; destination = destination[w1..];
+        if (destination.IsEmpty) return false;
+        destination[0] = ':'; destination = destination[1..]; charsWritten++;
+        if (!LogicalCounter.TryFormat(destination, out int w2, "D", System.Globalization.CultureInfo.InvariantCulture)) return false;
+        charsWritten += w2; destination = destination[w2..];
+        if (destination.IsEmpty) return false;
+        destination[0] = ':'; destination = destination[1..]; charsWritten++;
+        if (NodeId == null || NodeId.Length > destination.Length) return false;
+        NodeId.AsSpan().CopyTo(destination);
+        charsWritten += NodeId.Length;
+        return true;
+    }
+#endif
+
+#if NET8_0_OR_GREATER
+    /// <summary>
+    /// Formats into a UTF-8 byte span — used by Utf8.TryWrite and similar APIs.
+    /// </summary>
+    public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider)
+    {
+        bytesWritten = 0;
+        if (!System.Text.Unicode.Utf8.TryWrite(utf8Destination, System.Globalization.CultureInfo.InvariantCulture,
+            $"{PhysicalTime}:{LogicalCounter}:{NodeId}", out int written))
+            return false;
+        bytesWritten = written;
+        return true;
+    }
+#endif
+
+    /// <summary>
+    /// Parses an HlcTimestamp from its string representation without allocating intermediate string arrays.
+    /// </summary>
     public static HlcTimestamp Parse(string s)
     {
         if (string.IsNullOrEmpty(s)) throw new ArgumentNullException(nameof(s));
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+        return ParseSpan(s.AsSpan());
+#else
         var parts = s.Split(':');
         if (parts.Length != 3) throw new FormatException("Invalid HlcTimestamp format. Expected 'PhysicalTime:LogicalCounter:NodeId'.");
         if (!long.TryParse(parts[0], out var physicalTime))
             throw new FormatException("Invalid PhysicalTime component in HlcTimestamp.");
         if (!int.TryParse(parts[1], out var logicalCounter))
             throw new FormatException("Invalid LogicalCounter component in HlcTimestamp.");
-        var nodeId = parts[2];
+        return new HlcTimestamp(physicalTime, logicalCounter, parts[2]);
+#endif
+    }
+
+#if NETSTANDARD2_1_OR_GREATER || NET5_0_OR_GREATER
+    /// <summary>
+    /// Zero-allocation parse from a ReadOnlySpan&lt;char&gt;. Avoids string.Split() array allocation.
+    /// </summary>
+    public static HlcTimestamp Parse(ReadOnlySpan<char> s)
+    {
+        if (s.IsEmpty) throw new ArgumentNullException(nameof(s));
+        return ParseSpan(s);
+    }
+
+    private static HlcTimestamp ParseSpan(ReadOnlySpan<char> s)
+    {
+        int firstColon = s.IndexOf(':');
+        if (firstColon < 0) throw new FormatException("Invalid HlcTimestamp format. Expected 'PhysicalTime:LogicalCounter:NodeId'.");
+
+        if (!long.TryParse(s[..firstColon], System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var physicalTime))
+            throw new FormatException("Invalid PhysicalTime component in HlcTimestamp.");
+
+        var rest = s[(firstColon + 1)..];
+        int secondColon = rest.IndexOf(':');
+        if (secondColon < 0) throw new FormatException("Invalid HlcTimestamp format. Expected 'PhysicalTime:LogicalCounter:NodeId'.");
+
+        if (!int.TryParse(rest[..secondColon], System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var logicalCounter))
+            throw new FormatException("Invalid LogicalCounter component in HlcTimestamp.");
+
+        var nodeId = new string(rest[(secondColon + 1)..]);
         return new HlcTimestamp(physicalTime, logicalCounter, nodeId);
     }
+#endif
 }

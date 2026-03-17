@@ -119,7 +119,7 @@ public class SnapshotStore : ISnapshotService
         };
 
         // Serialize snapshot to the destination stream
-        await JsonSerializer.SerializeAsync(destination, snapshot, cancellationToken: cancellationToken);
+        await JsonSerializer.SerializeAsync(destination, snapshot, EntglDbPersistenceJsonContext.Default.SnapshotDto, cancellationToken);
         await destination.FlushAsync(cancellationToken);
         
         _logger.LogInformation("Snapshot created: {DocumentCount} documents, {OplogCount} oplog entries",
@@ -133,7 +133,7 @@ public class SnapshotStore : ISnapshotService
 
         await ClearAllDataAsync(cancellationToken);
 
-        var snapshot = await JsonSerializer.DeserializeAsync<SnapshotDto>(databaseStream, cancellationToken: cancellationToken);
+        var snapshot = await JsonSerializer.DeserializeAsync(databaseStream, EntglDbPersistenceJsonContext.Default.SnapshotDto, cancellationToken);
         if (snapshot == null) throw new InvalidOperationException("Failed to deserialize snapshot");
 
         var documents = snapshot.Documents.Select(d => new Document(
@@ -173,7 +173,7 @@ public class SnapshotStore : ISnapshotService
     public async Task MergeSnapshotAsync(Stream snapshotStream, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Merging snapshot from stream...");
-        var snapshot = await JsonSerializer.DeserializeAsync<SnapshotDto>(snapshotStream, cancellationToken: cancellationToken);
+        var snapshot = await JsonSerializer.DeserializeAsync(snapshotStream, EntglDbPersistenceJsonContext.Default.SnapshotDto, cancellationToken);
         if (snapshot == null) throw new InvalidOperationException("Failed to deserialize snapshot");
         var documents = snapshot.Documents.Select(d => new Document(
             d.Collection,

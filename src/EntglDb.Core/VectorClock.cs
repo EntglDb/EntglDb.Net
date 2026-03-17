@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Text;
 
 namespace EntglDb.Core;
 
@@ -70,36 +70,36 @@ public class VectorClock
         bool thisAhead = false;
         bool otherAhead = false;
 
-        var allNodes = new HashSet<string>(_clock.Keys.Union(other._clock.Keys), StringComparer.Ordinal);
-
-        foreach (var nodeId in allNodes)
+        // Iterate this clock — covers all node IDs known to us
+        foreach (var kvp in _clock)
         {
-            var thisTs = GetTimestamp(nodeId);
-            var otherTs = other.GetTimestamp(nodeId);
+            var thisTs = kvp.Value;
+            var otherTs = other.GetTimestamp(kvp.Key);
 
             int cmp = thisTs.CompareTo(otherTs);
+            if (cmp > 0) thisAhead = true;
+            else if (cmp < 0) otherAhead = true;
 
-            if (cmp > 0)
-            {
-                thisAhead = true;
-            }
-            else if (cmp < 0)
-            {
-                otherAhead = true;
-            }
+            if (thisAhead && otherAhead) return CausalityRelation.Concurrent;
+        }
 
-            // Early exit if concurrent
-            if (thisAhead && otherAhead)
+        // Iterate nodes in other that are NOT in this clock
+        // (GetTimestamp returns default for missing — those are always 0, so other is ahead)
+        foreach (var kvp in other._clock)
+        {
+            if (!_clock.ContainsKey(kvp.Key))
             {
-                return CausalityRelation.Concurrent;
+                // this has default(0), other has kvp.Value
+                int cmp = default(HlcTimestamp).CompareTo(kvp.Value);
+                if (cmp > 0) thisAhead = true;
+                else if (cmp < 0) otherAhead = true;
+
+                if (thisAhead && otherAhead) return CausalityRelation.Concurrent;
             }
         }
 
-        if (thisAhead && !otherAhead)
-            return CausalityRelation.StrictlyAhead;
-        if (otherAhead && !thisAhead)
-            return CausalityRelation.StrictlyBehind;
-
+        if (thisAhead && !otherAhead) return CausalityRelation.StrictlyAhead;
+        if (otherAhead && !thisAhead) return CausalityRelation.StrictlyBehind;
         return CausalityRelation.Equal;
     }
 
@@ -109,21 +109,13 @@ public class VectorClock
     /// </summary>
     public IEnumerable<string> GetNodesWithUpdates(VectorClock other)
     {
-        var allNodes = new HashSet<string>(_clock.Keys, StringComparer.Ordinal);
-        foreach (var nodeId in other._clock.Keys)
+        // Only need to iterate other's nodes: if other has a node not in this, default(0) < other's ts.
+        // Nodes only in this clock cannot be "other is ahead" by definition.
+        foreach (var kvp in other._clock)
         {
-            allNodes.Add(nodeId);
-        }
-
-        foreach (var nodeId in allNodes)
-        {
-            var thisTs = GetTimestamp(nodeId);
-            var otherTs = other.GetTimestamp(nodeId);
-
-            if (otherTs.CompareTo(thisTs) > 0)
-            {
-                yield return nodeId;
-            }
+            var thisTs = GetTimestamp(kvp.Key);
+            if (kvp.Value.CompareTo(thisTs) > 0)
+                yield return kvp.Key;
         }
     }
 
@@ -133,17 +125,13 @@ public class VectorClock
     /// </summary>
     public IEnumerable<string> GetNodesToPush(VectorClock other)
     {
-        var allNodes = new HashSet<string>(_clock.Keys.Union(other._clock.Keys), StringComparer.Ordinal);
-
-        foreach (var nodeId in allNodes)
+        // Only need to iterate this clock's nodes: if this has a node not in other, default(0) < this's ts.
+        // Nodes only in other cannot be "this is ahead" by definition.
+        foreach (var kvp in _clock)
         {
-            var thisTs = GetTimestamp(nodeId);
-            var otherTs = other.GetTimestamp(nodeId);
-
-            if (thisTs.CompareTo(otherTs) > 0)
-            {
-                yield return nodeId;
-            }
+            var otherTs = other.GetTimestamp(kvp.Key);
+            if (kvp.Value.CompareTo(otherTs) > 0)
+                yield return kvp.Key;
         }
     }
 
@@ -160,8 +148,17 @@ public class VectorClock
         if (_clock.Count == 0)
             return "{}";
 
-        var entries = _clock.Select(kvp => $"{kvp.Key}:{kvp.Value}");
-        return "{" + string.Join(", ", entries) + "}";
+        var sb = new StringBuilder();
+        sb.Append('{');
+        bool first = true;
+        foreach (var kvp in _clock)
+        {
+            if (!first) sb.Append(", ");
+            sb.Append(kvp.Key).Append(':').Append(kvp.Value);
+            first = false;
+        }
+        sb.Append('}');
+        return sb.ToString();
     }
 }
 

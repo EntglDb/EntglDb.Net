@@ -8,6 +8,20 @@ namespace EntglDb.Core.Sync;
 
 public class RecursiveNodeMergeConflictResolver : IConflictResolver
 {
+#if NET6_0_OR_GREATER
+    // Reuse a per-thread ArrayBufferWriter to avoid per-Resolve() allocation.
+    // This class is registered as singleton — ThreadStatic is safe.
+    [ThreadStatic]
+    private static ArrayBufferWriter<byte>? _threadBuffer;
+
+    private static ArrayBufferWriter<byte> GetOrCreateBuffer()
+    {
+        var buf = _threadBuffer ??= new ArrayBufferWriter<byte>(4096);
+        buf.ResetWrittenCount();
+        return buf;
+    }
+#endif
+
     public ConflictResolutionResult Resolve(Document? local, OplogEntry remote)
     {
         if (local == null)
@@ -41,7 +55,7 @@ public class RecursiveNodeMergeConflictResolver : IConflictResolver
         JsonElement mergedDocJson;
 
 #if NET6_0_OR_GREATER
-        var bufferWriter = new ArrayBufferWriter<byte>();
+        var bufferWriter = GetOrCreateBuffer();
         using (var writer = new Utf8JsonWriter(bufferWriter))
         {
             MergeJson(writer, localJson, localTs, remoteJson, remoteTs);
@@ -101,37 +115,27 @@ public class RecursiveNodeMergeConflictResolver : IConflictResolver
     {
         writer.WriteStartObject();
 
-        // We need to iterate keys. To avoid double iteration efficiently, we can use a dictionary for the UNION of keys.
-        // But populating a dictionary is effectively what we did before.
-        // Can we do better?
-        // Yes: Iterate Local, write merged/local. Track handled keys. Then iterate Remote, write remaining.
-        
-        var processedKeys = new HashSet<string>();
-
+        // First pass: iterate local properties, merge or carry over.
         foreach (var prop in local.EnumerateObject())
         {
-            var key = prop.Name;
-            processedKeys.Add(key); // Mark as processed
+            writer.WritePropertyName(prop.Name);
 
-            writer.WritePropertyName(key);
-
-            if (remote.TryGetProperty(key, out var remoteVal))
+            if (remote.TryGetProperty(prop.Name, out var remoteVal))
             {
-                // Collision -> Merge
                 MergeJson(writer, prop.Value, localTs, remoteVal, remoteTs);
             }
             else
             {
-                // Only local
                 prop.Value.WriteTo(writer);
             }
         }
 
+        // Second pass: write remote-only properties (not present in local).
+        // JsonElement.TryGetProperty is O(n) but objects are typically small.
         foreach (var prop in remote.EnumerateObject())
         {
-            if (!processedKeys.Contains(prop.Name))
+            if (!local.TryGetProperty(prop.Name, out _))
             {
-                // New from remote
                 writer.WritePropertyName(prop.Name);
                 prop.Value.WriteTo(writer);
             }
@@ -177,41 +181,20 @@ public class RecursiveNodeMergeConflictResolver : IConflictResolver
 
         writer.WriteStartArray();
 
-        // We want to write Union of items by ID.
-        // To preserve some semblance of order (or just determinism), we can iterate local IDs first, then remote new IDs.
-        // Or just use the dictionary values.
-        
-        // NOTE: We cannot simply write to writer inside the map loop if we are creating a merged map.
-        // Let's iterate the union of keys similar to Objects.
-        
-        var processedIds = new HashSet<string>();
-
-        // 1. Process Local Items (Merge or Write)
+        // 1. Process local items — merge if remote has same ID, else keep.
         foreach (var kvp in localMap)
         {
-            var id = kvp.Key;
-            var localItem = kvp.Value;
-            processedIds.Add(id);
-
-            if (remoteMap.TryGetValue(id, out var remoteItem))
-            {
-                // Merge recursively
-                MergeJson(writer, localItem, localTs, remoteItem, remoteTs);
-            }
+            if (remoteMap.TryGetValue(kvp.Key, out var remoteItem))
+                MergeJson(writer, kvp.Value, localTs, remoteItem, remoteTs);
             else
-            {
-                // Keep local item
-                localItem.WriteTo(writer);
-            }
+                kvp.Value.WriteTo(writer);
         }
 
-        // 2. Process New Remote Items
+        // 2. Write remote-only items — localMap already contains all local IDs.
         foreach (var kvp in remoteMap)
         {
-            if (!processedIds.Contains(kvp.Key))
-            {
+            if (!localMap.ContainsKey(kvp.Key))
                 kvp.Value.WriteTo(writer);
-            }
         }
 
         writer.WriteEndArray();
@@ -226,7 +209,7 @@ public class RecursiveNodeMergeConflictResolver : IConflictResolver
 
     private Dictionary<string, JsonElement>? MapById(JsonElement array)
     {
-        var map = new Dictionary<string, JsonElement>();
+        var map = new Dictionary<string, JsonElement>(array.GetArrayLength(), StringComparer.Ordinal);
         foreach (var item in array.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.Object) return null; // Abort mixed

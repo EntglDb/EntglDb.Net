@@ -9,14 +9,14 @@ using System.Threading.Tasks;
 namespace EntglDb.Core.Cache;
 
 /// <summary>
-/// LRU cache entry with linked list node.
+/// LRU cache entry with linked list node. Uses (collection, key) ValueTuple as key — no string allocation.
 /// </summary>
 internal class CacheEntry
 {
     public Document Document { get; }
-    public LinkedListNode<string> Node { get; }
+    public LinkedListNode<(string Collection, string Key)> Node { get; }
 
-    public CacheEntry(Document document, LinkedListNode<string> node)
+    public CacheEntry(Document document, LinkedListNode<(string Collection, string Key)> node)
     {
         Document = document;
         Node = node;
@@ -29,8 +29,8 @@ internal class CacheEntry
 public class DocumentCache : IDocumentCache
 {
     private readonly IPeerNodeConfigurationProvider _peerNodeConfigurationProvider;
-    private readonly Dictionary<string, CacheEntry> _cache = new();
-    private readonly LinkedList<string> _lru = new();
+    private readonly Dictionary<(string Collection, string Key), CacheEntry> _cache = new();
+    private readonly LinkedList<(string Collection, string Key)> _lru = new();
     private readonly ILogger<DocumentCache> _logger;
     private readonly object _lock = new();
 
@@ -51,21 +51,19 @@ public class DocumentCache : IDocumentCache
     {
         lock (_lock)
         {
-            var cacheKey = $"{collection}:{key}";
-
-            if (_cache.TryGetValue(cacheKey, out var entry))
+            if (_cache.TryGetValue((collection, key), out var entry))
             {
                 // Move to front (most recently used)
                 _lru.Remove(entry.Node);
                 _lru.AddFirst(entry.Node);
 
                 _hits++;
-                _logger.LogTrace("Cache hit for {Key}", cacheKey);
+                _logger.LogTrace("Cache hit for {Collection}:{Key}", collection, key);
                 return entry.Document;
             }
 
             _misses++;
-            _logger.LogTrace("Cache miss for {Key}", cacheKey);
+            _logger.LogTrace("Cache miss for {Collection}:{Key}", collection, key);
             return null;
         }
     }
@@ -79,7 +77,7 @@ public class DocumentCache : IDocumentCache
 
         lock (_lock)
         {
-            var cacheKey = $"{collection}:{key}";
+            var cacheKey = (collection, key);
 
             // If already exists, update and move to front
             if (_cache.TryGetValue(cacheKey, out var existingEntry))
@@ -87,7 +85,7 @@ public class DocumentCache : IDocumentCache
                 _lru.Remove(existingEntry.Node);
                 var newNode = _lru.AddFirst(cacheKey);
                 _cache[cacheKey] = new CacheEntry(document, newNode);
-                _logger.LogTrace("Updated cache for {Key}", cacheKey);
+                _logger.LogTrace("Updated cache for {Collection}:{Key}", collection, key);
                 return;
             }
 
@@ -97,12 +95,12 @@ public class DocumentCache : IDocumentCache
                 var oldest = _lru.Last!.Value;
                 _lru.RemoveLast();
                 _cache.Remove(oldest);
-                _logger.LogTrace("Evicted oldest cache entry {Key}", oldest);
+                _logger.LogTrace("Evicted oldest cache entry {Collection}:{Key}", oldest.Collection, oldest.Key);
             }
 
             var node = _lru.AddFirst(cacheKey);
             _cache[cacheKey] = new CacheEntry(document, node);
-            _logger.LogTrace("Added to cache: {Key}", cacheKey);
+            _logger.LogTrace("Added to cache: {Collection}:{Key}", collection, key);
         }
     }
 
@@ -113,13 +111,12 @@ public class DocumentCache : IDocumentCache
     {
         lock (_lock)
         {
-            var cacheKey = $"{collection}:{key}";
-
+            var cacheKey = (collection, key);
             if (_cache.TryGetValue(cacheKey, out var entry))
             {
                 _lru.Remove(entry.Node);
                 _cache.Remove(cacheKey);
-                _logger.LogTrace("Removed from cache: {Key}", cacheKey);
+                _logger.LogTrace("Removed from cache: {Collection}:{Key}", collection, key);
             }
         }
     }

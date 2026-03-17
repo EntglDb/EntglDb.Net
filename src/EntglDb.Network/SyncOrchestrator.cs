@@ -156,41 +156,54 @@ public class SyncOrchestrator : ISyncOrchestrator
             try
             {
                 var discoveredPeers = _discovery.GetActivePeers();
-                
-                var knownPeers = config.KnownPeers.Select(k => new PeerNode(
-                    k.NodeId, 
-                    $"{k.Host}:{k.Port}", 
-                    DateTimeOffset.UtcNow));
 
-                var allPeers = discoveredPeers
-                    .Concat(knownPeers)
-                    .GroupBy(p => p.NodeId)
-                    .Select(g => g.First())
-                    .Where(p => p.NodeId != config.NodeId)
-                    .ToList();
-                
-                // Filter peers based on backoff
+                // Build deduplicated peer list using a single pass with a seen-set.
+                // This replaces a Concat + GroupBy + Select + Where + ToList LINQ chain (5+ allocations)
+                // with a HashSet-based dedup loop (2 allocations: HashSet + List).
                 var now = DateTime.UtcNow;
-                var eligiblePeers = allPeers.Where(p => 
-                {
-                    if (_peerStates.TryGetValue(p.NodeId, out var status))
-                    {
-                        return status.NextRetryTime <= now;
-                    }
-                    return true;
-                }).ToList();
+                var seenIds = new HashSet<string>(StringComparer.Ordinal);
+                var eligiblePeers = new List<PeerNode>();
 
-                // Interest-Aware Gossip: Prioritize peers sharing interests with us
-                var localInterests = _documentStore.InterestedCollection.ToList();
+                // Add discovered peers first (they have fresher LastSeen timestamps).
+                foreach (var peer in discoveredPeers)
+                {
+                    if (peer.NodeId != config.NodeId && seenIds.Add(peer.NodeId))
+                    {
+                        if (!_peerStates.TryGetValue(peer.NodeId, out var ds) || ds.NextRetryTime <= now)
+                            eligiblePeers.Add(peer);
+                    }
+                }
+
+                // Add statically-configured known peers that were not already seen.
+                foreach (var k in config.KnownPeers)
+                {
+                    if (k.NodeId != config.NodeId && seenIds.Add(k.NodeId))
+                    {
+                        if (!_peerStates.TryGetValue(k.NodeId, out var ks) || ks.NextRetryTime <= now)
+                            eligiblePeers.Add(new PeerNode(k.NodeId, $"{k.Host}:{k.Port}", DateTimeOffset.UtcNow));
+                    }
+                }
+
+                // Interest-Aware Gossip: prioritise peers sharing collections with us.
+                // Use ICollection<string> cast to avoid a defensive ToList() copy when the
+                // underlying implementation already is a list or hash-set.
+                var localInterestsRaw = _documentStore.InterestedCollection;
+                var localInterests = localInterestsRaw as ICollection<string>
+                    ?? new HashSet<string>(localInterestsRaw, StringComparer.Ordinal);
+
+                // Select up to 3 targets: interest-sharing peers first, then random.
+                // Sorting a small list (typically < 20 peers) with OrderBy is fine.
                 var targets = eligiblePeers
                     .OrderByDescending(p => p.InterestingCollections.Any(ci => localInterests.Contains(ci)))
-                    .ThenBy(x => _random.Next())
-                    .Take(3)
-                    .ToList();
+                    .ThenBy(_ => _random.Next())
+                    .Take(3);
 
-                // NetStandard 2.0 fallback: Use Task.WhenAll
-                var tasks = targets.Select(peer => TrySyncWithPeer(peer, token));
-                await Task.WhenAll(tasks);
+                // Fire tasks into a pre-sized array to avoid Task.WhenAll's internal ToArray().
+                var taskArray = new Task[Math.Min(eligiblePeers.Count, 3)];
+                int ti = 0;
+                foreach (var peer in targets)
+                    taskArray[ti++] = TrySyncWithPeer(peer, token);
+                await Task.WhenAll(taskArray);
 
                 // Periodic Maintenance: Prune Oplog based on configuration
                 var maintenanceInterval = TimeSpan.FromMinutes(config.MaintenanceIntervalMinutes);
