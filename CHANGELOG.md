@@ -17,6 +17,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 <a name="2.0.0"></a>
+## [2.0.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.0.0) (2026-03-17)
+
+### Features
+
+* Add dynamic database paths and per-collection tables to SQLite persistence ([57b8906](https://www.github.com/EntglDb/EntglDb.Net/commit/57b8906444bf7ecc0ea1e3727d5d4d93f7ddd6ba))
+* Centralize EntglDbNodeService in Network package with auto-registration ([9b7c6be](https://www.github.com/EntglDb/EntglDb.Net/commit/9b7c6bed20f4463f871b08abfd9512a88a61ba85))
+* enhance ASP.NET Core sample, fix EF Core runtime issues, stabilize Sync/Persistence ([18813d0](https://www.github.com/EntglDb/EntglDb.Net/commit/18813d0aa881de9d0a13bd8d863ab6283bc630fc))
+* full async read and writes for BLite ([e49d44a](https://www.github.com/EntglDb/EntglDb.Net/commit/e49d44a3390e4029ab878aff36b8d788157b6bf9))
+* Implement automatic synchronization of remote peer configurations ([4e7d064](https://www.github.com/EntglDb/EntglDb.Net/commit/4e7d06417c1ad031adfd8358695045a066c9e005))
+* Phase 1 - Core infrastructure for remote cloud nodes ([2f2d916](https://www.github.com/EntglDb/EntglDb.Net/commit/2f2d9164290733504961528ddfa900dc4d194c79))
+* Phase 2 - Discovery and Leader Election ([68c7866](https://www.github.com/EntglDb/EntglDb.Net/commit/68c7866244a5d3772c47bf18cb7010a06b299fd6))
+* Phase 3 - OAuth2 Security Infrastructure ([8c6a8e2](https://www.github.com/EntglDb/EntglDb.Net/commit/8c6a8e2b49a31b562f0b41e594fa90713fa9e088))
+* Phase 5 - Management API for Remote Peers ([8e66710](https://www.github.com/EntglDb/EntglDb.Net/commit/8e667101fdabda784881cebdc70aeb27a94de877))
+* vector sync and hash-chain OplogEntry ([240ca26](https://www.github.com/EntglDb/EntglDb.Net/commit/240ca2695d7d2701926e294db2841fc993c7c318))
+* **persistence:** snapshots ([05068ff](https://www.github.com/EntglDb/EntglDb.Net/commit/05068ff70d8cafcf2ca292a80ddb3c14039ce30a))
+
+### Bug Fixes
+
+* adds cancellation token to async blite mutations ([4b87114](https://www.github.com/EntglDb/EntglDb.Net/commit/4b8711458674ebc1783f522996e1a7872c271ec7))
+* adds cancellation token to async blite mutations ([914a705](https://www.github.com/EntglDb/EntglDb.Net/commit/914a705a429bba56c9f11e2db8cf623ddab641d6))
+* adds support to Set in BLite context ([5521e29](https://www.github.com/EntglDb/EntglDb.Net/commit/5521e298df6654850548ad8b8e76e24f9cb57971))
+* corrects hash-chain consistency ([84388d8](https://www.github.com/EntglDb/EntglDb.Net/commit/84388d806430415fcae6372c110997c141375491))
+* corrects issue with samples ([58d368e](https://www.github.com/EntglDb/EntglDb.Net/commit/58d368e367c3cfa1ba13f78845c3361189cc1100))
+* corrects samples ([774abe5](https://www.github.com/EntglDb/EntglDb.Net/commit/774abe5623dc324192085926966145d64f887bf1))
+* corrects the samples ([cc8dc82](https://www.github.com/EntglDb/EntglDb.Net/commit/cc8dc82d719baae8b47eb8671f3460f9d8fdcea2))
+* prevent snapshot infinite loop via boundary convergence check ([e10b80a](https://www.github.com/EntglDb/EntglDb.Net/commit/e10b80a424b3fa521fc8f716eeecc329ba72648d))
+* query limits ([d74e689](https://www.github.com/EntglDb/EntglDb.Net/commit/d74e6892a027eac367feadba2ab96f7758af320b))
+* Use IEntglDbNode interface in EntglDbNodeService for proper dependency inversion ([cd7e552](https://www.github.com/EntglDb/EntglDb.Net/commit/cd7e552716b18d5e9e968daee453a78a296df354))
+* watch only local collections ([ef4c345](https://www.github.com/EntglDb/EntglDb.Net/commit/ef4c345cc4b0bf4fe45e7297c925e5e4e68ee1fe))
+* **core:** atomic save and last hash update ([e9cf4b3](https://www.github.com/EntglDb/EntglDb.Net/commit/e9cf4b3f3738a725f7dbcbd79bb4c0f393203cbd))
+* **core:** makes hashing deterministric ([9400c73](https://www.github.com/EntglDb/EntglDb.Net/commit/9400c7334d6debf896a3c234b085a2e9f4222023))
+* **network:** corrects protocol ([464344c](https://www.github.com/EntglDb/EntglDb.Net/commit/464344c647ec5fd69073967bc34c5c6f0102eb1a))
+* **network:** imrproves socket read/write for android ([1dde9a6](https://www.github.com/EntglDb/EntglDb.Net/commit/1dde9a6dd60dbdec8ab758fa15b9c2fab8c871a4))
+* **network:** resolve critical concurrency and connection issues ([eb243a5](https://www.github.com/EntglDb/EntglDb.Net/commit/eb243a5ee06a00205b69d620b9ea3456fde0f401))
+* **sqlite:** handle Undefined values in OpLogEntry serialization ([b7b2388](https://www.github.com/EntglDb/EntglDb.Net/commit/b7b238846547f05ee634668f1865e599cfa72083))
+* **sqlite:** handle Undefined values in OpLogEntry serialization ([c3173eb](https://www.github.com/EntglDb/EntglDb.Net/commit/c3173eb4c6c86023449ebace5079c4c70f4256ce))
+
+### Breaking Changes
+
+* Develop (#14) ([adb6245](https://www.github.com/EntglDb/EntglDb.Net/commit/adb6245a055feb858f9b0d82cb4d55cee2221f29))
+* bump to v2.0.0 — target netstandard2.1;net10.0 ([8a3b727](https://www.github.com/EntglDb/EntglDb.Net/commit/8a3b7279b487d44769794e45f91bb89a42be65b0))
+
+<a name="2.0.0"></a>
 ## [2.0.0] (2026-03-17)
 
 ### Breaking Changes
