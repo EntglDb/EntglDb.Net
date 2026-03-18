@@ -168,7 +168,7 @@ public static class EntityMappers
     {
         return new DocumentMetadataEntity
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"{collection}/{key}",
             Collection = collection,
             Key = key,
             HlcPhysicalTime = timestamp.PhysicalTime,

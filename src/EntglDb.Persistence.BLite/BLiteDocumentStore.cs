@@ -40,6 +40,12 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     /// </summary>
     private readonly SemaphoreSlim _remoteSyncGuard = new SemaphoreSlim(1, 1);
 
+    /// <summary>
+    /// Serializes concurrent CDC tasks so that oplog entries are written one at a time,
+    /// preserving a valid previousHash chain even when multiple changes fire in the same commit.
+    /// </summary>
+    private readonly SemaphoreSlim _cdcWriteLock = new SemaphoreSlim(1, 1);
+
     private readonly List<IDisposable> _cdcWatchers = new();
     private readonly HashSet<string> _registeredCollections = new();
 
@@ -122,15 +128,13 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
 
             if (changeEvent.Type == BLiteOperationType.Delete)
             {
-                _store.OnLocalChangeDetectedAsync(_collectionName, entityId, OperationType.Delete, null)
-                    .GetAwaiter().GetResult();
+                _ = Task.Run(() => _store.OnLocalChangeDetectedAsync(_collectionName, entityId, OperationType.Delete, null));
             }
             else if (changeEvent.Entity != null)
             {
                 var content = JsonSerializer.SerializeToElement(changeEvent.Entity);
                 var key = _keySelector(changeEvent.Entity);
-                _store.OnLocalChangeDetectedAsync(_collectionName, key, OperationType.Put, content)
-                    .GetAwaiter().GetResult();
+                _ = Task.Run(() => _store.OnLocalChangeDetectedAsync(_collectionName, key, OperationType.Put, content));
             }
         }
 
@@ -194,8 +198,14 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         var content = await GetEntityAsJsonAsync(collection, key, cancellationToken);
         if (content == null) return null;
 
-        var timestamp = new HlcTimestamp(0, 0, ""); // Will be populated from metadata if needed
-        return new Document(collection, key, content.Value, timestamp, false);
+        var metadataId = $"{collection}/{key}";
+        var metadata = await _context.DocumentMetadatas.FindByIdAsync(metadataId, cancellationToken);
+
+        var timestamp = metadata != null
+            ? new HlcTimestamp(metadata.HlcPhysicalTime, metadata.HlcLogicalCounter, metadata.HlcNodeId)
+            : new HlcTimestamp(0, 0, "");
+
+        return new Document(collection, key, content.Value, timestamp, metadata?.IsDeleted ?? false);
     }
 
     public async Task<IEnumerable<Document>> GetDocumentsByCollectionAsync(string collection, CancellationToken cancellationToken = default)
@@ -236,6 +246,37 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     private async Task PutDocumentInternalAsync(Document document, CancellationToken cancellationToken)
     {
         await ApplyContentToEntityAsync(document.Collection, document.Key, document.Content, cancellationToken);
+
+        // Keep DocumentMetadata in sync so GetDocumentAsync returns the correct timestamp.
+        // This is critical for the LWW resolver to work correctly on future syncs.
+        if (document.UpdatedAt.PhysicalTime > 0)
+        {
+            var metadataId = $"{document.Collection}/{document.Key}";
+            var existingMetadata = await _context.DocumentMetadatas.FindByIdAsync(metadataId, cancellationToken);
+
+            if (existingMetadata != null)
+            {
+                // Only update if the incoming timestamp is newer
+                if (document.UpdatedAt.PhysicalTime > existingMetadata.HlcPhysicalTime ||
+                    (document.UpdatedAt.PhysicalTime == existingMetadata.HlcPhysicalTime &&
+                     document.UpdatedAt.LogicalCounter > existingMetadata.HlcLogicalCounter))
+                {
+                    existingMetadata.HlcPhysicalTime = document.UpdatedAt.PhysicalTime;
+                    existingMetadata.HlcLogicalCounter = document.UpdatedAt.LogicalCounter;
+                    existingMetadata.HlcNodeId = document.UpdatedAt.NodeId;
+                    existingMetadata.IsDeleted = document.IsDeleted;
+                    await _context.DocumentMetadatas.UpdateAsync(existingMetadata, cancellationToken);
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+            }
+            else
+            {
+                await _context.DocumentMetadatas.InsertAsync(
+                    EntityMappers.CreateDocumentMetadata(document.Collection, document.Key, document.UpdatedAt, document.IsDeleted),
+                    cancellationToken);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+        }
     }
 
     public async Task<bool> UpdateBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
@@ -427,7 +468,17 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
     {
         if (IsRemoteSyncInProgress) return;
 
-        await CreateOplogEntryAsync(collection, key, operationType, content, cancellationToken);
+        await _cdcWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Double-check: remote sync may have started while we were waiting
+            if (IsRemoteSyncInProgress) return;
+            await CreateOplogEntryAsync(collection, key, operationType, content, cancellationToken);
+        }
+        finally
+        {
+            _cdcWriteLock.Release();
+        }
     }
 
     private HlcTimestamp GenerateTimestamp(string nodeId)
@@ -483,20 +534,11 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         await _context.OplogEntries.InsertAsync(oplogEntry.ToEntity(), cancellationToken);
 
         // Write DocumentMetadata for sync tracking
-        var docMetadata = EntityMappers.CreateDocumentMetadata(
-            collection, 
-            key, 
-            timestamp, 
-            isDeleted: operationType == OperationType.Delete);
-
-        var existingMetadata = await _context.DocumentMetadatas
-            .AsQueryable()
-            .Where(m => m.Collection == collection && m.Key == key)
-            .FirstOrDefaultAsync(cancellationToken);
+        var metadataId = $"{collection}/{key}";
+        var existingMetadata = await _context.DocumentMetadatas.FindByIdAsync(metadataId, cancellationToken);
 
         if (existingMetadata != null)
         {
-            // Update existing metadata
             existingMetadata.HlcPhysicalTime = timestamp.PhysicalTime;
             existingMetadata.HlcLogicalCounter = timestamp.LogicalCounter;
             existingMetadata.HlcNodeId = timestamp.NodeId;
@@ -505,7 +547,9 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
         }
         else
         {
-            await _context.DocumentMetadatas.InsertAsync(docMetadata, cancellationToken);
+            await _context.DocumentMetadatas.InsertAsync(
+                EntityMappers.CreateDocumentMetadata(collection, key, timestamp, isDeleted: operationType == OperationType.Delete),
+                cancellationToken);
         }
 
         await _context.SaveChangesAsync(cancellationToken);

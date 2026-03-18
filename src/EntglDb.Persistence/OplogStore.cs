@@ -102,7 +102,8 @@ public abstract class OplogStore : IOplogStore
                 continue;
             }
 
-            var documentHash = document != null ? document.GetHashCode().ToString() : null;
+            var isNewDocument = document == null;
+            var contentBeforeMerge = document?.Content.GetRawText();
 
             foreach (var oplogEntry in entry.Value)
             {
@@ -116,9 +117,14 @@ public abstract class OplogStore : IOplogStore
                 }
             }
 
-            if (document?.GetHashCode().ToString() != documentHash)
+            // Write if: new document OR content actually changed after merge
+            var shouldWrite = isNewDocument
+                ? document != null
+                : document?.Content.GetRawText() != contentBeforeMerge;
+
+            if (shouldWrite && document != null)
             {
-                await _documentStore.PutDocumentAsync(document!, cancellationToken);
+                await _documentStore.PutDocumentAsync(document, cancellationToken);
             }
         }
 
