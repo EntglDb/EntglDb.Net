@@ -39,14 +39,14 @@ public class EfCoreStoreExportImportTests : IDisposable
 
         _configProvider = new TestPeerNodeConfigurationProvider("test-node");
 
-        _documentStore = new SampleEfCoreDocumentStore(_context, _configProvider, NullLogger<SampleEfCoreDocumentStore>.Instance);
+        var vectorClock = new VectorClockService();
+        _documentStore = new SampleEfCoreDocumentStore(_context, _configProvider, vectorClock, NullLogger<SampleEfCoreDocumentStore>.Instance);
 
         // Create SnapshotMetadataStore first (needed by OplogStore)
         _snapshotMetadataStore = new EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>(
             _context, NullLogger<EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>>.Instance);
 
         // OplogStore requires: context, documentStore, snapshotMetadataStore, vectorClockService, conflictResolver, logger
-        var vectorClock = new VectorClockService();
         _oplogStore = new EfCoreOplogStore<SampleEfCoreDbContext>(
             _context,
             _documentStore,

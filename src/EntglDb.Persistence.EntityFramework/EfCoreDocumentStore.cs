@@ -29,14 +29,19 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     protected readonly TDbContext _context;
     protected readonly IPeerNodeConfigurationProvider _configProvider;
     protected readonly IConflictResolver _conflictResolver;
+    protected readonly IVectorClockService _vectorClock;
     protected readonly ILogger _logger;
 
     /// <summary>
-    /// Semaphore used to suppress Oplog creation during remote sync.
-    /// CurrentCount == 0 ? sync in progress, skip Oplog.
-    /// CurrentCount == 1 ? no sync, create OplogEntry.
+    /// Serializes concurrent CDC tasks so that oplog entries are written one at a time,
+    /// preserving a valid previousHash chain even when multiple changes fire in the same commit.
     /// </summary>
-    private readonly SemaphoreSlim _remoteSyncGuard = new SemaphoreSlim(1, 1);
+    private readonly SemaphoreSlim _cdcWriteLock = new SemaphoreSlim(1, 1);
+
+    // Pending CDC events captured in SavingChanges, processed asynchronously in SavedChanges
+    private readonly List<(string Collection, string Key, OperationType OpType, JsonElement? Content)> _pendingCdcEvents = new();
+    private readonly EventHandler<SavingChangesEventArgs> _savingChangesHandler;
+    private readonly EventHandler<SavedChangesEventArgs> _savedChangesHandler;
 
     // HLC state for generating timestamps for local changes
     private long _lastPhysicalTime;
@@ -46,16 +51,35 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     protected EfCoreDocumentStore(
         TDbContext context,
         IPeerNodeConfigurationProvider configProvider,
+        IVectorClockService vectorClockService,
         IConflictResolver? conflictResolver = null,
         ILogger? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+        _vectorClock = vectorClockService ?? throw new ArgumentNullException(nameof(vectorClockService));
         _conflictResolver = conflictResolver ?? new LastWriteWinsConflictResolver();
         _logger = logger ?? NullLogger.Instance;
 
         _lastPhysicalTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _logicalCounter = 0;
+
+        _savingChangesHandler = (_, _) => CapturePendingChanges();
+        _savedChangesHandler = (_, _) =>
+        {
+            if (_pendingCdcEvents.Count > 0)
+            {
+                var events = _pendingCdcEvents.ToList();
+                _pendingCdcEvents.Clear();
+                _ = Task.Run(async () =>
+                {
+                    foreach (var (collection, key, opType, content) in events)
+                        await OnLocalChangeDetectedAsync(collection, key, opType, content);
+                });
+            }
+        };
+        _context.SavingChanges += _savingChangesHandler;
+        _context.SavedChanges += _savedChangesHandler;
     }
 
     #region Abstract Methods - Implemented by subclass
@@ -95,6 +119,13 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     /// </summary>
     protected abstract Task<IEnumerable<(string Key, JsonElement Content)>> GetAllEntitiesAsJsonAsync(
         string collection, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Maps an EF Core entity instance to its logical (Collection, Key) tuple.
+    /// Return null for internal EntglDb entities (OplogEntity, DocumentMetadataEntity, etc.)
+    /// that should not trigger CDC oplog creation.
+    /// </summary>
+    protected abstract (string Collection, string Key)? GetCollectionAndKey(object entity);
 
     #endregion
 
@@ -152,64 +183,69 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task<bool> PutDocumentAsync(Document document, CancellationToken cancellationToken = default)
     {
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
-        {
-            await PutDocumentInternalAsync(document, cancellationToken);
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
-        }
+        await PutDocumentInternalAsync(document, cancellationToken);
         return true;
     }
 
     private async Task PutDocumentInternalAsync(Document document, CancellationToken cancellationToken)
     {
         await ApplyContentToEntityAsync(document.Collection, document.Key, document.Content, cancellationToken);
+
+        // Write ContentHash to metadata so the SavedChanges CDC handler can detect this
+        // as an in-sync write (hash already recorded) and skip oplog creation.
+        if (document.UpdatedAt.PhysicalTime > 0)
+        {
+            var existingMetadata = await _context.Set<DocumentMetadataEntity>()
+                .FirstOrDefaultAsync(m => m.Collection == document.Collection && m.Key == document.Key, cancellationToken);
+
+            if (existingMetadata != null)
+            {
+                if (document.UpdatedAt.PhysicalTime > existingMetadata.HlcPhysicalTime ||
+                    (document.UpdatedAt.PhysicalTime == existingMetadata.HlcPhysicalTime &&
+                     document.UpdatedAt.LogicalCounter > existingMetadata.HlcLogicalCounter))
+                {
+                    existingMetadata.HlcPhysicalTime = document.UpdatedAt.PhysicalTime;
+                    existingMetadata.HlcLogicalCounter = document.UpdatedAt.LogicalCounter;
+                    existingMetadata.HlcNodeId = document.UpdatedAt.NodeId;
+                    existingMetadata.IsDeleted = document.IsDeleted;
+                    existingMetadata.ContentHash = document.IsDeleted ? "" : ComputeContentHash(document.Content);
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+            }
+            else
+            {
+                _context.Set<DocumentMetadataEntity>().Add(new DocumentMetadataEntity
+                {
+                    Collection = document.Collection,
+                    Key = document.Key,
+                    HlcPhysicalTime = document.UpdatedAt.PhysicalTime,
+                    HlcLogicalCounter = document.UpdatedAt.LogicalCounter,
+                    HlcNodeId = document.UpdatedAt.NodeId,
+                    IsDeleted = document.IsDeleted,
+                    ContentHash = document.IsDeleted ? "" : ComputeContentHash(document.Content)
+                });
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+        }
     }
 
     public async Task<bool> UpdateBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
     {
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
-        {
-            await ApplyContentToEntitiesBatchAsync(
-                documents.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
-        }
+        await ApplyContentToEntitiesBatchAsync(
+            documents.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
         return true;
     }
 
     public async Task<bool> InsertBatchDocumentsAsync(IEnumerable<Document> documents, CancellationToken cancellationToken = default)
     {
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
-        {
-            await ApplyContentToEntitiesBatchAsync(
-                documents.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
-        }
+        await ApplyContentToEntitiesBatchAsync(
+            documents.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
         return true;
     }
 
     public async Task<bool> DeleteDocumentAsync(string collection, string key, CancellationToken cancellationToken = default)
     {
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
-        {
-            await DeleteDocumentInternalAsync(collection, key, cancellationToken);
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
-        }
+        await DeleteDocumentInternalAsync(collection, key, cancellationToken);
         return true;
     }
 
@@ -236,15 +272,7 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
         if (parsedKeys.Count == 0) return true;
 
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
-        {
-            await RemoveEntitiesBatchAsync(parsedKeys, cancellationToken);
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
-        }
+        await RemoveEntitiesBatchAsync(parsedKeys, cancellationToken);
         return true;
     }
 
@@ -304,37 +332,82 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
     public async Task ImportAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default)
     {
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
-        {
-            await ApplyContentToEntitiesBatchAsync(
-                items.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
-        }
+        await ApplyContentToEntitiesBatchAsync(
+            items.Select(d => (d.Collection, d.Key, d.Content)), cancellationToken);
     }
 
     public async Task MergeAsync(IEnumerable<Document> items, CancellationToken cancellationToken = default)
     {
-        await _remoteSyncGuard.WaitAsync(cancellationToken);
-        try
+        foreach (var document in items)
         {
-            foreach (var document in items)
-            {
-                await MergeAsync(document, cancellationToken);
-            }
-        }
-        finally
-        {
-            _remoteSyncGuard.Release();
+            await MergeAsync(document, cancellationToken);
         }
     }
 
     #endregion
 
     #region Oplog Management
+
+    private void CapturePendingChanges()
+    {
+        foreach (var entry in _context.ChangeTracker.Entries())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+                continue;
+
+            var collKey = GetCollectionAndKey(entry.Entity);
+            if (collKey == null) continue;
+
+            var (collection, key) = collKey.Value;
+            OperationType opType;
+            JsonElement? content = null;
+
+            if (entry.State == EntityState.Deleted)
+            {
+                opType = OperationType.Delete;
+            }
+            else
+            {
+                opType = OperationType.Put;
+                content = JsonSerializer.SerializeToElement(entry.Entity);
+            }
+
+            _pendingCdcEvents.Add((collection, key, opType, content));
+        }
+    }
+
+    /// <summary>
+    /// Called by the SavedChanges event handler for each detected application entity write.
+    /// Deduplicates by ContentHash: if DocumentMetadata already records the same hash,
+    /// the write came from remote sync (same content was just applied) and is skipped.
+    /// </summary>
+    private async Task OnLocalChangeDetectedAsync(
+        string collection,
+        string key,
+        OperationType operationType,
+        JsonElement? content,
+        CancellationToken cancellationToken = default)
+    {
+        await _cdcWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            var incomingHash = operationType == OperationType.Delete
+                ? ""
+                : ComputeContentHash(content);
+
+            var existingMetadata = await _context.Set<DocumentMetadataEntity>()
+                .FirstOrDefaultAsync(m => m.Collection == collection && m.Key == key, cancellationToken);
+
+            if (existingMetadata != null && existingMetadata.ContentHash == incomingHash)
+                return;
+
+            await CreateOplogEntryAsync(collection, key, operationType, content, cancellationToken);
+        }
+        finally
+        {
+            _cdcWriteLock.Release();
+        }
+    }
 
     private HlcTimestamp GenerateTimestamp(string nodeId)
     {
@@ -426,19 +499,12 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
 
         await _context.SaveChangesAsync(cancellationToken);
 
+        // Notify VectorClockService so sync sees local changes
+        _vectorClock.Update(oplogEntry);
+
         _logger.LogDebug(
             "Created Oplog entry: {Operation} {Collection}/{Key} at {Timestamp} (hash: {Hash})",
             operationType, collection, key, timestamp, oplogEntry.Hash);
-    }
-
-    /// <summary>
-    /// Marks the start of remote sync operations (suppresses Oplog creation).
-    /// Use in using statement: using (store.BeginRemoteSync()) { ... }
-    /// </summary>
-    public IDisposable BeginRemoteSync()
-    {
-        _remoteSyncGuard.Wait();
-        return new RemoteSyncScope(_remoteSyncGuard);
     }
 
     private static string NormalizeJson(JsonElement element)
@@ -507,25 +573,12 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
         }
     }
 
-    private class RemoteSyncScope : IDisposable
-    {
-        private readonly SemaphoreSlim _guard;
-
-        public RemoteSyncScope(SemaphoreSlim guard)
-        {
-            _guard = guard;
-        }
-
-        public void Dispose()
-        {
-            _guard.Release();
-        }
-    }
-
     #endregion
 
     public virtual void Dispose()
     {
-        _remoteSyncGuard.Dispose();
+        _context.SavingChanges -= _savingChangesHandler;
+        _context.SavedChanges -= _savedChangesHandler;
+        _cdcWriteLock.Dispose();
     }
 }

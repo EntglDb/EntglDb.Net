@@ -5,6 +5,10 @@ using Spectre.Console;
 
 namespace EntglDb.Demo.Game;
 
+/// <summary>
+/// UI layer: reads player input via Spectre.Console, delegates all game logic
+/// to <see cref="GameEngine"/>, and renders the results back to the terminal.
+/// </summary>
 public class GameService : BackgroundService
 {
     private readonly GameDbContext _db;
@@ -15,6 +19,7 @@ public class GameService : BackgroundService
 
     private Hero? _currentHero;
     private string _nodeId = "";
+    private GameEngine _engine = null!;
 
     public GameService(
         GameDbContext db,
@@ -32,6 +37,7 @@ public class GameService : BackgroundService
     {
         var config = await _configProvider.GetConfiguration();
         _nodeId = config.NodeId;
+        _engine = new GameEngine(_db, _nodeId, _rng);
 
         PrintBanner();
         await MainLoop(stoppingToken);
@@ -175,8 +181,7 @@ public class GameService : BackgroundService
         int classIdx = Array.IndexOf(classChoices, classChoice);
         var heroClass = classKeys[classIdx];
 
-        var hero = new Hero { Name = name, NodeId = _nodeId };
-        HeroClassFactory.ApplyInitialStats(hero, heroClass, _rng);
+        var hero = await _engine.CreateHeroAsync(name, heroClass, ct);
 
         var p2 = HeroClassFactory.Profiles[heroClass];
         AnsiConsole.Write(new Panel(
@@ -190,16 +195,13 @@ public class GameService : BackgroundService
             Padding = new Padding(2, 1),
         });
 
-        await _db.Heroes.InsertAsync(hero);
-        await _db.SaveChangesAsync(ct);
-
         _currentHero = hero;
         AnsiConsole.MarkupLine($"\n[green]✓ Hero '[bold]{Markup.Escape(name)}[/]' created! Ready for adventure.[/]\n");
     }
 
     private void LoadHero()
     {
-        var heroes = _db.Heroes.FindAll().Where(h => h.IsAlive).ToList();
+        var heroes = _engine.GetAliveHeroes().ToList();
         if (heroes.Count == 0)
         {
             AnsiConsole.MarkupLine("[yellow]No heroes found. Create one first![/]");
@@ -239,14 +241,16 @@ public class GameService : BackgroundService
             return;
         }
 
-        // 25% chance to find a chest instead of a monster
-        if (_rng.Next(100) < 25)
+        if (_engine.IsChestEncounter())
         {
-            await OpenChest(hero, ct);
+            var chestResult = await _engine.OpenChestAsync(hero, ct);
+            RenderChestResult(chestResult);
+            _currentHero = hero;
+            AnsiConsole.WriteLine();
             return;
         }
 
-        var monster = MonsterFactory.Spawn(hero.Level);
+        var monster = _engine.SpawnMonster(hero.Level);
 
         AnsiConsole.Write(new Panel(
             new Markup(
@@ -271,138 +275,109 @@ public class GameService : BackgroundService
             double monHpPct  = (double)monsterHp / monster.Hp;
             var heroHpColor  = heroHpPct > 0.5 ? "green" : heroHpPct > 0.25 ? "yellow" : "red";
             var monHpColor   = monHpPct  > 0.5 ? "red"   : monHpPct  > 0.25 ? "yellow" : "green";
-            var heroMpColor = hero.Mp >= 15 ? "blue" : "grey";
+            var heroMpColor  = hero.Mp >= GameEngine.SpellCost ? "blue" : "grey";
             AnsiConsole.MarkupLine(
                 $"[grey]── Round {round} ──[/]  " +
                 $"[{heroHpColor}]You: {hero.Hp}/{hero.MaxHp} HP[/]  [{heroMpColor}]MP {hero.Mp}/{hero.MaxMp}[/]   " +
                 $"[{monHpColor}]{monster.Emoji} {Markup.Escape(monster.Name)}: {monsterHp}/{monster.Hp} HP[/]");
 
-            // Player chooses action
-            const int spellCost = 15;
-            var movePrompt = new SelectionPrompt<string>()
-                .Title($"  [bold yellow]Choose your move:[/]  [blue]MP {hero.Mp}/{hero.MaxMp}[/]")
-                .HighlightStyle(new Style(Color.Gold1))
-                .AddChoices(
-                    "Attack        — Standard strike",
-                    "Quick Strike  — Two fast hits (lower damage each)",
-                    "Power Blow    — Heavy hit, you take 50% more damage",
-                    "Parry         — Counter for half, take 70% less damage",
-                    "Dodge         — 55% chance to fully evade, then strike");
-            if (hero.Mp >= spellCost)
-                movePrompt.AddChoice($"Fireball      — Magic blast ({spellCost} MP), ignores defense");
-            var action = AnsiConsole.Prompt(movePrompt);
-
-            // Resolve hero action based on first word
-            int heroDmg;
-            int monsterDmgMult = 100; // percentage of normal incoming damage
-            bool dodgeAttempt = false;
-            string heroLine;
-
-            switch (action.Split(' ')[0])
-            {
-                case "Quick":
-                    int h1 = Math.Max(1, (int)(hero.Attack * 0.6) - monster.Defense / 2 + _rng.Next(-2, 3));
-                    int h2 = Math.Max(1, (int)(hero.Attack * 0.6) - monster.Defense / 2 + _rng.Next(-2, 3));
-                    heroDmg = h1 + h2;
-                    heroLine = $"[green]🗡  Quick Strike! [bold]{h1}[/] + [bold]{h2}[/] = [bold]{heroDmg}[/] dmg[/]";
-                    break;
-                case "Power":
-                    heroDmg = Math.Max(1, (int)(hero.Attack * 1.7) - monster.Defense + _rng.Next(-2, 5));
-                    monsterDmgMult = 150;
-                    heroLine = $"[green]💪  Power Blow! [bold]{heroDmg}[/] dmg [dim](you're exposed!)[/][/]";
-                    break;
-                case "Parry":
-                    heroDmg = Math.Max(1, hero.Attack / 2 - monster.Defense / 2 + _rng.Next(-1, 3));
-                    monsterDmgMult = 30;
-                    heroLine = $"[green]🛡  Parry & Counter! [bold]{heroDmg}[/] dmg [dim](blocking)[/][/]";
-                    break;
-                case "Dodge":
-                    heroDmg = Math.Max(1, hero.Attack - monster.Defense + _rng.Next(-3, 4));
-                    dodgeAttempt = true;
-                    heroLine = $"[green]💨  Dodge & Strike! [bold]{heroDmg}[/] dmg[/]";
-                    break;
-                case "Fireball":
-                    heroDmg = Math.Max(1, (int)(hero.MagicAttack * 1.5) + _rng.Next(-2, 5));
-                    hero.Mp -= spellCost;
-                    heroLine = $"[magenta]🔥  Fireball! [bold]{heroDmg}[/] magic dmg [dim](-{spellCost} MP)[/][/]";
-                    break;
-                default: // Attack
-                    heroDmg = Math.Max(1, hero.Attack - monster.Defense + _rng.Next(-3, 4));
-                    heroLine = $"[green]⚔   Attack! [bold]{heroDmg}[/] dmg[/]";
-                    break;
-            }
-
-            monsterHp -= heroDmg;
-            AnsiConsole.MarkupLine($"  {heroLine} [grey]({monster.Emoji} HP: {Math.Max(0, monsterHp)})[/]");
-
-            if (monsterHp <= 0) break;
-
-            // Monster attacks
-            int baseDmg = Math.Max(1, monster.Attack - hero.Defense + _rng.Next(-3, 4));
-
-            if (dodgeAttempt && _rng.Next(100) < 55)
-            {
-                AnsiConsole.MarkupLine($"  [cyan]💨  Dodge! {monster.Emoji} {Markup.Escape(monster.Name)} misses![/]");
-            }
-            else
-            {
-                int incoming = dodgeAttempt ? baseDmg : Math.Max(1, (int)(baseDmg * monsterDmgMult / 100.0));
-                hero.Hp -= incoming;
-                string penaltyNote = monsterDmgMult == 150 ? " [red](Power Blow penalty!)[/]"
-                                   : monsterDmgMult == 30  ? " [blue](Partially blocked!)[/]"
-                                   : dodgeAttempt          ? " [yellow](Dodge failed!)[/]"
-                                   : "";
-                AnsiConsole.MarkupLine(
-                    $"  [red]{monster.Emoji} {Markup.Escape(monster.Name)} hits for [bold]{incoming}[/]![/]{penaltyNote} " +
-                    $"[grey](Your HP: {Math.Max(0, hero.Hp)})[/]");
-            }
+            var action = PromptPlayerAction(hero);
+            var roundResult = _engine.ExecuteRound(hero, ref monsterHp, monster, action);
+            RenderRoundResult(roundResult, monster);
 
             AnsiConsole.WriteLine();
             round++;
             await Task.Delay(200, ct);
+
+            if (roundResult.MonsterDefeated || roundResult.HeroDefeated) break;
         }
 
-        var battleLog = new BattleLog
+        var outcome = await _engine.FinalizeBattleAsync(hero, monster, hero.Hp > 0, ct);
+        RenderBattleOutcome(outcome, hero, monster);
+        _currentHero = hero;
+        AnsiConsole.WriteLine();
+    }
+
+    private static PlayerAction PromptPlayerAction(Hero hero)
+    {
+        var prompt = new SelectionPrompt<string>()
+            .Title($"  [bold yellow]Choose your move:[/]  [blue]MP {hero.Mp}/{hero.MaxMp}[/]")
+            .HighlightStyle(new Style(Color.Gold1))
+            .AddChoices(
+                "Attack        — Standard strike",
+                "Quick Strike  — Two fast hits (lower damage each)",
+                "Power Blow    — Heavy hit, you take 50% more damage",
+                "Parry         — Counter for half, take 70% less damage",
+                "Dodge         — 55% chance to fully evade, then strike");
+        if (hero.Mp >= GameEngine.SpellCost)
+            prompt.AddChoice($"Fireball      — Magic blast ({GameEngine.SpellCost} MP), ignores defense");
+
+        var choice = AnsiConsole.Prompt(prompt);
+        return choice.Split(' ')[0] switch
         {
-            HeroId = hero.Id,
-            HeroName = hero.Name,
-            MonsterName = monster.Name,
-            NodeId = _nodeId,
+            "Quick"    => PlayerAction.QuickStrike,
+            "Power"    => PlayerAction.PowerBlow,
+            "Parry"    => PlayerAction.Parry,
+            "Dodge"    => PlayerAction.Dodge,
+            "Fireball" => PlayerAction.Fireball,
+            _          => PlayerAction.Attack,
         };
+    }
 
-        if (hero.Hp > 0)
+    private static void RenderRoundResult(BattleRoundResult result, Monster monster)
+    {
+        string heroLine = result.Action switch
         {
-            hero.Xp += monster.XpReward;
-            hero.Gold += monster.GoldReward;
-            hero.MonstersKilled++;
-            battleLog.Victory = true;
-            battleLog.XpGained = monster.XpReward;
-            battleLog.GoldGained = monster.GoldReward;
+            PlayerAction.QuickStrike =>
+                $"[green]🗡  Quick Strike! [bold]{result.HeroHit1}[/] + [bold]{result.HeroHit2}[/] = [bold]{result.HeroDamage}[/] dmg[/]",
+            PlayerAction.PowerBlow =>
+                $"[green]💪  Power Blow! [bold]{result.HeroDamage}[/] dmg [dim](you\'re exposed!)[/][/]",
+            PlayerAction.Parry =>
+                $"[green]🛡  Parry & Counter! [bold]{result.HeroDamage}[/] dmg [dim](blocking)[/][/]",
+            PlayerAction.Dodge =>
+                $"[green]💨  Dodge & Strike! [bold]{result.HeroDamage}[/] dmg[/]",
+            PlayerAction.Fireball =>
+                $"[magenta]🔥  Fireball! [bold]{result.HeroDamage}[/] magic dmg [dim](-{result.MpSpent} MP)[/][/]",
+            _ =>
+                $"[green]⚔   Attack! [bold]{result.HeroDamage}[/] dmg[/]",
+        };
+        AnsiConsole.MarkupLine($"  {heroLine} [grey]({monster.Emoji} HP: {result.MonsterHpAfter})[/]");
 
-            // MP regenerates from combat — the last 20% above the inn cap is earned this way
-            int mpGain = Math.Max(3, monster.XpReward / 8);
-            int mpBefore = hero.Mp;
-            hero.Mp = Math.Min(hero.MaxMp, hero.Mp + mpGain);
-            int actualMpGain = hero.Mp - mpBefore;
+        if (result.MonsterDefeated) return;
 
-            string mpLine = actualMpGain > 0 ? $"\n[blue]+{actualMpGain} MP[/]" : "";
+        if (result.DodgedSuccessfully)
+        {
+            AnsiConsole.MarkupLine($"  [cyan]💨  Dodge! {monster.Emoji} {Markup.Escape(monster.Name)} misses![/]");
+        }
+        else
+        {
+            string penaltyNote = result.MonsterDamagePercent == 150 ? " [red](Power Blow penalty!)[/]"
+                               : result.MonsterDamagePercent == 30  ? " [blue](Partially blocked!)[/]"
+                               : result.DodgeAttempt                ? " [yellow](Dodge failed!)[/]"
+                               : "";
+            AnsiConsole.MarkupLine(
+                $"  [red]{monster.Emoji} {Markup.Escape(monster.Name)} hits for [bold]{result.MonsterDamage}[/]![/]{penaltyNote} " +
+                $"[grey](Your HP: {Math.Max(0, result.HeroHpAfter)})[/]");
+        }
+    }
+
+    private static void RenderBattleOutcome(BattleOutcome outcome, Hero hero, Monster monster)
+    {
+        if (outcome.Victory)
+        {
+            string mpLine = outcome.MpGained > 0 ? $"\n[blue]+{outcome.MpGained} MP[/]" : "";
             AnsiConsole.Write(new Panel(
                 new Markup(
                     $"[bold green]🏆 Victory![/] You defeated [bold]{Markup.Escape(monster.Name)}[/]!\n" +
-                    $"[cyan]+{monster.XpReward} XP[/]   [gold1]+{monster.GoldReward} Gold[/]{mpLine}"))
+                    $"[cyan]+{outcome.XpGained} XP[/]   [gold1]+{outcome.GoldGained} Gold[/]{mpLine}"))
             {
                 Border = BoxBorder.Rounded,
                 BorderStyle = new Style(Color.Green),
                 Padding = new Padding(2, 1),
             });
-            TryLevelUp(hero);
         }
         else
         {
-            hero.Hp = 0;
-            hero.IsAlive = false;
-            battleLog.Victory = false;
-
             AnsiConsole.Write(new Panel(
                 new Markup($"[bold red]💀 {Markup.Escape(hero.Name)} has fallen to the {Markup.Escape(monster.Name)}...[/]"))
             {
@@ -412,48 +387,27 @@ public class GameService : BackgroundService
             });
         }
 
-        await _db.Heroes.UpdateAsync(hero);
-        await _db.BattleLogs.InsertAsync(battleLog);
-        await _db.SaveChangesAsync(ct);
-        _currentHero = hero;
-        AnsiConsole.WriteLine();
+        if (outcome.LevelUp != null)
+            RenderLevelUp(outcome.LevelUp);
     }
 
-    private async Task OpenChest(Hero hero, CancellationToken ct)
+    private static void RenderChestResult(ChestResult result)
     {
-        // Weighted chest types: 40% wooden, 35% silver, 20% magic, 5% golden
-        int roll = _rng.Next(100);
-        string chestName;
-        Color chestColor;
-        int goldGain;
-        int xpGain;
+        var chestColor = result.Type switch
+        {
+            ChestType.Wooden => Color.SandyBrown,
+            ChestType.Silver => Color.Silver,
+            ChestType.Magic  => Color.Cyan1,
+            _                => Color.Gold1,
+        };
 
-        if (roll < 40)
-        {
-            chestName = "📦 Wooden Chest"; chestColor = Color.SandyBrown;
-            goldGain = _rng.Next(8, 26); xpGain = 0;
-        }
-        else if (roll < 75)
-        {
-            chestName = "🪙 Silver Chest"; chestColor = Color.Silver;
-            goldGain = _rng.Next(20, 55); xpGain = 0;
-        }
-        else if (roll < 95)
-        {
-            chestName = "✨ Magic Chest"; chestColor = Color.Cyan1;
-            goldGain = 0; xpGain = _rng.Next(20, 60);
-        }
-        else
-        {
-            chestName = "🏆 Golden Chest"; chestColor = Color.Gold1;
-            goldGain = _rng.Next(60, 150); xpGain = _rng.Next(40, 80);
-        }
+        string rewardLine = (result.GoldGained > 0 && result.XpGained > 0)
+            ? $"[gold1]+{result.GoldGained} Gold[/]   [cyan]+{result.XpGained} XP[/]"
+            : result.GoldGained > 0
+            ? $"[gold1]+{result.GoldGained} Gold[/]"
+            : $"[cyan]+{result.XpGained} XP[/]";
 
-        string rewardLine = (goldGain > 0 && xpGain > 0) ? $"[gold1]+{goldGain} Gold[/]   [cyan]+{xpGain} XP[/]"
-                          : goldGain > 0                  ? $"[gold1]+{goldGain} Gold[/]"
-                                                          : $"[cyan]+{xpGain} XP[/]";
-
-        AnsiConsole.Write(new Panel(new Markup($"[bold]{chestName}[/]\n{rewardLine}"))
+        AnsiConsole.Write(new Panel(new Markup($"[bold]{result.Name}[/]\n{rewardLine}"))
         {
             Header = new PanelHeader(" You found a chest! ", Justify.Center),
             Border = BoxBorder.Rounded,
@@ -461,38 +415,16 @@ public class GameService : BackgroundService
             Padding = new Padding(2, 1),
         });
 
-        hero.Gold += goldGain;
-        hero.Xp   += xpGain;
-        TryLevelUp(hero);
-
-        await _db.Heroes.UpdateAsync(hero);
-        await _db.SaveChangesAsync(ct);
-        _currentHero = hero;
-        AnsiConsole.WriteLine();
+        if (result.LevelUp != null)
+            RenderLevelUp(result.LevelUp);
     }
 
-    private void TryLevelUp(Hero hero)
+    private static void RenderLevelUp(LevelUpResult levelUp)
     {
-        int xpNeeded = hero.Level * 50;
-        if (hero.Xp < xpNeeded) return;
-
-        hero.Level++;
-        hero.Xp -= xpNeeded;
-        // Per-class level-up stat growth (random within class range / 10)
-        var lp = HeroClassFactory.Profiles[hero.HeroClass];
-        hero.MaxHp       += _rng.Next((lp.MaxHp - lp.MinHp) / 10 + 8, (lp.MaxHp - lp.MinHp) / 10 + 18);
-        hero.Hp           = hero.MaxHp;
-        hero.Attack      += _rng.Next((lp.MaxAttack - lp.MinAttack) / 5 + 1, (lp.MaxAttack - lp.MinAttack) / 5 + 5);
-        hero.Defense     += _rng.Next((lp.MaxDefense - lp.MinDefense) / 5 + 1, (lp.MaxDefense - lp.MinDefense) / 5 + 3);
-        hero.MaxMp       += _rng.Next((lp.MaxMp - lp.MinMp) / 5 + 4, (lp.MaxMp - lp.MinMp) / 5 + 12);
-        hero.MagicAttack += _rng.Next((lp.MaxMagicAttack - lp.MinMagicAttack) / 5 + 1, (lp.MaxMagicAttack - lp.MinMagicAttack) / 5 + 4);
-        // Level up restores MP to the 80% inn cap
-        hero.Mp = Math.Max(hero.Mp, (int)(hero.MaxMp * 0.8));
-
         AnsiConsole.Write(new Panel(
             new Markup(
-                $"[bold magenta]⭐ LEVEL UP!  →  Level {hero.Level}[/]\n" +
-                $"MaxHP [bold]{hero.MaxHp}[/]   ATK [bold]{hero.Attack}[/]   DEF [bold]{hero.Defense}[/]   MaxMP [bold]{hero.MaxMp}[/]   MATK [bold]{hero.MagicAttack}[/]"))
+                $"[bold magenta]⭐ LEVEL UP!  →  Level {levelUp.NewLevel}[/]\n" +
+                $"MaxHP [bold]{levelUp.MaxHp}[/]   ATK [bold]{levelUp.Attack}[/]   DEF [bold]{levelUp.Defense}[/]   MaxMP [bold]{levelUp.MaxMp}[/]   MATK [bold]{levelUp.MagicAttack}[/]"))
         {
             Border = BoxBorder.Double,
             BorderStyle = new Style(Color.Magenta1),
@@ -503,32 +435,21 @@ public class GameService : BackgroundService
     private async Task RestAtInn(CancellationToken ct)
     {
         var hero = _currentHero!;
-        int cost = hero.Level * 10;
+        var result = await _engine.RestAtInnAsync(hero, ct);
 
-        if (hero.Hp >= hero.MaxHp)
+        if (!result.Rested)
         {
-            AnsiConsole.MarkupLine("[yellow]You're already at full health![/]");
+            if (result.FailReason == "already_full_hp")
+                AnsiConsole.MarkupLine("[yellow]You're already at full health![/]");
+            else
+                AnsiConsole.MarkupLine($"[red]Not enough gold! Need {result.Cost}G (you have {hero.Gold}G)[/]");
             return;
         }
-        if (hero.Gold < cost)
-        {
-            AnsiConsole.MarkupLine($"[red]Not enough gold! Need {cost}G (you have {hero.Gold}G)[/]");
-            return;
-        }
 
-        hero.Gold -= cost;
-        hero.Hp = hero.MaxHp;
-        // Inn only restores MP to 80% — the final 20% must be earned through combat
-        int mpCap = (int)(hero.MaxMp * 0.8);
-        int mpRestored = Math.Max(0, mpCap - hero.Mp);
-        hero.Mp = Math.Max(hero.Mp, mpCap);
-        await _db.Heroes.UpdateAsync(hero);
-        await _db.SaveChangesAsync(ct);
-
-        string mpNote = mpRestored > 0
-            ? $" [blue]+{mpRestored} MP[/] [grey](capped at 80% — kill monsters for more)[/]"
+        string mpNote = result.MpRestored > 0
+            ? $" [blue]+{result.MpRestored} MP[/] [grey](capped at 80% — kill monsters for more)[/]"
             : " [grey]MP already at 80%+ (kill monsters to reach max)[/]";
-        AnsiConsole.MarkupLine($"[green]🏨 You rest at the inn. HP fully restored! (-{cost}G)[/]{mpNote}");
+        AnsiConsole.MarkupLine($"[green]🏨 You rest at the inn. HP fully restored! (-{result.Cost}G)[/]{mpNote}");
     }
 
     private void ShowStats()
@@ -565,10 +486,7 @@ public class GameService : BackgroundService
 
     private void ShowBattleHistory()
     {
-        var logs = _db.BattleLogs.FindAll()
-            .OrderByDescending(b => b.Timestamp)
-            .Take(10)
-            .ToList();
+        var logs = _engine.GetRecentBattles(10).ToList();
 
         if (logs.Count == 0)
         {
@@ -600,11 +518,7 @@ public class GameService : BackgroundService
 
     private void ShowLeaderboard()
     {
-        var heroes = _db.Heroes.FindAll()
-            .OrderByDescending(h => h.Level)
-            .ThenByDescending(h => h.MonstersKilled)
-            .Take(10)
-            .ToList();
+        var heroes = _engine.GetLeaderboard(10).ToList();
 
         if (heroes.Count == 0)
         {

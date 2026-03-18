@@ -34,7 +34,7 @@ public static class HeroClassFactory
     public static void ApplyInitialStats(Hero hero, HeroClass cls, Random rng)
     {
         var p = Profiles[cls];
-        hero.Class       = cls;
+        hero.HeroClass   = cls;
         hero.MaxHp       = rng.Next(p.MinHp,          p.MaxHp          + 1);
         hero.Hp          = hero.MaxHp;
         hero.Attack      = rng.Next(p.MinAttack,      p.MaxAttack      + 1);
