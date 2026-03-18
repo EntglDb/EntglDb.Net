@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.0.1"></a>
+## [2.0.1](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.0.1) (2026-03-18)
+
+### Bug Fixes
+
+* P2P sync correctness - CDC serialization, LWW timestamps, deterministic metadata IDs ([53514bd](https://www.github.com/EntglDb/EntglDb.Net/commit/53514bd3cfd5b7ea619296b2adfb49d19c91b672))
+
 <a name="2.0.0"></a>
 ## [2.0.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.0.0) (2026-03-17)
 
