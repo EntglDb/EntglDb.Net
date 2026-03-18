@@ -184,6 +184,13 @@ public class GameService : BackgroundService
             return;
         }
 
+        // 25% chance to find a chest instead of a monster
+        if (_rng.Next(100) < 25)
+        {
+            await OpenChest(hero, ct);
+            return;
+        }
+
         var monster = MonsterFactory.Spawn(hero.Level);
 
         AnsiConsole.Write(new Panel(
@@ -197,34 +204,98 @@ public class GameService : BackgroundService
             Padding = new Padding(2, 1),
         });
         AnsiConsole.WriteLine();
-
-        await Task.Delay(500, ct);
+        await Task.Delay(400, ct);
 
         int monsterHp = monster.Hp;
         int round = 1;
 
         while (hero.Hp > 0 && monsterHp > 0)
         {
-            AnsiConsole.MarkupLine($"[grey]── Round {round} ──[/]");
-
-            // Hero attacks
-            int heroDmg = Math.Max(1, hero.Attack - monster.Defense + _rng.Next(-3, 4));
-            monsterHp -= heroDmg;
+            // Round header with live HP
+            double heroHpPct = (double)hero.Hp / hero.MaxHp;
+            double monHpPct  = (double)monsterHp / monster.Hp;
+            var heroHpColor  = heroHpPct > 0.5 ? "green" : heroHpPct > 0.25 ? "yellow" : "red";
+            var monHpColor   = monHpPct  > 0.5 ? "red"   : monHpPct  > 0.25 ? "yellow" : "green";
             AnsiConsole.MarkupLine(
-                $"  [green]⚔  You deal [bold]{heroDmg}[/] damage![/] " +
-                $"[grey](Monster HP: {Math.Max(0, monsterHp)})[/]");
+                $"[grey]── Round {round} ──[/]  " +
+                $"[{heroHpColor}]You: {hero.Hp}/{hero.MaxHp} HP[/]   " +
+                $"[{monHpColor}]{monster.Emoji} {Markup.Escape(monster.Name)}: {monsterHp}/{monster.Hp} HP[/]");
+
+            // Player chooses action
+            var action = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("  [bold yellow]Choose your move:[/]")
+                    .HighlightStyle(new Style(Color.Gold1))
+                    .AddChoices(
+                        "Attack        — Standard strike",
+                        "Quick Strike  — Two fast hits (lower damage each)",
+                        "Power Blow    — Heavy hit, you take 50% more damage",
+                        "Parry         — Counter for half, take 70% less damage",
+                        "Dodge         — 55% chance to fully evade, then strike"));
+
+            // Resolve hero action based on first word
+            int heroDmg;
+            int monsterDmgMult = 100; // percentage of normal incoming damage
+            bool dodgeAttempt = false;
+            string heroLine;
+
+            switch (action.Split(' ')[0])
+            {
+                case "Quick":
+                    int h1 = Math.Max(1, (int)(hero.Attack * 0.6) - monster.Defense / 2 + _rng.Next(-2, 3));
+                    int h2 = Math.Max(1, (int)(hero.Attack * 0.6) - monster.Defense / 2 + _rng.Next(-2, 3));
+                    heroDmg = h1 + h2;
+                    heroLine = $"[green]🗡  Quick Strike! [bold]{h1}[/] + [bold]{h2}[/] = [bold]{heroDmg}[/] dmg[/]";
+                    break;
+                case "Power":
+                    heroDmg = Math.Max(1, (int)(hero.Attack * 1.7) - monster.Defense + _rng.Next(-2, 5));
+                    monsterDmgMult = 150;
+                    heroLine = $"[green]💪  Power Blow! [bold]{heroDmg}[/] dmg [dim](you're exposed!)[/][/]";
+                    break;
+                case "Parry":
+                    heroDmg = Math.Max(1, hero.Attack / 2 - monster.Defense / 2 + _rng.Next(-1, 3));
+                    monsterDmgMult = 30;
+                    heroLine = $"[green]🛡  Parry & Counter! [bold]{heroDmg}[/] dmg [dim](blocking)[/][/]";
+                    break;
+                case "Dodge":
+                    heroDmg = Math.Max(1, hero.Attack - monster.Defense + _rng.Next(-3, 4));
+                    dodgeAttempt = true;
+                    heroLine = $"[green]💨  Dodge & Strike! [bold]{heroDmg}[/] dmg[/]";
+                    break;
+                default: // Attack
+                    heroDmg = Math.Max(1, hero.Attack - monster.Defense + _rng.Next(-3, 4));
+                    heroLine = $"[green]⚔   Attack! [bold]{heroDmg}[/] dmg[/]";
+                    break;
+            }
+
+            monsterHp -= heroDmg;
+            AnsiConsole.MarkupLine($"  {heroLine} [grey]({monster.Emoji} HP: {Math.Max(0, monsterHp)})[/]");
 
             if (monsterHp <= 0) break;
 
             // Monster attacks
-            int monsterDmg = Math.Max(1, monster.Attack - hero.Defense + _rng.Next(-3, 4));
-            hero.Hp -= monsterDmg;
-            AnsiConsole.MarkupLine(
-                $"  [red]{monster.Emoji} {Markup.Escape(monster.Name)} deals [bold]{monsterDmg}[/] damage![/] " +
-                $"[grey](Your HP: {Math.Max(0, hero.Hp)})[/]");
+            int baseDmg = Math.Max(1, monster.Attack - hero.Defense + _rng.Next(-3, 4));
 
+            if (dodgeAttempt && _rng.Next(100) < 55)
+            {
+                AnsiConsole.MarkupLine($"  [cyan]💨  Dodge! {monster.Emoji} {Markup.Escape(monster.Name)} misses![/]");
+            }
+            else
+            {
+                int incoming = dodgeAttempt ? baseDmg : Math.Max(1, (int)(baseDmg * monsterDmgMult / 100.0));
+                hero.Hp -= incoming;
+                string penaltyNote = monsterDmgMult == 150 ? " [red](Power Blow penalty!)[/]"
+                                   : monsterDmgMult == 30  ? " [blue](Partially blocked!)[/]"
+                                   : dodgeAttempt          ? " [yellow](Dodge failed!)[/]"
+                                   : "";
+                AnsiConsole.MarkupLine(
+                    $"  [red]{monster.Emoji} {Markup.Escape(monster.Name)} hits for [bold]{incoming}[/]![/]{penaltyNote} " +
+                    $"[grey](Your HP: {Math.Max(0, hero.Hp)})[/]");
+            }
+
+            AnsiConsole.WriteLine();
             round++;
-            await Task.Delay(400, ct);
+            await Task.Delay(200, ct);
         }
 
         var battleLog = new BattleLog
@@ -253,28 +324,7 @@ public class GameService : BackgroundService
                 BorderStyle = new Style(Color.Green),
                 Padding = new Padding(2, 1),
             });
-
-            // Level up
-            int xpNeeded = hero.Level * 50;
-            if (hero.Xp >= xpNeeded)
-            {
-                hero.Level++;
-                hero.Xp -= xpNeeded;
-                hero.MaxHp += 15;
-                hero.Hp = hero.MaxHp;
-                hero.Attack += 3;
-                hero.Defense += 2;
-
-                AnsiConsole.Write(new Panel(
-                    new Markup(
-                        $"[bold magenta]⭐ LEVEL UP!  →  Level {hero.Level}[/]\n" +
-                        $"MaxHP [bold]{hero.MaxHp}[/]   ATK [bold]{hero.Attack}[/]   DEF [bold]{hero.Defense}[/]"))
-                {
-                    Border = BoxBorder.Double,
-                    BorderStyle = new Style(Color.Magenta1),
-                    Padding = new Padding(2, 0),
-                });
-            }
+            TryLevelUp(hero);
         }
         else
         {
@@ -296,6 +346,81 @@ public class GameService : BackgroundService
         await _db.SaveChangesAsync(ct);
         _currentHero = hero;
         AnsiConsole.WriteLine();
+    }
+
+    private async Task OpenChest(Hero hero, CancellationToken ct)
+    {
+        // Weighted chest types: 40% wooden, 35% silver, 20% magic, 5% golden
+        int roll = _rng.Next(100);
+        string chestName;
+        Color chestColor;
+        int goldGain;
+        int xpGain;
+
+        if (roll < 40)
+        {
+            chestName = "📦 Wooden Chest"; chestColor = Color.SandyBrown;
+            goldGain = _rng.Next(8, 26); xpGain = 0;
+        }
+        else if (roll < 75)
+        {
+            chestName = "🪙 Silver Chest"; chestColor = Color.Silver;
+            goldGain = _rng.Next(20, 55); xpGain = 0;
+        }
+        else if (roll < 95)
+        {
+            chestName = "✨ Magic Chest"; chestColor = Color.Cyan1;
+            goldGain = 0; xpGain = _rng.Next(20, 60);
+        }
+        else
+        {
+            chestName = "🏆 Golden Chest"; chestColor = Color.Gold1;
+            goldGain = _rng.Next(60, 150); xpGain = _rng.Next(40, 80);
+        }
+
+        string rewardLine = (goldGain > 0 && xpGain > 0) ? $"[gold1]+{goldGain} Gold[/]   [cyan]+{xpGain} XP[/]"
+                          : goldGain > 0                  ? $"[gold1]+{goldGain} Gold[/]"
+                                                          : $"[cyan]+{xpGain} XP[/]";
+
+        AnsiConsole.Write(new Panel(new Markup($"[bold]{chestName}[/]\n{rewardLine}"))
+        {
+            Header = new PanelHeader(" You found a chest! ", Justify.Center),
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(chestColor),
+            Padding = new Padding(2, 1),
+        });
+
+        hero.Gold += goldGain;
+        hero.Xp   += xpGain;
+        TryLevelUp(hero);
+
+        await _db.Heroes.UpdateAsync(hero);
+        await _db.SaveChangesAsync(ct);
+        _currentHero = hero;
+        AnsiConsole.WriteLine();
+    }
+
+    private void TryLevelUp(Hero hero)
+    {
+        int xpNeeded = hero.Level * 50;
+        if (hero.Xp < xpNeeded) return;
+
+        hero.Level++;
+        hero.Xp    -= xpNeeded;
+        hero.MaxHp += 15;
+        hero.Hp     = hero.MaxHp;
+        hero.Attack += 3;
+        hero.Defense += 2;
+
+        AnsiConsole.Write(new Panel(
+            new Markup(
+                $"[bold magenta]⭐ LEVEL UP!  →  Level {hero.Level}[/]\n" +
+                $"MaxHP [bold]{hero.MaxHp}[/]   ATK [bold]{hero.Attack}[/]   DEF [bold]{hero.Defense}[/]"))
+        {
+            Border = BoxBorder.Double,
+            BorderStyle = new Style(Color.Magenta1),
+            Padding = new Padding(2, 0),
+        });
     }
 
     private async Task RestAtInn(CancellationToken ct)

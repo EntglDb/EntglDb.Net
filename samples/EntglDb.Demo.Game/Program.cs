@@ -8,6 +8,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+Console.InputEncoding  = System.Text.Encoding.UTF8;
+
 // Parse args: [nodeId] [tcpPort]
 string nodeId = args.Length > 0 ? args[0] : $"hero-{new Random().Next(1000, 9999)}";
 int tcpPort = args.Length > 1 ? int.Parse(args[1]) : new Random().Next(15000, 16000);
