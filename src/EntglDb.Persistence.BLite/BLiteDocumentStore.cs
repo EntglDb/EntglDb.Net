@@ -265,6 +265,7 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
                     existingMetadata.HlcLogicalCounter = document.UpdatedAt.LogicalCounter;
                     existingMetadata.HlcNodeId = document.UpdatedAt.NodeId;
                     existingMetadata.IsDeleted = document.IsDeleted;
+                    existingMetadata.ContentHash = document.IsDeleted ? "" : EntityMappers.ComputeContentHash(document.Content);
                     await _context.DocumentMetadatas.UpdateAsync(existingMetadata, cancellationToken);
                     await _context.SaveChangesAsync(cancellationToken);
                 }
@@ -272,7 +273,7 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             else
             {
                 await _context.DocumentMetadatas.InsertAsync(
-                    EntityMappers.CreateDocumentMetadata(document.Collection, document.Key, document.UpdatedAt, document.IsDeleted),
+                    EntityMappers.CreateDocumentMetadata(document.Collection, document.Key, document.UpdatedAt, document.IsDeleted, document.Content),
                     cancellationToken);
                 await _context.SaveChangesAsync(cancellationToken);
             }
@@ -543,12 +544,13 @@ public abstract class BLiteDocumentStore<TDbContext> : IDocumentStore, IDisposab
             existingMetadata.HlcLogicalCounter = timestamp.LogicalCounter;
             existingMetadata.HlcNodeId = timestamp.NodeId;
             existingMetadata.IsDeleted = operationType == OperationType.Delete;
+            existingMetadata.ContentHash = operationType == OperationType.Delete ? "" : EntityMappers.ComputeContentHash(content);
             await _context.DocumentMetadatas.UpdateAsync(existingMetadata, cancellationToken);
         }
         else
         {
             await _context.DocumentMetadatas.InsertAsync(
-                EntityMappers.CreateDocumentMetadata(collection, key, timestamp, isDeleted: operationType == OperationType.Delete),
+                EntityMappers.CreateDocumentMetadata(collection, key, timestamp, isDeleted: operationType == OperationType.Delete, content: content),
                 cancellationToken);
         }
 

@@ -86,6 +86,7 @@ public partial class EntglDocumentDbContext : DocumentDbContext
             .HasKey(e => e.Id)
             .HasIndex(e => new { e.Collection, e.Key }, unique: true) // Composite business key
             .HasIndex(e => new { e.HlcPhysicalTime, e.HlcLogicalCounter, e.HlcNodeId })
-            .HasIndex(e => e.Collection);
+            .HasIndex(e => e.Collection)
+            .HasIndex(e => new { e.Collection, e.Key, e.ContentHash });
     }
 }

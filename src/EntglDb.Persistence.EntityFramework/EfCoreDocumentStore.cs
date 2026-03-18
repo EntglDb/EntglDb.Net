@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -387,7 +390,7 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
             Collection = oplogEntry.Collection,
             Key = oplogEntry.Key,
             Operation = (int)oplogEntry.Operation,
-            PayloadJson = oplogEntry.Payload?.GetRawText(),
+            PayloadJson = oplogEntry.Payload.HasValue ? NormalizeJson(oplogEntry.Payload.Value) : null,
             TimestampPhysicalTime = oplogEntry.Timestamp.PhysicalTime,
             TimestampLogicalCounter = oplogEntry.Timestamp.LogicalCounter,
             TimestampNodeId = oplogEntry.Timestamp.NodeId,
@@ -405,6 +408,7 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
             existingMetadata.HlcLogicalCounter = timestamp.LogicalCounter;
             existingMetadata.HlcNodeId = timestamp.NodeId;
             existingMetadata.IsDeleted = operationType == OperationType.Delete;
+            existingMetadata.ContentHash = operationType == OperationType.Delete ? "" : ComputeContentHash(content);
         }
         else
         {
@@ -415,7 +419,8 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
                 HlcPhysicalTime = timestamp.PhysicalTime,
                 HlcLogicalCounter = timestamp.LogicalCounter,
                 HlcNodeId = timestamp.NodeId,
-                IsDeleted = operationType == OperationType.Delete
+                IsDeleted = operationType == OperationType.Delete,
+                ContentHash = operationType == OperationType.Delete ? "" : ComputeContentHash(content)
             });
         }
 
@@ -434,6 +439,72 @@ public abstract class EfCoreDocumentStore<TDbContext> : IDocumentStore, IDisposa
     {
         _remoteSyncGuard.Wait();
         return new RemoteSyncScope(_remoteSyncGuard);
+    }
+
+    private static string NormalizeJson(JsonElement element)
+    {
+        using var ms = new MemoryStream();
+        using var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false });
+        WriteNormalizedJson(writer, element);
+        writer.Flush();
+        return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+    }
+
+    private static string ComputeContentHashFromNormalized(string normalizedJson)
+    {
+        if (string.IsNullOrEmpty(normalizedJson)) return "";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedJson));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ComputeContentHash(JsonElement? content)
+    {
+        if (content == null) return "";
+
+        using var ms = new MemoryStream();
+        using var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false });
+        WriteNormalizedJson(writer, content.Value);
+        writer.Flush();
+
+        var hash = SHA256.HashData(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void WriteNormalizedJson(Utf8JsonWriter writer, JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                foreach (var prop in element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
+                {
+                    writer.WritePropertyName(prop.Name);
+                    WriteNormalizedJson(writer, prop.Value);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var item in element.EnumerateArray())
+                    WriteNormalizedJson(writer, item);
+                writer.WriteEndArray();
+                break;
+            case JsonValueKind.String:
+                writer.WriteStringValue(element.GetString());
+                break;
+            case JsonValueKind.Number:
+                writer.WriteRawValue(element.GetRawText());
+                break;
+            case JsonValueKind.True:
+                writer.WriteBooleanValue(true);
+                break;
+            case JsonValueKind.False:
+                writer.WriteBooleanValue(false);
+                break;
+            default:
+                writer.WriteNullValue();
+                break;
+        }
     }
 
     private class RemoteSyncScope : IDisposable
