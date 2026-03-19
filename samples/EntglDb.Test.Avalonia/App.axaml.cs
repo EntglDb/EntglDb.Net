@@ -7,6 +7,7 @@ using EntglDb.Network;
 using EntglDb.Network.Security;
 using EntglDb.Persistence.BLite;
 using EntglDb.Sample.Shared;
+using EntglDb.Sync;
 using Lifter.Avalonia;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,6 +60,7 @@ public class App : HostedApplication<MainView>
         // Register EntglDb Services using Fluent Extensions
         services.AddEntglDbCore()
                 .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
-                .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
+                .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(useHostedService: false)
+                .AddEntglDbSync();
     }
 }

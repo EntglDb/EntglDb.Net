@@ -2,13 +2,14 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using EntglDb.Core.Network;
+using EntglDb.Network;
 
 namespace EntglDb.Core.Storage;
 
 /// <summary>
 /// Handles storage and retrieval of remote peer configurations.
 /// </summary>
-public interface IPeerConfigurationStore : ISnapshotable<RemotePeerConfiguration>
+public interface IPeerConfigurationStore : ISnapshotable<RemotePeerConfiguration>, IRemotePeerListProvider
 {
     /// <summary>
     /// Saves or updates a remote peer configuration in the persistent store.

@@ -2,15 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using EntglDb.Network;
 
 namespace EntglDb.Core.Storage;
 
 /// <summary>
 /// Handles basic CRUD operations for documents.
 /// </summary>
-public interface IDocumentStore : ISnapshotable<Document>
+public interface IDocumentStore : ISnapshotable<Document>, ILocalInterestsProvider
 {
-    IEnumerable<string> InterestedCollection { get; }
 
     /// <summary>
     /// Asynchronously retrieves a incoming from the specified collection by its key.

@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EntglDb.Network\EntglDb.Network.csproj" />
+    <ProjectReference Include="..\..\src\EntglDb.Sync\EntglDb.Sync.csproj" />
   </ItemGroup>
 
 </Project>

@@ -8,10 +8,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EntglDb.Core.Storage;
 using Microsoft.Extensions.Logging;
 using EntglDb.Core.Network;
-using EntglDb.Core;
 
 namespace EntglDb.Network;
 
@@ -24,18 +22,18 @@ internal class UdpDiscoveryService : IDiscoveryService
     private const int DiscoveryPort = 25000;
     private readonly ILogger<UdpDiscoveryService> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
-    private readonly IDocumentStore _documentStore;
+    private readonly ILocalInterestsProvider? _localInterests;
     private CancellationTokenSource? _cts;
     private readonly ConcurrentDictionary<string, PeerNode> _activePeers = new();
     private readonly object _startStopLock = new object();
 
     public UdpDiscoveryService(
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
-        IDocumentStore documentStore,
-        ILogger<UdpDiscoveryService> logger)
+        ILogger<UdpDiscoveryService> logger,
+        ILocalInterestsProvider? localInterests = null)
     {
         _configProvider = peerNodeConfigurationProvider ?? throw new ArgumentNullException(nameof(peerNodeConfigurationProvider));
-        _documentStore = documentStore ?? throw new ArgumentNullException(nameof(documentStore));
+        _localInterests = localInterests;
         _logger = logger;
     }
 
@@ -245,7 +243,7 @@ internal class UdpDiscoveryService : IDiscoveryService
                     NodeId = conf.NodeId, 
                     TcpPort = conf.TcpPort,
                     ClusterHash = ComputeClusterHash(conf.AuthToken),
-                    InterestingCollections = _documentStore.InterestedCollection.ToList()
+                    InterestingCollections = _localInterests?.InterestedCollection.ToList() ?? new List<string>()
                 };
 
                 var json = JsonSerializer.Serialize(beacon);

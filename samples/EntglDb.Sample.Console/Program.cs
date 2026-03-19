@@ -13,6 +13,7 @@ using EntglDb.Persistence.BLite;
 using EntglDb.Sample.Shared;
 using Microsoft.Extensions.Hosting;
 using EntglDb.Core.Network;
+using EntglDb.Sync;
 
 namespace EntglDb.Sample.Console;
 
@@ -65,7 +66,8 @@ class Program
         // Register EntglDb Services using Fluent Extensions with BLite, SampleDbContext, and SampleDocumentStore
         builder.Services.AddEntglDbCore()
                         .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
-                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
+                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(useHostedService: false) // transport only
+                        .AddEntglDbSync(); // sync handlers + node orchestrator
         
         builder.Services.AddHostedService<ConsoleInteractiveService>(); // Runs the Input Loop
 

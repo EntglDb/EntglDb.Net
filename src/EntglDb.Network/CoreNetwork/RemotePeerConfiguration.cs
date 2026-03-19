@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace EntglDb.Core.Network;
 
 /// <summary>
@@ -11,7 +9,6 @@ public class RemotePeerConfiguration
     /// <summary>
     /// Gets or sets the unique identifier for the remote peer node.
     /// </summary>
-    [Key]
     public string NodeId { get; set; } = "";
     
     /// <summary>

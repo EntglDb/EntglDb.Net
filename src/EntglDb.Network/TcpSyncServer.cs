@@ -1,5 +1,4 @@
 using EntglDb.Core.Network;
-using EntglDb.Core.Storage;
 using EntglDb.Network.Proto;
 using EntglDb.Network.Security;
 using EntglDb.Network.Protocol;
@@ -45,7 +44,7 @@ internal class TcpSyncServer : ISyncServer
     /// </summary>
     private delegate Task<(IMessage? Response, MessageType ResponseType)> MessageHandler(MessageHandlerContext ctx);
 
-    private readonly IDocumentStore _documentStore;
+    private readonly ILocalInterestsProvider? _localInterests;
     private readonly ILogger<TcpSyncServer> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
     private CancellationTokenSource? _cts;
@@ -68,7 +67,7 @@ internal class TcpSyncServer : ISyncServer
     /// <remarks>The server automatically restarts when the configuration provided by
     /// peerNodeConfigurationProvider changes. This ensures that configuration updates are applied without requiring
     /// manual intervention.</remarks>
-    /// <param name="documentStore">The document store used to determine the local node's interested collections during handshake.</param>
+    /// <param name="localInterests">Optional provider for the local node's interested collections, used during handshake.</param>
     /// <param name="peerNodeConfigurationProvider">The provider that supplies configuration settings for the peer node and notifies the server of configuration
     /// changes.</param>
     /// <param name="logger">The logger used to record informational and error messages for the server instance.</param>
@@ -82,7 +81,7 @@ internal class TcpSyncServer : ISyncServer
     /// <see cref="MessageType"/>, the last one registered takes precedence.
     /// </param>
     public TcpSyncServer(
-        IDocumentStore documentStore,
+        ILocalInterestsProvider? localInterests,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider, 
         ILogger<TcpSyncServer> logger, 
         IAuthenticator authenticator,
@@ -90,7 +89,7 @@ internal class TcpSyncServer : ISyncServer
         IEnumerable<INetworkMessageHandler> handlers,
         INetworkTelemetryService? telemetry = null)
     {
-        _documentStore = documentStore;
+        _localInterests = localInterests;
         _logger = logger;
         _authenticator = authenticator;
         _handshakeService = handshakeService;
@@ -309,10 +308,13 @@ internal class TcpSyncServer : ISyncServer
 
                         var hRes = new HandshakeResponse { NodeId = config.NodeId, Accepted = true };
                         
-                        // Include local interests from IDocumentStore in response for push filtering
-                        foreach (var coll in _documentStore.InterestedCollection)
+                        // Include local interests in response for push filtering (if a provider is available)
+                        if (_localInterests != null)
                         {
-                            hRes.InterestingCollections.Add(coll);
+                            foreach (var coll in _localInterests.InterestedCollection)
+                            {
+                                hRes.InterestingCollections.Add(coll);
+                            }
                         }
 
                         if (CompressionHelper.IsBrotliSupported && hReq.SupportedCompression.Contains("brotli"))

@@ -3,6 +3,7 @@ using EntglDb.Core.Network;
 using EntglDb.Demo.Game;
 using EntglDb.Network;
 using EntglDb.Persistence.BLite;
+using EntglDb.Sync;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -45,7 +46,8 @@ var databasePath = Path.Combine(dataPath, $"{nodeId}.blite");
 // Register EntglDb with BLite
 builder.Services.AddEntglDbCore()
     .AddEntglDbBLite<GameDbContext, GameDocumentStore>(sp => new GameDbContext(databasePath), databasePath + ".meta")
-    .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
+    .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(useHostedService: false)
+    .AddEntglDbSync();
 
 // Game service
 builder.Services.AddHostedService<GameService>();

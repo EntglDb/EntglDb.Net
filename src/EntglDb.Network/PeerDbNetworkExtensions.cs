@@ -1,12 +1,8 @@
-using EntglDb.Core;
-using EntglDb.Core.Network; // For IMeshNetwork if we implement it
-using EntglDb.Core.Storage;
-using EntglDb.Network.Handlers;
+using EntglDb.Core.Network;
 using EntglDb.Network.Security;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Hosting;
 using System;
 
 namespace EntglDb.Network;
@@ -14,28 +10,23 @@ namespace EntglDb.Network;
 public static class EntglDbNetworkExtensions
 {
     /// <summary>
-    /// Adds EntglDb network services to the service collection.
+    /// Adds EntglDb transport-layer network services to the service collection.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Six core <see cref="INetworkMessageHandler"/> implementations are registered automatically
-    /// (<c>GetClockHandler</c>, <c>GetVectorClockHandler</c>, <c>PullChangesHandler</c>,
-    /// <c>PushChangesHandler</c>, <c>GetChainRangeHandler</c>, <c>GetSnapshotHandler</c>).
+    /// Registers transport-layer services: <see cref="IPeerNodeConfigurationProvider"/>,
+    /// <see cref="IAuthenticator"/>, <see cref="IPeerHandshakeService"/>, <see cref="IDiscoveryService"/>,
+    /// telemetry, and <see cref="ISyncServer"/>.
     /// </para>
     /// <para>
-    /// To add custom handlers or override a core handler, register your own
-    /// <see cref="INetworkMessageHandler"/> implementations <em>after</em> calling this method:
+    /// To register sync handlers and the node orchestrator, also call <c>AddEntglDbSync()</c>
+    /// from the <c>EntglDb.Sync</c> package.
     /// </para>
-    /// <code>
-    /// services.AddEntglDbNetwork&lt;MyConfigProvider&gt;();
-    /// services.AddSingleton&lt;INetworkMessageHandler, MyCustomHandler&gt;();
-    /// </code>
     /// <para>
-    /// When two handlers target the same <see cref="Proto.MessageType"/>, the last registered
-    /// handler takes precedence.
+    /// To add custom handlers, register your own <see cref="INetworkMessageHandler"/>
+    /// implementations after calling this method.
     /// </para>
     /// </remarks>
-    /// <param name="useHostedService">If true, registers EntglDbNodeService as IHostedService to automatically start/stop the node.</param>
     public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(
         this IServiceCollection services,
         bool useHostedService = true) 
@@ -56,26 +47,7 @@ public static class EntglDbNetworkExtensions
             return new EntglDb.Network.Telemetry.NetworkTelemetryService(logger, path);
         });
 
-        // Register built-in core message handlers. Each is a separate INetworkMessageHandler
-        // implementation so that TcpSyncServer has no message-type-specific logic.
-        services.AddSingleton<INetworkMessageHandler, GetClockHandler>();
-        services.AddSingleton<INetworkMessageHandler, GetVectorClockHandler>();
-        services.AddSingleton<INetworkMessageHandler, PullChangesHandler>();
-        services.AddSingleton<INetworkMessageHandler, PushChangesHandler>();
-        services.AddSingleton<INetworkMessageHandler, GetChainRangeHandler>();
-        services.AddSingleton<INetworkMessageHandler, GetSnapshotHandler>();
-
         services.TryAddSingleton<ISyncServer, TcpSyncServer>();
-
-        services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();
-
-        services.TryAddSingleton<IEntglDbNode, EntglDbNode>();
-
-        // Optionally register hosted service for automatic node lifecycle management
-        if (useHostedService)
-        {
-            services.AddHostedService<EntglDbNodeService>();
-        }
 
         return services;
     }

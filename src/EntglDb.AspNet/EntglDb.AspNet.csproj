@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EntglDb.Network\EntglDb.Network.csproj" />
+    <ProjectReference Include="..\EntglDb.Sync\EntglDb.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -10,6 +10,7 @@ using EntglDb.Sample.Shared;
 using EntglDb.Network;
 using EntglDb.Network.Security;
 using EntglDb.Core.Network;
+using EntglDb.Sync;
 using Microsoft.Extensions.Hosting;
 
 namespace EntglDb.Test.Maui;
@@ -104,7 +105,8 @@ public static class MauiProgram
                                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                                 "app.blite")),
                             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "app.blite.meta"))
-                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
+                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(useHostedService: false)
+                        .AddEntglDbSync();
 #if DEBUG
 		builder.Logging.AddDebug();
 #endif

@@ -3,6 +3,7 @@ using EntglDb.Core.Network;
 using EntglDb.Network;
 using EntglDb.Persistence.BLite;
 using EntglDb.Sample.Shared;
+using EntglDb.Sync;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi;
 
@@ -36,7 +37,8 @@ var databasePath = Path.Combine(dataPath, $"{nodeName}.blite");
 
 builder.Services.AddEntglDbCore()
     .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
-    .AddEntglDbNetwork<AspNetPeerNodeConfigurationProvider>(useHostedService: true);
+    .AddEntglDbNetwork<AspNetPeerNodeConfigurationProvider>(useHostedService: false) // transport only
+    .AddEntglDbSync(useHostedService: true); // sync handlers + node orchestrator
 
 var app = builder.Build();
 

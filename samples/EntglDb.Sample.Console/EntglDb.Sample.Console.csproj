@@ -4,6 +4,7 @@
     <PackageReference Include="Lifter.Core" Version="1.1.0" />
     <ProjectReference Include="..\..\src\EntglDb.Core\EntglDb.Core.csproj" />
     <ProjectReference Include="..\..\src\EntglDb.Network\EntglDb.Network.csproj" />
+    <ProjectReference Include="..\..\src\EntglDb.Sync\EntglDb.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>
