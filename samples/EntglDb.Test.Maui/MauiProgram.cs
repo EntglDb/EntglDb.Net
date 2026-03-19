@@ -105,7 +105,7 @@ public static class MauiProgram
                                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                                 "app.blite")),
                             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "app.blite.meta"))
-                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(useHostedService: false)
+                        .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>()
                         .AddEntglDbSync();
 #if DEBUG
 		builder.Logging.AddDebug();

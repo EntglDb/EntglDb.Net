@@ -37,7 +37,7 @@ var databasePath = Path.Combine(dataPath, $"{nodeName}.blite");
 
 builder.Services.AddEntglDbCore()
     .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
-    .AddEntglDbNetwork<AspNetPeerNodeConfigurationProvider>(useHostedService: false) // transport only
+    .AddEntglDbNetwork<AspNetPeerNodeConfigurationProvider>() // transport only
     .AddEntglDbSync(useHostedService: true); // sync handlers + node orchestrator
 
 var app = builder.Build();

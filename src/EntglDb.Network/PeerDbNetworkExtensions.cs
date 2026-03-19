@@ -28,8 +28,7 @@ public static class EntglDbNetworkExtensions
     /// </para>
     /// </remarks>
     public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(
-        this IServiceCollection services,
-        bool useHostedService = true) 
+        this IServiceCollection services)
         where TPeerNodeConfigurationProvider : class, IPeerNodeConfigurationProvider
     {
         services.TryAddSingleton<IPeerNodeConfigurationProvider, TPeerNodeConfigurationProvider>();
