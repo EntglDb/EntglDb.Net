@@ -1,4 +1,3 @@
-using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Network.Proto;
@@ -8,9 +7,7 @@ using EntglDb.Network.Telemetry;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -24,9 +21,31 @@ namespace EntglDb.Network;
 /// </summary>
 internal class TcpSyncServer : ISyncServer
 {
-    private readonly IOplogStore _oplogStore;
+    /// <summary>
+    /// Carries per-message context into a handler. Implements <see cref="IMessageHandlerContext"/>
+    /// so it can be passed directly to any <see cref="INetworkMessageHandler"/> implementation.
+    /// </summary>
+    private sealed class MessageHandlerContext : IMessageHandlerContext
+    {
+        public byte[] Payload { get; init; } = Array.Empty<byte>();
+        public required NetworkStream Stream { get; init; }
+        public required ProtocolHandler Protocol { get; init; }
+        public bool UseCompression { get; init; }
+        public CipherState? CipherState { get; init; }
+        public EndPoint? RemoteEndPoint { get; init; }
+        public CancellationToken CancellationToken { get; init; }
+
+        public Task SendMessageAsync(Proto.MessageType type, Google.Protobuf.IMessage message, bool useCompression = false)
+            => Protocol.SendMessageAsync(Stream, type, message, useCompression, CipherState, CancellationToken);
+    }
+
+    /// <summary>
+    /// Delegate for a message handler. Returns the response message and its type.
+    /// Handlers that stream their response directly return <c>(null, MessageType.Unknown)</c>.
+    /// </summary>
+    private delegate Task<(IMessage? Response, MessageType ResponseType)> MessageHandler(MessageHandlerContext ctx);
+
     private readonly IDocumentStore _documentStore;
-    private readonly ISnapshotService _snapshotStore;
     private readonly ILogger<TcpSyncServer> _logger;
     private readonly IPeerNodeConfigurationProvider _configProvider;
     private CancellationTokenSource? _cts;
@@ -40,39 +59,44 @@ internal class TcpSyncServer : ISyncServer
     private readonly IAuthenticator _authenticator;
     private readonly IPeerHandshakeService _handshakeService;
     private readonly INetworkTelemetryService? _telemetry;
+    private readonly IDictionary<MessageType, MessageHandler> _handlerRegistry;
 
     /// <summary>
-    /// Initializes a new instance of the TcpSyncServer class with the specified peer oplogStore, configuration provider,
-    /// logger, and authenticator.
+    /// Initializes a new instance of the TcpSyncServer class with the specified peer configuration provider,
+    /// logger, authenticator, and message handlers.
     /// </summary>
     /// <remarks>The server automatically restarts when the configuration provided by
     /// peerNodeConfigurationProvider changes. This ensures that configuration updates are applied without requiring
     /// manual intervention.</remarks>
-    /// <param name="oplogStore">The peer oplogStore used to manage and persist peer information for the server.</param>
-    /// <param name="snapshotStore">The snapshot store used to create and manage database snapshots for synchronization.</param>
+    /// <param name="documentStore">The document store used to determine the local node's interested collections during handshake.</param>
     /// <param name="peerNodeConfigurationProvider">The provider that supplies configuration settings for the peer node and notifies the server of configuration
     /// changes.</param>
     /// <param name="logger">The logger used to record informational and error messages for the server instance.</param>
     /// <param name="authenticator">The authenticator responsible for validating peer connections to the server.</param>
     /// <param name="handshakeService">The service used to perform secure handshake (optional).</param>
+    /// <param name="telemetry">Optional telemetry service.</param>
+    /// <param name="handlers">
+    /// All registered <see cref="INetworkMessageHandler"/> instances injected via DI.
+    /// This includes the built-in core handlers registered by <c>AddEntglDbNetwork</c>
+    /// as well as any user-defined handlers. When two handlers target the same
+    /// <see cref="MessageType"/>, the last one registered takes precedence.
+    /// </param>
     public TcpSyncServer(
-        IOplogStore oplogStore, 
         IDocumentStore documentStore,
-        ISnapshotService snapshotStore,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider, 
         ILogger<TcpSyncServer> logger, 
         IAuthenticator authenticator,
         IPeerHandshakeService handshakeService,
+        IEnumerable<INetworkMessageHandler> handlers,
         INetworkTelemetryService? telemetry = null)
     {
-        _oplogStore = oplogStore;
         _documentStore = documentStore;
-        _snapshotStore = snapshotStore;
         _logger = logger;
         _authenticator = authenticator;
         _handshakeService = handshakeService;
         _configProvider = peerNodeConfigurationProvider;
         _telemetry = telemetry;
+        _handlerRegistry = BuildHandlerRegistry(handlers);
         _configProvider.ConfigurationChanged += async (s, e) =>
         {
             _logger.LogInformation("Configuration changed, restarting TCP Sync Server...");
@@ -304,148 +328,25 @@ internal class TcpSyncServer : ISyncServer
                     IMessage? response = null;
                     MessageType resType = MessageType.Unknown;
 
-                    switch (type)
+                    if (_handlerRegistry.TryGetValue(type, out var handler))
                     {
-                        case MessageType.GetClockReq:
-                            var clock = await _oplogStore.GetLatestTimestampAsync(token);
-                            response = new ClockResponse
-                            {
-                                HlcWall = clock.PhysicalTime,
-                                HlcLogic = clock.LogicalCounter,
-                                HlcNode = clock.NodeId
-                            };
-                            resType = MessageType.ClockRes;
-                            break;
-
-                        case MessageType.GetVectorClockReq:
-                            var vectorClock = await _oplogStore.GetVectorClockAsync(token);
-                            var vcRes = new VectorClockResponse();
-                            foreach (var nodeId in vectorClock.NodeIds)
-                            {
-                                var ts = vectorClock.GetTimestamp(nodeId);
-                                vcRes.Entries.Add(new VectorClockEntry
-                                {
-                                    NodeId = nodeId,
-                                    HlcWall = ts.PhysicalTime,
-                                    HlcLogic = ts.LogicalCounter
-                                });
-                            }
-                            response = vcRes;
-                            resType = MessageType.VectorClockRes;
-                            break;
-
-                        case MessageType.PullChangesReq:
-                            var pReq = PullChangesRequest.Parser.ParseFrom(payload);
-                            var since = new HlcTimestamp(pReq.SinceWall, pReq.SinceLogic, pReq.SinceNode);
-                            
-                            // Use collection filter from request
-                            var filter = pReq.Collections.Any() ? pReq.Collections : null;
-                            var oplog = await _oplogStore.GetOplogAfterAsync(since, filter, token);
-                            
-                            var csRes = new ChangeSetResponse();
-                            foreach (var e in oplog)
-                            {
-                                csRes.Entries.Add(new ProtoOplogEntry
-                                {
-                                    Collection = e.Collection,
-                                    Key = e.Key,
-                                    Operation = e.Operation.ToString(),
-                                    JsonData = e.Payload?.GetRawText() ?? "",
-                                    HlcWall = e.Timestamp.PhysicalTime,
-                                    HlcLogic = e.Timestamp.LogicalCounter,
-                                    HlcNode = e.Timestamp.NodeId,
-                                    Hash = e.Hash,
-                                    PreviousHash = e.PreviousHash
-                                });
-                            }
-                            response = csRes;
-                            resType = MessageType.ChangeSetRes;
-                            break;
-
-                        case MessageType.PushChangesReq:
-                            var pushReq = PushChangesRequest.Parser.ParseFrom(payload);
-                            var entries = pushReq.Entries.Select(e => new OplogEntry(
-                                e.Collection,
-                                e.Key,
-                                (OperationType)Enum.Parse(typeof(OperationType), e.Operation),
-                                string.IsNullOrEmpty(e.JsonData) ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-                                new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
-                                e.PreviousHash, // Restore PreviousHash
-                                e.Hash          // Restore Hash
-                            ));
-
-                            await _oplogStore.ApplyBatchAsync(entries, token);
-
-                            response = new AckResponse { Success = true };
-                            resType = MessageType.AckRes;
-                            break;
-
-                        case MessageType.GetChainRangeReq:
-                            var rangeReq = GetChainRangeRequest.Parser.ParseFrom(payload);
-                            var rangeEntries = await _oplogStore.GetChainRangeAsync(rangeReq.StartHash, rangeReq.EndHash, token);
-                            var rangeRes = new ChainRangeResponse();
-                            
-                            if (!rangeEntries.Any() && rangeReq.StartHash != rangeReq.EndHash)
-                            {
-                                // Gap cannot be filled (likely pruned or unknown branch)
-                                rangeRes.SnapshotRequired = true;
-                            }
-                            else
-                            {
-                                foreach (var e in rangeEntries)
-                                {
-                                    rangeRes.Entries.Add(new ProtoOplogEntry
-                                    {
-                                        Collection = e.Collection,
-                                        Key = e.Key,
-                                        Operation = e.Operation.ToString(),
-                                        JsonData = e.Payload?.GetRawText() ?? "",
-                                        HlcWall = e.Timestamp.PhysicalTime,
-                                        HlcLogic = e.Timestamp.LogicalCounter,
-                                        HlcNode = e.Timestamp.NodeId,
-                                        Hash = e.Hash,
-                                        PreviousHash = e.PreviousHash
-                                    });
-                                }
-                            }
-                            response = rangeRes;
-                            resType = MessageType.ChainRangeRes;
-                            break;
-
-                        case MessageType.GetSnapshotReq:
-                            _logger.LogInformation("Processing GetSnapshotReq from {Endpoint}", remoteEp);
-                            var tempFile = Path.GetTempFileName();
-                            try 
-                            {
-                                // Create backup
-                                using (var fs = File.Create(tempFile))
-                                {
-                                    await _snapshotStore.CreateSnapshotAsync(fs, token);
-                                }
-                                
-                                using (var fs = File.OpenRead(tempFile))
-                                {
-                                    byte[] buffer = new byte[80 * 1024]; // 80KB chunks
-                                    int bytesRead;
-                                    while ((bytesRead = await fs.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
-                                    {
-                                        var chunk = new SnapshotChunk 
-                                        { 
-                                            Data = ByteString.CopyFrom(buffer, 0, bytesRead),
-                                            IsLast = false 
-                                        };
-                                        await protocol.SendMessageAsync(stream, MessageType.SnapshotChunkMsg, chunk, false, cipherState, token);
-                                    }
-                                    
-                                    // Send End of Snapshot
-                                    await protocol.SendMessageAsync(stream, MessageType.SnapshotChunkMsg, new SnapshotChunk { IsLast = true }, false, cipherState, token);
-                                }
-                            }
-                            finally
-                            {
-                                if (File.Exists(tempFile)) File.Delete(tempFile);
-                            }
-                            break;
+                        var ctx = new MessageHandlerContext
+                        {
+                            Payload = payload,
+                            Stream = stream,
+                            Protocol = protocol,
+                            UseCompression = useCompression,
+                            CipherState = cipherState,
+                            RemoteEndPoint = remoteEp,
+                            CancellationToken = token
+                        };
+                        (response, resType) = await handler(ctx);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Received unsupported message type {MessageType} from {Endpoint}", type, remoteEp);
+                        // Close connection on unsupported message type to avoid clients hanging
+                        break;
                     }
 
                     if (response != null)
@@ -463,5 +364,25 @@ internal class TcpSyncServer : ISyncServer
         {
             _logger.LogDebug("Client Disconnected: {Endpoint}", remoteEp);
         }
+    }
+
+    private IDictionary<MessageType, MessageHandler> BuildHandlerRegistry(IEnumerable<INetworkMessageHandler> handlers)
+    {
+        var registry = new Dictionary<MessageType, MessageHandler>();
+
+        foreach (var handler in handlers)
+        {
+            if (registry.ContainsKey(handler.MessageType))
+            {
+                _logger.LogWarning(
+                    "Duplicate INetworkMessageHandler registered for MessageType {MessageType}. The last registered handler will be used.",
+                    handler.MessageType);
+            }
+
+            // Wrap the INetworkMessageHandler.HandleAsync call to match the internal delegate signature
+            registry[handler.MessageType] = ctx => handler.HandleAsync(ctx);
+        }
+
+        return registry;
     }
 }

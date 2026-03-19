@@ -169,13 +169,12 @@ namespace EntglDb.Network.Tests
             // WAIT: TcpSyncServer has a property `ListeningPort`.
             
             var server = new TcpSyncServer(
-                new StubStore(),
                 new StubDocumentStore(),
-                new StubSnapshotService(),
                 configProvider,
                 NullLogger<TcpSyncServer>.Instance,
                 new StubAuthenticator(),
-                spyHandshake
+                spyHandshake,
+                Array.Empty<INetworkMessageHandler>()
             );
 
             await server.Start();

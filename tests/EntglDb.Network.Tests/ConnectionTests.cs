@@ -20,17 +20,14 @@ namespace EntglDb.Network.Tests
         public async Task Server_Should_Reject_Clients_When_Limit_Reached()
         {
             // Arrange
-            var oplogStore = new StubStore();
             var configProvider = new StubConfigProvider();
-            var snapshotService = new StubSnapshotService();
             var server = new TcpSyncServer(
-                oplogStore,
                 new StubDocumentStore(),
-                snapshotService,
                 configProvider,
                 NullLogger<TcpSyncServer>.Instance,
                 new StubAuthenticator(),
-                new SpyHandshakeService()
+                new SpyHandshakeService(),
+                Array.Empty<INetworkMessageHandler>()
             );
 
             // Set low limit for testing
