@@ -30,13 +30,13 @@ internal class TcpSyncServer : ISyncServer
     /// </summary>
     private sealed class MessageHandlerContext : IMessageHandlerContext
     {
-        public byte[] Payload { get; set; } = Array.Empty<byte>();
-        public NetworkStream Stream { get; set; } = null!;
-        public ProtocolHandler Protocol { get; set; } = null!;
-        public bool UseCompression { get; set; }
-        public CipherState? CipherState { get; set; }
-        public EndPoint? RemoteEndPoint { get; set; }
-        public CancellationToken CancellationToken { get; set; }
+        public byte[] Payload { get; init; } = Array.Empty<byte>();
+        public required NetworkStream Stream { get; init; }
+        public required ProtocolHandler Protocol { get; init; }
+        public bool UseCompression { get; init; }
+        public CipherState? CipherState { get; init; }
+        public EndPoint? RemoteEndPoint { get; init; }
+        public CancellationToken CancellationToken { get; init; }
     }
 
     /// <summary>
