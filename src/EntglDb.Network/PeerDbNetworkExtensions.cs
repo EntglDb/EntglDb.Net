@@ -15,6 +15,15 @@ public static class EntglDbNetworkExtensions
     /// <summary>
     /// Adds EntglDb network services to the service collection.
     /// </summary>
+    /// <remarks>
+    /// To register custom message handlers that run alongside (or override) the built-in
+    /// core handlers, register one or more <see cref="INetworkMessageHandler"/> implementations
+    /// before or after calling this method:
+    /// <code>
+    /// services.AddSingleton&lt;INetworkMessageHandler, MyCustomHandler&gt;();
+    /// services.AddEntglDbNetwork&lt;MyConfigProvider&gt;();
+    /// </code>
+    /// </remarks>
     /// <param name="useHostedService">If true, registers EntglDbNodeService as IHostedService to automatically start/stop the node.</param>
     public static IServiceCollection AddEntglDbNetwork<TPeerNodeConfigurationProvider>(
         this IServiceCollection services,

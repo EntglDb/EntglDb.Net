@@ -25,9 +25,10 @@ namespace EntglDb.Network;
 internal class TcpSyncServer : ISyncServer
 {
     /// <summary>
-    /// Carries per-message context into a handler.
+    /// Carries per-message context into a handler. Implements <see cref="IMessageHandlerContext"/>
+    /// so it can be passed directly to user-supplied <see cref="INetworkMessageHandler"/> instances.
     /// </summary>
-    private sealed class MessageHandlerContext
+    private sealed class MessageHandlerContext : IMessageHandlerContext
     {
         public byte[] Payload { get; set; } = Array.Empty<byte>();
         public NetworkStream Stream { get; set; } = null!;
@@ -76,6 +77,12 @@ internal class TcpSyncServer : ISyncServer
     /// <param name="logger">The logger used to record informational and error messages for the server instance.</param>
     /// <param name="authenticator">The authenticator responsible for validating peer connections to the server.</param>
     /// <param name="handshakeService">The service used to perform secure handshake (optional).</param>
+    /// <param name="telemetry">Optional telemetry service.</param>
+    /// <param name="customHandlers">
+    /// Optional user-supplied message handlers injected via DI. Each handler is keyed by its
+    /// <see cref="INetworkMessageHandler.MessageType"/>. A custom handler that targets the same
+    /// <see cref="MessageType"/> as a built-in core handler takes precedence (core handler is replaced).
+    /// </param>
     public TcpSyncServer(
         IOplogStore oplogStore, 
         IDocumentStore documentStore,
@@ -84,7 +91,8 @@ internal class TcpSyncServer : ISyncServer
         ILogger<TcpSyncServer> logger, 
         IAuthenticator authenticator,
         IPeerHandshakeService handshakeService,
-        INetworkTelemetryService? telemetry = null)
+        INetworkTelemetryService? telemetry = null,
+        IEnumerable<INetworkMessageHandler>? customHandlers = null)
     {
         _oplogStore = oplogStore;
         _documentStore = documentStore;
@@ -94,7 +102,7 @@ internal class TcpSyncServer : ISyncServer
         _handshakeService = handshakeService;
         _configProvider = peerNodeConfigurationProvider;
         _telemetry = telemetry;
-        _handlerRegistry = BuildHandlerRegistry();
+        _handlerRegistry = BuildHandlerRegistry(customHandlers);
         _configProvider.ConfigurationChanged += async (s, e) =>
         {
             _logger.LogInformation("Configuration changed, restarting TCP Sync Server...");
@@ -358,9 +366,9 @@ internal class TcpSyncServer : ISyncServer
         }
     }
 
-    private IDictionary<MessageType, MessageHandler> BuildHandlerRegistry()
+    private IDictionary<MessageType, MessageHandler> BuildHandlerRegistry(IEnumerable<INetworkMessageHandler>? customHandlers = null)
     {
-        return new Dictionary<MessageType, MessageHandler>
+        var registry = new Dictionary<MessageType, MessageHandler>
         {
             [MessageType.GetClockReq] = HandleGetClockReqAsync,
             [MessageType.GetVectorClockReq] = HandleGetVectorClockReqAsync,
@@ -369,6 +377,24 @@ internal class TcpSyncServer : ISyncServer
             [MessageType.GetChainRangeReq] = HandleGetChainRangeReqAsync,
             [MessageType.GetSnapshotReq] = HandleGetSnapshotReqAsync,
         };
+
+        if (customHandlers != null)
+        {
+            foreach (var handler in customHandlers)
+            {
+                if (registry.ContainsKey(handler.MessageType))
+                {
+                    _logger.LogWarning(
+                        "Custom INetworkMessageHandler is overriding built-in core handler for MessageType {MessageType}.",
+                        handler.MessageType);
+                }
+
+                // Wrap the INetworkMessageHandler.HandleAsync call to match the internal delegate signature
+                registry[handler.MessageType] = ctx => handler.HandleAsync(ctx);
+            }
+        }
+
+        return registry;
     }
 
     private async Task<(IMessage? Response, MessageType ResponseType)> HandleGetClockReqAsync(MessageHandlerContext ctx)
