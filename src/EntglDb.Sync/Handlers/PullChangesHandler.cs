@@ -1,6 +1,6 @@
 using EntglDb.Core;
 using EntglDb.Core.Storage;
-using EntglDb.Network.Proto;
+using EntglDb.Sync.Proto;
 using Google.Protobuf;
 using System.Linq;
 using System.Threading.Tasks;
@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace EntglDb.Network.Handlers;
 
 /// <summary>
-/// Handles <see cref="MessageType.PullChangesReq"/> by returning oplog entries since the requested timestamp.
+/// Handles <see cref="SyncMessageType.PullChangesReq"/> by returning oplog entries since the requested timestamp.
 /// </summary>
 internal sealed class PullChangesHandler : INetworkMessageHandler
 {
@@ -19,9 +19,9 @@ internal sealed class PullChangesHandler : INetworkMessageHandler
         _oplogStore = oplogStore;
     }
 
-    public MessageType MessageType => MessageType.PullChangesReq;
+    public int MessageType => (int)SyncMessageType.PullChangesReq;
 
-    public async Task<(IMessage? Response, MessageType ResponseType)> HandleAsync(IMessageHandlerContext context)
+    public async Task<(IMessage? Response, int ResponseType)> HandleAsync(IMessageHandlerContext context)
     {
         var pReq = PullChangesRequest.Parser.ParseFrom(context.Payload);
         var since = new HlcTimestamp(pReq.SinceWall, pReq.SinceLogic, pReq.SinceNode);
@@ -46,6 +46,6 @@ internal sealed class PullChangesHandler : INetworkMessageHandler
                 PreviousHash = e.PreviousHash
             });
         }
-        return (csRes, MessageType.ChangeSetRes);
+        return (csRes, (int)SyncMessageType.ChangeSetRes);
     }
 }

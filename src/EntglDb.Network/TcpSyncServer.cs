@@ -34,15 +34,15 @@ internal class TcpSyncServer : ISyncServer
         public EndPoint? RemoteEndPoint { get; init; }
         public CancellationToken CancellationToken { get; init; }
 
-        public Task SendMessageAsync(Proto.MessageType type, Google.Protobuf.IMessage message, bool useCompression = false)
+        public Task SendMessageAsync(int type, Google.Protobuf.IMessage message, bool useCompression = false)
             => Protocol.SendMessageAsync(Stream, type, message, useCompression, CipherState, CancellationToken);
     }
 
     /// <summary>
-    /// Delegate for a message handler. Returns the response message and its type.
-    /// Handlers that stream their response directly return <c>(null, MessageType.Unknown)</c>.
+    /// Delegate for a message handler. Returns the response message and its raw wire type integer.
+    /// Handlers that stream their response directly return <c>(null, 0)</c>.
     /// </summary>
-    private delegate Task<(IMessage? Response, MessageType ResponseType)> MessageHandler(MessageHandlerContext ctx);
+    private delegate Task<(IMessage? Response, int ResponseType)> MessageHandler(MessageHandlerContext ctx);
 
     private readonly ILocalInterestsProvider? _localInterests;
     private readonly ILogger<TcpSyncServer> _logger;
@@ -58,7 +58,12 @@ internal class TcpSyncServer : ISyncServer
     private readonly IAuthenticator _authenticator;
     private readonly IPeerHandshakeService _handshakeService;
     private readonly INetworkTelemetryService? _telemetry;
-    private readonly IDictionary<MessageType, MessageHandler> _handlerRegistry;
+    private readonly IDictionary<int, MessageHandler> _handlerRegistry;
+
+    // Wire-value constants for the framing types this server handles directly.
+    private static readonly int WireUnknown     = (int)MessageType.Unknown;      // 0
+    private static readonly int WireHandshakeReq = (int)MessageType.HandshakeReq; // 1
+    private static readonly int WireHandshakeRes = (int)MessageType.HandshakeRes; // 2
 
     /// <summary>
     /// Initializes a new instance of the TcpSyncServer class with the specified peer configuration provider,
@@ -78,7 +83,7 @@ internal class TcpSyncServer : ISyncServer
     /// All registered <see cref="INetworkMessageHandler"/> instances injected via DI.
     /// This includes the built-in core handlers registered by <c>AddEntglDbNetwork</c>
     /// as well as any user-defined handlers. When two handlers target the same
-    /// <see cref="MessageType"/>, the last one registered takes precedence.
+    /// <see cref="INetworkMessageHandler.MessageType"/>, the last one registered takes precedence.
     /// </param>
     public TcpSyncServer(
         ILocalInterestsProvider? localInterests,
@@ -287,10 +292,10 @@ internal class TcpSyncServer : ISyncServer
                     config = await _configProvider.GetConfiguration();
 
                     var (type, payload) = await protocol.ReadMessageAsync(stream, cipherState, token);
-                    if (type == MessageType.Unknown) break; // EOF or Error
+                    if (type == WireUnknown) break; // EOF or Error
 
                     // Handshake Loop
-                    if (type == MessageType.HandshakeReq)
+                    if (type == WireHandshakeReq)
                     {
                         var hReq = HandshakeRequest.Parser.ParseFrom(payload);
                         _logger.LogDebug("Received HandshakeReq from Node {NodeId}", hReq.NodeId);
@@ -302,7 +307,7 @@ internal class TcpSyncServer : ISyncServer
                         if (!valid)
                         {
                             _logger.LogWarning("Authentication failed for Node {NodeId}", hReq.NodeId);
-                            await protocol.SendMessageAsync(stream, MessageType.HandshakeRes, new HandshakeResponse { NodeId = config.NodeId, Accepted = false }, false, cipherState, token);
+                            await protocol.SendMessageAsync(stream, WireHandshakeRes, new HandshakeResponse { NodeId = config.NodeId, Accepted = false }, false, cipherState, token);
                             return;
                         }
 
@@ -323,12 +328,12 @@ internal class TcpSyncServer : ISyncServer
                             useCompression = true;
                         }
 
-                        await protocol.SendMessageAsync(stream, MessageType.HandshakeRes, hRes, false, cipherState, token);
+                        await protocol.SendMessageAsync(stream, WireHandshakeRes, hRes, false, cipherState, token);
                         continue;
                     }
 
                     IMessage? response = null;
-                    MessageType resType = MessageType.Unknown;
+                    int resType = WireUnknown;
 
                     if (_handlerRegistry.TryGetValue(type, out var handler))
                     {
@@ -368,9 +373,9 @@ internal class TcpSyncServer : ISyncServer
         }
     }
 
-    private IDictionary<MessageType, MessageHandler> BuildHandlerRegistry(IEnumerable<INetworkMessageHandler> handlers)
+    private IDictionary<int, MessageHandler> BuildHandlerRegistry(IEnumerable<INetworkMessageHandler> handlers)
     {
-        var registry = new Dictionary<MessageType, MessageHandler>();
+        var registry = new Dictionary<int, MessageHandler>();
 
         foreach (var handler in handlers)
         {

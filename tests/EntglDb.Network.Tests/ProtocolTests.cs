@@ -29,13 +29,13 @@ namespace EntglDb.Network.Tests
             var message = new HandshakeRequest { NodeId = "node-1", AuthToken = "token" };
 
             // Act
-            await _handler.SendMessageAsync(stream, MessageType.HandshakeReq, message, false, null);
+            await _handler.SendMessageAsync(stream, (int)MessageType.HandshakeReq, message, false, null);
             
             stream.Position = 0; // Reset for reading
             var (type, payload) = await _handler.ReadMessageAsync(stream, null);
 
             // Assert
-            type.Should().Be(MessageType.HandshakeReq);
+            type.Should().Be((int)MessageType.HandshakeReq);
             var decoded = HandshakeRequest.Parser.ParseFrom(payload);
             decoded.NodeId.Should().Be("node-1");
             decoded.AuthToken.Should().Be("token");
@@ -51,13 +51,13 @@ namespace EntglDb.Network.Tests
             var message = new HandshakeRequest { NodeId = largeData, AuthToken = "token" };
 
             // Act
-            await _handler.SendMessageAsync(stream, MessageType.HandshakeReq, message, true, null);
+            await _handler.SendMessageAsync(stream, (int)MessageType.HandshakeReq, message, true, null);
             
             stream.Position = 0;
             var (type, payload) = await _handler.ReadMessageAsync(stream, null);
 
             // Assert
-            type.Should().Be(MessageType.HandshakeReq);
+            type.Should().Be((int)MessageType.HandshakeReq);
             var decoded = HandshakeRequest.Parser.ParseFrom(payload);
             decoded.NodeId.Should().Be(largeData);
         }
@@ -75,13 +75,13 @@ namespace EntglDb.Network.Tests
             var cipherState = new CipherState(key, key); // Encrypt and Decrypt with same key for loopback
 
             // Act
-            await _handler.SendMessageAsync(stream, MessageType.HandshakeReq, message, false, cipherState);
+            await _handler.SendMessageAsync(stream, (int)MessageType.HandshakeReq, message, false, cipherState);
             
             stream.Position = 0;
             var (type, payload) = await _handler.ReadMessageAsync(stream, cipherState);
 
             // Assert
-            type.Should().Be(MessageType.HandshakeReq);
+            type.Should().Be((int)MessageType.HandshakeReq);
             var decoded = HandshakeRequest.Parser.ParseFrom(payload);
             decoded.NodeId.Should().Be("secure-node");
         }
@@ -99,7 +99,7 @@ namespace EntglDb.Network.Tests
             var cipherState = new CipherState(key, key);
 
             // Act: Compress THEN Encrypt
-            await _handler.SendMessageAsync(stream, MessageType.HandshakeReq, message, true, cipherState);
+            await _handler.SendMessageAsync(stream, (int)MessageType.HandshakeReq, message, true, cipherState);
             
             stream.Position = 0;
             // Verify wire encryption (should be MessageType.SecureEnv)
@@ -109,7 +109,7 @@ namespace EntglDb.Network.Tests
             var (type, payload) = await _handler.ReadMessageAsync(stream, cipherState);
 
             // Assert
-            type.Should().Be(MessageType.HandshakeReq);
+            type.Should().Be((int)MessageType.HandshakeReq);
             var decoded = HandshakeRequest.Parser.ParseFrom(payload);
             decoded.NodeId.Should().Be(largeData);
         }
@@ -120,7 +120,7 @@ namespace EntglDb.Network.Tests
             // Arrange
             var fullStream = new MemoryStream();
             var message = new HandshakeRequest { NodeId = "fragmented" };
-            await _handler.SendMessageAsync(fullStream, MessageType.HandshakeReq, message, false, null);
+            await _handler.SendMessageAsync(fullStream, (int)MessageType.HandshakeReq, message, false, null);
             
             byte[] completeBytes = fullStream.ToArray();
             var fragmentedStream = new FragmentedMemoryStream(completeBytes, chunkSize: 2); // Read 2 bytes at a time
@@ -129,7 +129,7 @@ namespace EntglDb.Network.Tests
             var (type, payload) = await _handler.ReadMessageAsync(fragmentedStream, null);
 
             // Assert
-            type.Should().Be(MessageType.HandshakeReq);
+            type.Should().Be((int)MessageType.HandshakeReq);
             var decoded = HandshakeRequest.Parser.ParseFrom(payload);
             decoded.NodeId.Should().Be("fragmented");
         }

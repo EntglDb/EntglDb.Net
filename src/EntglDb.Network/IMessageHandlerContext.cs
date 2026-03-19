@@ -1,7 +1,6 @@
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using EntglDb.Network.Proto;
 using Google.Protobuf;
 
 namespace EntglDb.Network;
@@ -32,8 +31,8 @@ public interface IMessageHandlerContext
     /// Use this for streaming responses (e.g. multi-chunk transfers) where the handler
     /// writes its own response rather than returning a single <see cref="IMessage"/>.
     /// </summary>
-    /// <param name="type">The <see cref="MessageType"/> of the outgoing message.</param>
+    /// <param name="type">The raw wire message-type integer of the outgoing message.</param>
     /// <param name="message">The protobuf message to send.</param>
     /// <param name="useCompression">Whether to compress the message payload. Defaults to <c>false</c>.</param>
-    Task SendMessageAsync(MessageType type, IMessage message, bool useCompression = false);
+    Task SendMessageAsync(int type, IMessage message, bool useCompression = false);
 }

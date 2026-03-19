@@ -1,5 +1,5 @@
 using EntglDb.Core.Storage;
-using EntglDb.Network.Proto;
+using EntglDb.Sync.Proto;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using System.IO;
@@ -8,9 +8,9 @@ using System.Threading.Tasks;
 namespace EntglDb.Network.Handlers;
 
 /// <summary>
-/// Handles <see cref="MessageType.GetSnapshotReq"/> by streaming the full database snapshot
-/// to the requesting peer in <see cref="MessageType.SnapshotChunkMsg"/> chunks.
-/// Returns <c>(null, MessageType.Unknown)</c> because the response is sent directly via
+/// Handles <see cref="SyncMessageType.GetSnapshotReq"/> by streaming the full database snapshot
+/// to the requesting peer in <see cref="SyncMessageType.SnapshotChunkMsg"/> chunks.
+/// Returns <c>(null, 0)</c> because the response is sent directly via
 /// <see cref="IMessageHandlerContext.SendMessageAsync"/>.
 /// </summary>
 internal sealed class GetSnapshotHandler : INetworkMessageHandler
@@ -26,9 +26,9 @@ internal sealed class GetSnapshotHandler : INetworkMessageHandler
         _logger = logger;
     }
 
-    public MessageType MessageType => MessageType.GetSnapshotReq;
+    public int MessageType => (int)SyncMessageType.GetSnapshotReq;
 
-    public async Task<(IMessage? Response, MessageType ResponseType)> HandleAsync(IMessageHandlerContext context)
+    public async Task<(IMessage? Response, int ResponseType)> HandleAsync(IMessageHandlerContext context)
     {
         _logger.LogInformation("Processing GetSnapshotReq from {Endpoint}", context.RemoteEndPoint);
         var tempFile = Path.GetTempFileName();
@@ -50,17 +50,17 @@ internal sealed class GetSnapshotHandler : INetworkMessageHandler
                         Data = ByteString.CopyFrom(buffer, 0, bytesRead),
                         IsLast = false
                     };
-                    await context.SendMessageAsync(MessageType.SnapshotChunkMsg, chunk);
+                    await context.SendMessageAsync((int)SyncMessageType.SnapshotChunkMsg, chunk);
                 }
 
                 // Signal end of snapshot
-                await context.SendMessageAsync(MessageType.SnapshotChunkMsg, new SnapshotChunk { IsLast = true });
+                await context.SendMessageAsync((int)SyncMessageType.SnapshotChunkMsg, new SnapshotChunk { IsLast = true });
             }
         }
         finally
         {
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
-        return (null, MessageType.Unknown);
+        return (null, 0);
     }
 }

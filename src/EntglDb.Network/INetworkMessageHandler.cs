@@ -1,5 +1,4 @@
 using System.Threading.Tasks;
-using EntglDb.Network.Proto;
 using Google.Protobuf;
 
 namespace EntglDb.Network;
@@ -12,6 +11,12 @@ namespace EntglDb.Network;
 /// </summary>
 /// <remarks>
 /// <para>
+/// The <see cref="MessageType"/> property returns a raw <c>int</c> wire-type identifier so that
+/// handlers in any assembly can register for any message range without depending on a shared
+/// protobuf enum.  Built-in sync handlers use values 3–15 (see <c>SyncMessageType</c> in
+/// <c>EntglDb.Sync</c>).  Custom service handlers should use values 32+ to avoid collisions.
+/// </para>
+/// <para>
 /// Register user-defined handlers <em>after</em> calling <c>AddEntglDbNetwork</c> so that
 /// they appear last in the DI collection and can override core handlers for the same
 /// <see cref="MessageType"/>:
@@ -21,7 +26,7 @@ namespace EntglDb.Network;
 /// services.AddSingleton&lt;INetworkMessageHandler, MyCustomHandler&gt;(); // added after → takes precedence
 /// </code>
 /// <para>
-/// Return <c>(null, MessageType.Unknown)</c> when the handler streams its response directly
+/// Return <c>(null, 0)</c> when the handler streams its response directly
 /// via <see cref="IMessageHandlerContext.SendMessageAsync"/> (i.e. no further response needs
 /// to be sent by the dispatcher).
 /// </para>
@@ -29,17 +34,17 @@ namespace EntglDb.Network;
 public interface INetworkMessageHandler
 {
     /// <summary>
-    /// The <see cref="MessageType"/> this handler is responsible for processing.
+    /// The raw wire message-type integer this handler is responsible for processing.
     /// </summary>
-    MessageType MessageType { get; }
+    int MessageType { get; }
 
     /// <summary>
     /// Handles an incoming message and returns an optional response.
     /// </summary>
     /// <param name="context">Context containing the raw payload, remote endpoint, and cancellation token.</param>
     /// <returns>
-    /// A tuple of the response message and its <see cref="MessageType"/>.
-    /// Return <c>(null, MessageType.Unknown)</c> if the handler sends the response itself (streaming).
+    /// A tuple of the response message and its raw wire message-type integer.
+    /// Return <c>(null, 0)</c> if the handler sends the response itself (streaming).
     /// </returns>
-    Task<(IMessage? Response, MessageType ResponseType)> HandleAsync(IMessageHandlerContext context);
+    Task<(IMessage? Response, int ResponseType)> HandleAsync(IMessageHandlerContext context);
 }

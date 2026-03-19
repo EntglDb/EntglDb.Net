@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package EntglDb.Sync.Proto;
+
+option csharp_namespace = "EntglDb.Sync.Proto";
+
+// Wire values 3–15 are reserved for EntglDb.Sync and are backward-compatible
+// with existing deployed peers.  Do NOT renumber these values.
+enum SyncMessageType {
+  SyncUnknown = 0;   // Required by proto3; never sent on the wire.
+  GetClockReq = 3;
+  ClockRes = 4;
+  PullChangesReq = 5;
+  ChangeSetRes = 6;
+  PushChangesReq = 7;
+  AckRes = 8;
+  GetChainRangeReq = 10;
+  ChainRangeRes = 11;
+  GetVectorClockReq = 12;
+  VectorClockRes = 13;
+  GetSnapshotReq = 14;
+  SnapshotChunkMsg = 15;
+}
+
+message GetClockRequest {
+}
+
+message ClockResponse {
+  int64 hlc_wall = 1;
+  int32 hlc_logic = 2;
+  string hlc_node = 3;
+}
+
+message GetVectorClockRequest {
+}
+
+message VectorClockResponse {
+  repeated VectorClockEntry entries = 1;
+}
+
+message VectorClockEntry {
+  string node_id = 1;
+  int64 hlc_wall = 2;
+  int32 hlc_logic = 3;
+}
+
+message PullChangesRequest {
+  int64 since_wall = 1;
+  int32 since_logic = 2;
+  string since_node = 3;
+  repeated string collections = 4; // v5: Filter by collection
+}
+
+message ChangeSetResponse {
+  repeated ProtoOplogEntry entries = 1;
+}
+
+message PushChangesRequest {
+  repeated ProtoOplogEntry entries = 1;
+}
+
+message GetChainRangeRequest {
+  string start_hash = 1;
+  string end_hash = 2;
+}
+
+message ChainRangeResponse {
+  repeated ProtoOplogEntry entries = 1;
+  bool snapshot_required = 2;
+}
+
+message AckResponse {
+  bool success = 1;
+  bool snapshot_required = 2;
+}
+
+message ProtoOplogEntry {
+  string collection = 1;
+  string key = 2;
+  string operation = 3; // "Put" or "Delete"
+  string json_data = 4;
+  int64 hlc_wall = 5;
+  int32 hlc_logic = 6;
+  string hlc_node = 7;
+  string hash = 8;
+  string previous_hash = 9;
+}
+
+message GetSnapshotRequest {
+}
+
+message SnapshotChunk {
+  bytes data = 1;
+  bool is_last = 2;
+}

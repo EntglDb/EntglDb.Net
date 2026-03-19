@@ -1,6 +1,6 @@
 using EntglDb.Core;
 using EntglDb.Core.Storage;
-using EntglDb.Network.Proto;
+using EntglDb.Sync.Proto;
 using Google.Protobuf;
 using System.Linq;
 using System.Threading.Tasks;
@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace EntglDb.Network.Handlers;
 
 /// <summary>
-/// Handles <see cref="MessageType.GetChainRangeReq"/> by returning oplog entries between two chain hashes.
+/// Handles <see cref="SyncMessageType.GetChainRangeReq"/> by returning oplog entries between two chain hashes.
 /// Returns a <see cref="ChainRangeResponse"/> with <see cref="ChainRangeResponse.SnapshotRequired"/> set
 /// to <c>true</c> when the requested range cannot be filled (e.g. pruned chain).
 /// </summary>
@@ -21,9 +21,9 @@ internal sealed class GetChainRangeHandler : INetworkMessageHandler
         _oplogStore = oplogStore;
     }
 
-    public MessageType MessageType => MessageType.GetChainRangeReq;
+    public int MessageType => (int)SyncMessageType.GetChainRangeReq;
 
-    public async Task<(IMessage? Response, MessageType ResponseType)> HandleAsync(IMessageHandlerContext context)
+    public async Task<(IMessage? Response, int ResponseType)> HandleAsync(IMessageHandlerContext context)
     {
         var rangeReq = GetChainRangeRequest.Parser.ParseFrom(context.Payload);
         var rangeEntries = await _oplogStore.GetChainRangeAsync(rangeReq.StartHash, rangeReq.EndHash, context.CancellationToken);
@@ -52,6 +52,6 @@ internal sealed class GetChainRangeHandler : INetworkMessageHandler
                 });
             }
         }
-        return (rangeRes, MessageType.ChainRangeRes);
+        return (rangeRes, (int)SyncMessageType.ChainRangeRes);
     }
 }

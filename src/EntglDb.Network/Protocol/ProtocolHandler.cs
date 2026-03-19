@@ -13,6 +13,10 @@ namespace EntglDb.Network.Protocol
     /// <summary>
     /// Handles the low-level framing, compression, encryption, and serialization of EntglDb messages.
     /// Encapsulates the wire format: [Length (4)] [Type (1)] [Compression (1)] [Payload (N)]
+    /// The type byte is treated as a raw <c>int</c> so that the protocol layer remains
+    /// proto-agnostic — it has no knowledge of specific message semantics beyond the two
+    /// special framing values <see cref="MessageType.SecureEnv"/> (9) and
+    /// <see cref="MessageType.Unknown"/> (0).
     /// </summary>
     internal class ProtocolHandler
     {
@@ -21,13 +25,17 @@ namespace EntglDb.Network.Protocol
         private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _readLock = new SemaphoreSlim(1, 1);
 
+        // Wire-value constants for the two types this layer needs to know about.
+        private static readonly int WireUnknown  = (int)MessageType.Unknown;   // 0
+        private static readonly int WireSecureEnv = (int)MessageType.SecureEnv; // 9
+
         public ProtocolHandler(ILogger logger, INetworkTelemetryService? telemetry = null)
         {
             _logger = logger;
             _telemetry = telemetry;
         }
 
-        public async Task SendMessageAsync(Stream stream, MessageType type, IMessage message, bool useCompression, CipherState? cipherState, CancellationToken token = default)
+        public async Task SendMessageAsync(Stream stream, int type, IMessage message, bool useCompression, CipherState? cipherState, CancellationToken token = default)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
 
@@ -37,19 +45,8 @@ namespace EntglDb.Network.Protocol
             byte compressionFlag = 0x00;
 
             // 2. Compress (inner payload)
-            if (useCompression && payloadBytes.Length > CompressionHelper.THRESHOLD && type != MessageType.SecureEnv)
+            if (useCompression && payloadBytes.Length > CompressionHelper.THRESHOLD && type != WireSecureEnv)
             {
-                // Measure Compression Time
-                // using var _ = _telemetry?.StartMetric(MetricType.CompressionTime); // Oops, MetricType.CompressionTime not defined? Wait, user asked for "Compression Ratio".
-                // User asked for "performance della compressione brotli (% media di compressione)".
-                // That usually means ratio. But time is also good?
-                // Plan said: "MetricType: CompressionRatio, EncryptionTime..."
-                
-                // byte[] compressed; // Removed unused variable
-                // using (_telemetry?.StartMetric(MetricType.CompressionTime)) // Let's stick to Time if relevant? NO, MetricType only has Ratio.
-                // Ah I see MetricType enum: CompressionRatio, EncryptionTime, DecryptionTime, RoundTripTime.
-                // So for compression we only record Ratio.
-                
                 payloadBytes = CompressionHelper.Compress(payloadBytes);
                 compressionFlag = 0x01; // Brotli
                 
@@ -90,7 +87,7 @@ namespace EntglDb.Network.Protocol
                     };
 
                     payloadBytes = env.ToByteArray();
-                    type = MessageType.SecureEnv;
+                    type = WireSecureEnv;
                     compressionFlag = 0x00; // Outer envelope is not compressed
                 }
             }
@@ -115,14 +112,14 @@ namespace EntglDb.Network.Protocol
             }
         }
 
-        public async Task<(MessageType, byte[])> ReadMessageAsync(Stream stream, CipherState? cipherState, CancellationToken token = default)
+        public async Task<(int Type, byte[] Payload)> ReadMessageAsync(Stream stream, CipherState? cipherState, CancellationToken token = default)
         {
             await _readLock.WaitAsync(token);
             try
             {
                 var lenBuf = new byte[4];
                 int read = await ReadExactAsync(stream, lenBuf, 0, 4, token);
-                if (read == 0) return (MessageType.Unknown, null!);
+                if (read == 0) return (WireUnknown, null!);
 
                 int length = BitConverter.ToInt32(lenBuf, 0);
 
@@ -135,10 +132,10 @@ namespace EntglDb.Network.Protocol
                 var payload = new byte[length];
                 await ReadExactAsync(stream, payload, 0, length, token);
 
-                var msgType = (MessageType)typeByte;
+                int msgType = typeByte;
 
                 // Handle Secure Envelope
-                if (msgType == MessageType.SecureEnv)
+                if (msgType == WireSecureEnv)
                 {
                     if (cipherState == null) throw new InvalidOperationException("Received encrypted message but no cipher state established");
 
@@ -155,7 +152,7 @@ namespace EntglDb.Network.Protocol
 
                     if (decrypted.Length < 2) throw new InvalidDataException("Decrypted payload too short");
 
-                    msgType = (MessageType)decrypted[0];
+                    msgType = decrypted[0];
                     int innerComp = decrypted[1];
 
                     var innerPayload = new byte[decrypted.Length - 2];
