@@ -348,6 +348,12 @@ internal class TcpSyncServer : ISyncServer
                         };
                         (response, resType) = await handler(ctx);
                     }
+                    else
+                    {
+                        _logger.LogWarning("Received unsupported message type {MessageType} from {Endpoint}", type, remoteEp);
+                        // Close connection on unsupported message type to avoid clients hanging
+                        break;
+                    }
 
                     if (response != null)
                     {
