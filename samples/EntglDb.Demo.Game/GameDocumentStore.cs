@@ -1,3 +1,4 @@
+using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
@@ -14,10 +15,12 @@ public class GameDocumentStore : BLiteDocumentStore<GameDbContext>
 
     public GameDocumentStore(
         GameDbContext context,
+        EntglDbMetaContext metaContext,
         IPeerNodeConfigurationProvider configProvider,
         IVectorClockService vectorClockService,
+        IPendingChangesService pendingChangesService,
         ILogger<GameDocumentStore>? logger = null)
-        : base(context, configProvider, vectorClockService, new LastWriteWinsConflictResolver(), logger)
+        : base(context, metaContext, configProvider, vectorClockService, pendingChangesService, new LastWriteWinsConflictResolver(), logger)
     {
         WatchCollection(HeroesCollection, context.Heroes, h => h.Id);
         WatchCollection(BattleLogsCollection, context.BattleLogs, b => b.Id);

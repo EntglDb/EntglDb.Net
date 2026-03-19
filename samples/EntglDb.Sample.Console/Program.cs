@@ -64,7 +64,7 @@ class Program
 
         // Register EntglDb Services using Fluent Extensions with BLite, SampleDbContext, and SampleDocumentStore
         builder.Services.AddEntglDbCore()
-                        .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath))
+                        .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
                         .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>(); // useHostedService = true by default
         
         builder.Services.AddHostedService<ConsoleInteractiveService>(); // Runs the Input Loop

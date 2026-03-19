@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- MonoGame 3.8.2 NuGet targets net8.0 but runs on net10.0 (pure managed code, NU1701 suppressed) -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EntglDb.Demo.Game.MonoGame</RootNamespace>
+    <ApplicationIcon />
+    <StartupObject />
+    <!-- Suppress the platform warning produced by MonoGame NuGet targeting net8.0 -->
+    <NoWarn>NU1701</NoWarn>
+    <!-- Override the MGCB command to use the full path to the global tool so
+         MSBuild can find it even when dotnet tools folder is not on PATH -->
+    <_Command>"$([System.IO.Path]::Combine($([System.Environment]::GetFolderPath(SpecialFolder.UserProfile)), '.dotnet', 'tools', 'mgcb.exe'))"</_Command>
+  </PropertyGroup>
+
+  <!-- Core game logic — shared with the console demo; no UI dependency -->
+  <ItemGroup>
+    <ProjectReference Include="..\EntglDb.Demo.Game\EntglDb.Demo.Game.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- MonoGame DesktopGL (cross-platform OpenGL window) -->
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4.1" />
+    <!-- Content pipeline tool — build-time only -->
+    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.4.1" />
+
+    <!-- Microsoft.Extensions.* come transitively from the EntglDb.Demo.Game project reference -->
+  </ItemGroup>
+
+  <!-- MonoGame content pipeline descriptor -->
+  <ItemGroup>
+    <MonoGameContentReference Include="Content\Content.mgcb" />
+  </ItemGroup>
+
+  <!-- Copy appsettings from the shared demo project so peers config works -->
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

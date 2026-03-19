@@ -15,6 +15,11 @@ namespace EntglDb.Network.Tests
 {
     public class SnapshotReconnectRegressionTests
     {
+        private class NoOpPendingChangesFlushService : IPendingChangesFlushService
+        {
+            public Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        }
+
         // Subclass to expose private method
         private class TestableSyncOrchestrator : SyncOrchestrator
         {
@@ -24,8 +29,11 @@ namespace EntglDb.Network.Tests
                 IDocumentStore documentStore,
                 ISnapshotMetadataStore snapshotMetadataStore,
                 ISnapshotService snapshotService,
-                IPeerNodeConfigurationProvider peerNodeConfigurationProvider)
-                : base(discovery, oplogStore, documentStore, snapshotMetadataStore, snapshotService, peerNodeConfigurationProvider, NullLoggerFactory.Instance)
+                IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
+                IPendingChangesFlushService? flushService = null)
+                : base(discovery, oplogStore, documentStore, snapshotMetadataStore, snapshotService,
+                       peerNodeConfigurationProvider, flushService ?? new NoOpPendingChangesFlushService(),
+                       NullLoggerFactory.Instance)
             {
             }
 

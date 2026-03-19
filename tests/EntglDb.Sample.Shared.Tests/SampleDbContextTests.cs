@@ -35,7 +35,6 @@ public class SampleDbContextTests : IDisposable
         _context.Should().NotBeNull();
         _context.Users.Should().NotBeNull("Users collection should be initialized by BLite");
         _context.TodoLists.Should().NotBeNull("TodoLists collection should be initialized by BLite");
-        _context.OplogEntries.Should().NotBeNull("OplogEntries collection should be initialized by BLite");
     }
 
     [Fact]

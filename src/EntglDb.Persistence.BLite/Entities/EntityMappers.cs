@@ -1,3 +1,7 @@
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using EntglDb.Core;
 using EntglDb.Core.Network;
@@ -22,8 +26,8 @@ public static class EntityMappers
             Collection = entry.Collection,
             Key = entry.Key,
             Operation = (int)entry.Operation,
-            // Use empty string instead of null to avoid BLite BSON serialization issues
-            PayloadJson = entry.Payload?.GetRawText() ?? "",
+            // Store normalized (key-sorted) JSON so cross-node payload comparisons are reliable
+            PayloadJson = entry.Payload.HasValue ? NormalizeJson(entry.Payload.Value) : "",
             TimestampPhysicalTime = entry.Timestamp.PhysicalTime,
             TimestampLogicalCounter = entry.Timestamp.LogicalCounter,
             TimestampNodeId = entry.Timestamp.NodeId,
@@ -161,10 +165,11 @@ public static class EntityMappers
     #region DocumentMetadataEntity Helpers
 
     /// <summary>
-    /// Creates a DocumentMetadataEntity from collection, key, timestamp, and deleted state.
+    /// Creates a DocumentMetadataEntity from collection, key, timestamp, deleted state, and optional content.
     /// Used for tracking document sync state.
     /// </summary>
-    public static DocumentMetadataEntity CreateDocumentMetadata(string collection, string key, HlcTimestamp timestamp, bool isDeleted = false)
+    public static DocumentMetadataEntity CreateDocumentMetadata(
+        string collection, string key, HlcTimestamp timestamp, bool isDeleted = false, JsonElement? content = null)
     {
         return new DocumentMetadataEntity
         {
@@ -174,8 +179,87 @@ public static class EntityMappers
             HlcPhysicalTime = timestamp.PhysicalTime,
             HlcLogicalCounter = timestamp.LogicalCounter,
             HlcNodeId = timestamp.NodeId,
-            IsDeleted = isDeleted
+            IsDeleted = isDeleted,
+            ContentHash = isDeleted ? "" : ComputeContentHash(content)
         };
+    }
+
+    /// <summary>
+    /// Renders a JsonElement as canonical (key-sorted, compact) JSON string.
+    /// The oplog stores payloads in this form; CDC writes normalize on the way in.
+    /// </summary>
+    public static string NormalizeJson(JsonElement element)
+    {
+        using var ms = new MemoryStream();
+        using var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false });
+        WriteNormalizedJson(writer, element);
+        writer.Flush();
+        return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+    }
+
+    /// <summary>
+    /// Computes SHA-256 hash directly from an already-normalized JSON string.
+    /// Use when the payload was loaded from the oplog (already canonical) to avoid redundant normalization.
+    /// </summary>
+    public static string ComputeContentHashFromNormalized(string normalizedJson)
+    {
+        if (string.IsNullOrEmpty(normalizedJson)) return "";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedJson));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Computes a SHA-256 hash of the canonical (key-sorted) JSON representation of a document.
+    /// Returns an empty string for null content (deletes).
+    /// </summary>
+    public static string ComputeContentHash(JsonElement? content)
+    {
+        if (content == null) return "";
+
+        using var ms = new MemoryStream();
+        using var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = false });
+        WriteNormalizedJson(writer, content.Value);
+        writer.Flush();
+
+        var hash = SHA256.HashData(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void WriteNormalizedJson(Utf8JsonWriter writer, JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                foreach (var prop in element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
+                {
+                    writer.WritePropertyName(prop.Name);
+                    WriteNormalizedJson(writer, prop.Value);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var item in element.EnumerateArray())
+                    WriteNormalizedJson(writer, item);
+                writer.WriteEndArray();
+                break;
+            case JsonValueKind.String:
+                writer.WriteStringValue(element.GetString());
+                break;
+            case JsonValueKind.Number:
+                writer.WriteRawValue(element.GetRawText());
+                break;
+            case JsonValueKind.True:
+                writer.WriteBooleanValue(true);
+                break;
+            case JsonValueKind.False:
+                writer.WriteBooleanValue(false);
+                break;
+            default: // Null or Undefined
+                writer.WriteNullValue();
+                break;
+        }
     }
 
     #endregion

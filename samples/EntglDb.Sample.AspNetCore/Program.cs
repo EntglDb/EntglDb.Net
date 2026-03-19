@@ -35,7 +35,7 @@ var nodeName = builder.Configuration["EntglDb:NodeName"] ?? "AspNetSampleNode";
 var databasePath = Path.Combine(dataPath, $"{nodeName}.blite");
 
 builder.Services.AddEntglDbCore()
-    .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath))
+    .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
     .AddEntglDbNetwork<AspNetPeerNodeConfigurationProvider>(useHostedService: true);
 
 var app = builder.Build();

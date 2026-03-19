@@ -17,29 +17,31 @@ public class BLiteStoreExportImportTests : IDisposable
 {
     private readonly string _testDbPath;
     private readonly SampleDbContext _context;
+    private readonly EntglDbMetaContext _metaContext;
     private readonly SampleDocumentStore _documentStore;
-    private readonly BLiteOplogStore<SampleDbContext> _oplogStore;
-    private readonly BLitePeerConfigurationStore<SampleDbContext> _peerConfigStore;
-    private readonly BLiteSnapshotMetadataStore<SampleDbContext> _snapshotMetadataStore;
+    private readonly BLiteOplogStore _oplogStore;
+    private readonly BLitePeerConfigurationStore _peerConfigStore;
+    private readonly BLiteSnapshotMetadataStore _snapshotMetadataStore;
     private readonly TestPeerNodeConfigurationProvider _configProvider;
 
     public BLiteStoreExportImportTests()
     {
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-export-import-{Guid.NewGuid()}.blite");
         _context = new SampleDbContext(_testDbPath);
+        _metaContext = new EntglDbMetaContext(_testDbPath + ".meta");
         _configProvider = new TestPeerNodeConfigurationProvider("test-node");
         var vectorClock = new VectorClockService();
         
-        _documentStore = new SampleDocumentStore(_context, _configProvider, vectorClock, NullLogger<SampleDocumentStore>.Instance);
-        _snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
-            _context, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
-        _oplogStore = new BLiteOplogStore<SampleDbContext>(
-            _context, _documentStore, new LastWriteWinsConflictResolver(),
+        _documentStore = new SampleDocumentStore(_context, _metaContext, _configProvider, vectorClock, new BLitePendingChangesService(), NullLogger<SampleDocumentStore>.Instance);
+        _snapshotMetadataStore = new BLiteSnapshotMetadataStore(
+            _metaContext, NullLogger<BLiteSnapshotMetadataStore>.Instance);
+        _oplogStore = new BLiteOplogStore(
+            _metaContext, _documentStore, new LastWriteWinsConflictResolver(),
             vectorClock,
             _snapshotMetadataStore,
-            NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
-        _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(
-            _context, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
+            NullLogger<BLiteOplogStore>.Instance);
+        _peerConfigStore = new BLitePeerConfigurationStore(
+            _metaContext, NullLogger<BLitePeerConfigurationStore>.Instance);
     }
 
     #region OplogStore Tests
@@ -403,11 +405,16 @@ public class BLiteStoreExportImportTests : IDisposable
     public void Dispose()
     {
         _documentStore?.Dispose();
+        _metaContext?.Dispose();
         _context?.Dispose();
         
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
+        }
+        if (File.Exists(_testDbPath + ".meta"))
+        {
+            try { File.Delete(_testDbPath + ".meta"); } catch { }
         }
     }
 

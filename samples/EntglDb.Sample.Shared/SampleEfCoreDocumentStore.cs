@@ -1,5 +1,6 @@
 using EntglDb.Core;
 using EntglDb.Core.Network;
+using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
 using EntglDb.Persistence.EntityFramework;
 using Microsoft.EntityFrameworkCore;
@@ -21,9 +22,11 @@ public class SampleEfCoreDocumentStore : EfCoreDocumentStore<SampleEfCoreDbConte
 
     public SampleEfCoreDocumentStore(
         SampleEfCoreDbContext context,
+        IDocumentMetadataStore metadataStore,
+        IPendingChangesService pendingChangesService,
         IPeerNodeConfigurationProvider configProvider,
         ILogger<SampleEfCoreDocumentStore>? logger = null)
-        : base(context, configProvider, new LastWriteWinsConflictResolver(), logger)
+        : base(context, metadataStore, pendingChangesService, configProvider, new LastWriteWinsConflictResolver(), logger)
     {
     }
 
@@ -139,6 +142,13 @@ public class SampleEfCoreDocumentStore : EfCoreDocumentStore<SampleEfCoreDbConte
     }
 
     #endregion
+
+    protected override (string Collection, string Key)? GetCollectionAndKey(object entity) => entity switch
+    {
+        User u => (UsersCollection, u.Id),
+        TodoList t => (TodoListsCollection, t.Id),
+        _ => null
+    };
 
     #region Helper Methods
 

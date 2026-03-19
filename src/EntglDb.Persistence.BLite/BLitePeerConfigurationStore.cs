@@ -8,37 +8,17 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace EntglDb.Persistence.BLite;
 
 /// <summary>
-/// Provides a peer configuration store implementation that uses a specified EntglDocumentDbContext for persistence
-/// operations.
+/// Provides a peer configuration store implementation using EntglDbMetaContext for persistence.
 /// </summary>
-/// <remarks>This class enables storage, retrieval, and management of remote peer configurations using the provided
-/// database context. It is typically used in scenarios where peer configurations need to be persisted in a document
-/// database.</remarks>
-/// <typeparam name="TDbContext">The type of the document database context used for accessing and managing peer configurations. Must inherit from
-/// EntglDocumentDbContext.</typeparam>
-public class BLitePeerConfigurationStore<TDbContext> : PeerConfigurationStore where TDbContext : EntglDocumentDbContext
+public class BLitePeerConfigurationStore : PeerConfigurationStore
 {
-    /// <summary>
-    /// Represents the database context used for data access operations within the derived class.
-    /// </summary>
-    protected readonly TDbContext _context;
+    protected readonly EntglDbMetaContext _context;
+    protected readonly ILogger<BLitePeerConfigurationStore> _logger;
 
-    /// <summary>
-    /// Provides logging capabilities for the BLitePeerConfigurationStore operations.
-    /// </summary>
-    protected readonly ILogger<BLitePeerConfigurationStore<TDbContext>> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the BLitePeerConfigurationStore class using the specified database context and
-    /// optional logger.
-    /// </summary>
-    /// <param name="context">The database context used to access and manage peer configuration data. Cannot be null.</param>
-    /// <param name="logger">An optional logger for logging diagnostic messages. If null, a no-op logger is used.</param>
-    /// <exception cref="ArgumentNullException">Thrown if the context parameter is null.</exception>
-    public BLitePeerConfigurationStore(TDbContext context, ILogger<BLitePeerConfigurationStore<TDbContext>>? logger = null)
+    public BLitePeerConfigurationStore(EntglDbMetaContext context, ILogger<BLitePeerConfigurationStore>? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        _logger = logger ?? NullLogger<BLitePeerConfigurationStore<TDbContext>>.Instance;
+        _logger = logger ?? NullLogger<BLitePeerConfigurationStore>.Instance;
     }
 
     /// <inheritdoc />

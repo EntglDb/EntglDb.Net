@@ -2,6 +2,7 @@ using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Core.Sync;
+using EntglDb.Persistence.BLite;
 using EntglDb.Persistence.EntityFramework;
 using EntglDb.Persistence.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -22,16 +23,19 @@ namespace EntglDb.Sample.Shared.Tests;
 public class EfCoreStoreExportImportTests : IDisposable
 {
     private readonly string _testDbPath;
+    private readonly string _metaDbPath;
+    private readonly EntglDbMetaContext _metaContext;
     private readonly SampleEfCoreDbContext _context;
     private readonly SampleEfCoreDocumentStore _documentStore;
-    private readonly EfCoreOplogStore<SampleEfCoreDbContext> _oplogStore;
-    private readonly EfCorePeerConfigurationStore<SampleEfCoreDbContext> _peerConfigStore;
-    private readonly EfCoreSnapshotMetadaStore<SampleEfCoreDbContext> _snapshotMetadataStore;
+    private readonly BLiteOplogStore _oplogStore;
+    private readonly BLitePeerConfigurationStore _peerConfigStore;
+    private readonly BLiteSnapshotMetadataStore _snapshotMetadataStore;
     private readonly TestPeerNodeConfigurationProvider _configProvider;
 
     public EfCoreStoreExportImportTests()
     {
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-efcore-export-import-{Guid.NewGuid()}.db");
+        _metaDbPath = _testDbPath + ".meta";
         _context = new SampleEfCoreDbContext(_testDbPath);
 
         // IMPORTANT: Create database schema FIRST before instantiating stores
@@ -39,24 +43,25 @@ public class EfCoreStoreExportImportTests : IDisposable
 
         _configProvider = new TestPeerNodeConfigurationProvider("test-node");
 
-        _documentStore = new SampleEfCoreDocumentStore(_context, _configProvider, NullLogger<SampleEfCoreDocumentStore>.Instance);
+        _metaContext = new EntglDbMetaContext(_metaDbPath);
+        var metadataStore = new BLiteDocumentMetadataStore(_metaContext);
+        var pendingChanges = new BLitePendingChangesService();
+        _documentStore = new SampleEfCoreDocumentStore(_context, metadataStore, pendingChanges, _configProvider, NullLogger<SampleEfCoreDocumentStore>.Instance);
 
-        // Create SnapshotMetadataStore first (needed by OplogStore)
-        _snapshotMetadataStore = new EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>(
-            _context, NullLogger<EfCoreSnapshotMetadaStore<SampleEfCoreDbContext>>.Instance);
-
-        // OplogStore requires: context, documentStore, snapshotMetadataStore, vectorClockService, conflictResolver, logger
         var vectorClock = new VectorClockService();
-        _oplogStore = new EfCoreOplogStore<SampleEfCoreDbContext>(
-            _context,
-            _documentStore,
-            _snapshotMetadataStore,
-            vectorClock,
-            new LastWriteWinsConflictResolver(),
-            NullLogger<EfCoreOplogStore<SampleEfCoreDbContext>>.Instance);
 
-        _peerConfigStore = new EfCorePeerConfigurationStore<SampleEfCoreDbContext>(
-            _context, NullLogger<EfCorePeerConfigurationStore<SampleEfCoreDbContext>>.Instance);
+        // Internal stores use the BLite meta context (not the user's EF Core DbContext).
+        // After TASK-04, EntglDb internal tables (oplog, peers, snapshots) live in EntglDbMetaContext.
+        _snapshotMetadataStore = new BLiteSnapshotMetadataStore(_metaContext);
+
+        _oplogStore = new BLiteOplogStore(
+            _metaContext,
+            _documentStore,
+            new LastWriteWinsConflictResolver(),
+            vectorClock,
+            _snapshotMetadataStore);
+
+        _peerConfigStore = new BLitePeerConfigurationStore(_metaContext);
     }
 
     #region OplogStore Tests
@@ -417,11 +422,16 @@ public class EfCoreStoreExportImportTests : IDisposable
     public void Dispose()
     {
         _documentStore?.Dispose();
+        _metaContext?.Dispose();
         _context?.Dispose();
 
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
+        }
+        if (File.Exists(_metaDbPath))
+        {
+            try { File.Delete(_metaDbPath); } catch { }
         }
     }
 

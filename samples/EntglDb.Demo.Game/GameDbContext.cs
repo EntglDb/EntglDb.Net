@@ -1,10 +1,10 @@
+using BLite.Core;
 using BLite.Core.Collections;
 using BLite.Core.Metadata;
-using EntglDb.Persistence.BLite;
 
 namespace EntglDb.Demo.Game;
 
-public partial class GameDbContext : EntglDocumentDbContext
+public partial class GameDbContext : DocumentDbContext
 {
     public DocumentCollection<string, Hero> Heroes { get; private set; } = null!;
     public DocumentCollection<string, BattleLog> BattleLogs { get; private set; } = null!;

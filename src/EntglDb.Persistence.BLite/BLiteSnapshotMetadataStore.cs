@@ -8,42 +8,17 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace EntglDb.Persistence.BLite;
 
 /// <summary>
-/// Provides a snapshot metadata store implementation that uses a specified EntglDocumentDbContext for persistence
-/// operations.
+/// Provides a snapshot metadata store implementation using EntglDbMetaContext for persistence.
 /// </summary>
-/// <remarks>This class enables storage, retrieval, and management of snapshot metadata using the provided
-/// database context. It is typically used in scenarios where snapshot metadata needs to be persisted in a document
-/// database. The class supports bulk operations and incremental updates, and can be extended for custom database
-/// contexts. Thread safety depends on the underlying context implementation.</remarks>
-/// <typeparam name="TDbContext">The type of the document database context used for accessing and managing snapshot metadata. Must inherit from
-/// EntglDocumentDbContext.</typeparam>
-public class BLiteSnapshotMetadataStore<TDbContext> : SnapshotMetadataStore where TDbContext : EntglDocumentDbContext
+public class BLiteSnapshotMetadataStore : SnapshotMetadataStore
 {
-    /// <summary>
-    /// Represents the database context used for data access operations within the derived class.
-    /// </summary>
-    /// <remarks>Intended for use by derived classes to interact with the underlying database. The context
-    /// should be properly disposed of according to the application's lifetime management strategy.</remarks>
-    protected readonly TDbContext _context;
+    protected readonly EntglDbMetaContext _context;
+    protected readonly ILogger<BLiteSnapshotMetadataStore> _logger;
 
-    /// <summary>
-    /// Provides logging capabilities for the BLiteSnapshotMetadataStore operations.
-    /// </summary>
-    /// <remarks>Intended for use by derived classes to record diagnostic and operational information. The
-    /// logger instance is specific to the BLiteSnapshotMetadataStore<TDbContext> type.</remarks>
-    protected readonly ILogger<BLiteSnapshotMetadataStore<TDbContext>> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the BLiteSnapshotMetadataStore class using the specified database context and
-    /// optional logger.
-    /// </summary>
-    /// <param name="context">The database context to be used for accessing snapshot metadata. Cannot be null.</param>
-    /// <param name="logger">An optional logger for logging diagnostic messages. If null, a no-op logger is used.</param>
-    /// <exception cref="ArgumentNullException">Thrown if the context parameter is null.</exception>
-    public BLiteSnapshotMetadataStore(TDbContext context, ILogger<BLiteSnapshotMetadataStore<TDbContext>>? logger = null)
+    public BLiteSnapshotMetadataStore(EntglDbMetaContext context, ILogger<BLiteSnapshotMetadataStore>? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        _logger = logger ?? NullLogger<BLiteSnapshotMetadataStore<TDbContext>>.Instance;
+        _logger = logger ?? NullLogger<BLiteSnapshotMetadataStore>.Instance;
     }
 
     /// <inheritdoc />

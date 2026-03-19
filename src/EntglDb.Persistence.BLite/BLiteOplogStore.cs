@@ -9,21 +9,21 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EntglDb.Persistence.BLite;
 
-public class BLiteOplogStore<TDbContext> : OplogStore where TDbContext : EntglDocumentDbContext
+public class BLiteOplogStore : OplogStore
 {
-    protected readonly TDbContext _context;
-    protected readonly ILogger<BLiteOplogStore<TDbContext>> _logger;
+    protected readonly EntglDbMetaContext _context;
+    protected readonly ILogger<BLiteOplogStore> _logger;
 
     public BLiteOplogStore(
-        TDbContext dbContext, 
+        EntglDbMetaContext dbContext, 
         IDocumentStore documentStore, 
         IConflictResolver conflictResolver,
         IVectorClockService vectorClockService,
         ISnapshotMetadataStore? snapshotMetadataStore = null,
-        ILogger<BLiteOplogStore<TDbContext>>? logger = null) : base(documentStore, conflictResolver, vectorClockService, snapshotMetadataStore)
+        ILogger<BLiteOplogStore>? logger = null) : base(documentStore, conflictResolver, vectorClockService, snapshotMetadataStore)
     {
         _context = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
-        _logger = logger ?? NullLogger<BLiteOplogStore<TDbContext>>.Instance;
+        _logger = logger ?? NullLogger<BLiteOplogStore>.Instance;
     }
 
     public override async Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)

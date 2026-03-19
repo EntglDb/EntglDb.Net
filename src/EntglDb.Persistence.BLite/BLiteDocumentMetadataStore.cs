@@ -11,16 +11,15 @@ namespace EntglDb.Persistence.BLite;
 /// <summary>
 /// BLite implementation of document metadata storage for sync tracking.
 /// </summary>
-/// <typeparam name="TDbContext">The type of EntglDocumentDbContext.</typeparam>
-public class BLiteDocumentMetadataStore<TDbContext> : DocumentMetadataStore where TDbContext : EntglDocumentDbContext
+public class BLiteDocumentMetadataStore : DocumentMetadataStore
 {
-    private readonly TDbContext _context;
-    private readonly ILogger<BLiteDocumentMetadataStore<TDbContext>> _logger;
+    private readonly EntglDbMetaContext _context;
+    private readonly ILogger<BLiteDocumentMetadataStore> _logger;
 
-    public BLiteDocumentMetadataStore(TDbContext context, ILogger<BLiteDocumentMetadataStore<TDbContext>>? logger = null)
+    public BLiteDocumentMetadataStore(EntglDbMetaContext context, ILogger<BLiteDocumentMetadataStore>? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        _logger = logger ?? NullLogger<BLiteDocumentMetadataStore<TDbContext>>.Instance;
+        _logger = logger ?? NullLogger<BLiteDocumentMetadataStore>.Instance;
     }
 
     /// <inheritdoc />

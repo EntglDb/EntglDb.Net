@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using EntglDb.Persistence.EntityFramework;
-using EntglDb.Persistence.EntityFramework.Entities;
 
 namespace EntglDb.Sample.Shared;
 
@@ -20,11 +18,6 @@ public class SampleEfCoreDbContext : DbContext
     // Application entities
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<TodoList> TodoLists { get; set; } = null!;
-
-    // EntglDb internal entities
-    public DbSet<OplogEntity> OplogEntries { get; set; } = null!;
-    public DbSet<RemotePeerEntity> RemotePeers { get; set; } = null!;
-    public DbSet<SnapshotMetadataEntity> SnapshotMetadatas { get; set; } = null!;
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -54,7 +47,5 @@ public class SampleEfCoreDbContext : DbContext
             });
         });
 
-        // Configure EntglDb internal entities
-        modelBuilder.ApplyEntglDbEntityFrameworkConfigurations();
     }
 }

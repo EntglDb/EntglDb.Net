@@ -19,10 +19,12 @@ public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
 
     public SampleDocumentStore(
         SampleDbContext context,
+        EntglDbMetaContext metaContext,
         IPeerNodeConfigurationProvider configProvider,
         IVectorClockService vectorClockService,
+        IPendingChangesService pendingChangesService,
         ILogger<SampleDocumentStore>? logger = null)
-        : base(context, configProvider, vectorClockService, new LastWriteWinsConflictResolver(), logger)
+        : base(context, metaContext, configProvider, vectorClockService, pendingChangesService, new LastWriteWinsConflictResolver(), logger)
     {
         // Register CDC watchers for local change detection
         // InterestedCollection is automatically populated

@@ -19,5 +19,8 @@ public class DocumentMetadataEntityConfiguration : IEntityTypeConfiguration<Docu
         builder.HasIndex(e => new { e.Collection, e.Key })
             .IsUnique()
             .HasDatabaseName("IX_DocumentMetadata_Collection_Key");
+
+        builder.HasIndex(e => new { e.Collection, e.Key, e.ContentHash })
+            .HasDatabaseName("IX_DocumentMetadata_Collection_Key_ContentHash");
     }
 }

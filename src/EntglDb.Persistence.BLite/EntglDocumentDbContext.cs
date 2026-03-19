@@ -2,6 +2,7 @@
 using BLite.Core.Collections;
 using BLite.Core.Metadata;
 using BLite.Core.Storage;
+using EntglDb.Persistence.Entities;
 using EntglDb.Persistence.BLite.Entities;
 
 namespace EntglDb.Persistence.BLite;
@@ -35,6 +36,13 @@ public partial class EntglDocumentDbContext : DocumentDbContext
     /// <remarks>Stores HLC timestamps and deleted state for each document without modifying application entities.
     /// Used to track document versions for incremental sync instead of full snapshots.</remarks>
     public DocumentCollection<string, DocumentMetadataEntity> DocumentMetadatas { get; private set; } = null!;
+
+    /// <summary>
+    /// Gets the collection of pending local changes awaiting flush to the oplog.
+    /// Uses upsert semantics: one entry per document key (Id = "collection/key"), last-write wins.
+    /// Only used by EntglDbMetaContext; regular user contexts should not access this.
+    /// </summary>
+    public DocumentCollection<string, PendingChangeEntity> PendingChanges { get; protected set; } = null!;
 
     /// <summary>
     /// Initializes a new instance of the EntglDocumentDbContext class using the specified database file path.
@@ -86,6 +94,14 @@ public partial class EntglDocumentDbContext : DocumentDbContext
             .HasKey(e => e.Id)
             .HasIndex(e => new { e.Collection, e.Key }, unique: true) // Composite business key
             .HasIndex(e => new { e.HlcPhysicalTime, e.HlcLogicalCounter, e.HlcNodeId })
-            .HasIndex(e => e.Collection);
+            .HasIndex(e => e.Collection)
+            .HasIndex(e => new { e.Collection, e.Key, e.ContentHash });
+
+        // PendingChanges: Use Id as business key ("collection/key"), collection+key for queries
+        modelBuilder.Entity<PendingChangeEntity>()
+            .ToCollection("PendingChanges")
+            .HasKey(e => e.Id)
+            .HasIndex(e => new { e.Collection, e.Key }, unique: false) // For batch queries
+            .HasIndex(e => new { e.HlcPhysicalTime, e.HlcLogicalCounter, e.HlcNodeId });
     }
 }

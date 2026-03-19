@@ -39,6 +39,7 @@ public class SyncOrchestrator : ISyncOrchestrator
 
     private readonly IPeerHandshakeService? _handshakeService;
     private readonly INetworkTelemetryService? _telemetry;
+    private readonly IPendingChangesFlushService _flushService;
     private class PeerStatus
     {
         public int FailureCount { get; set; }
@@ -54,6 +55,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         ISnapshotMetadataStore snapshotStore,
         ISnapshotService snapshotService,
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
+        IPendingChangesFlushService flushService,
         ILoggerFactory loggerFactory,
         IPeerHandshakeService? handshakeService = null,
         INetworkTelemetryService? telemetry = null)
@@ -64,6 +66,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         _snapshotMetadataStore = snapshotStore;
         _snapshotService = snapshotService;
         _peerNodeConfigurationProvider = peerNodeConfigurationProvider;
+        _flushService = flushService ?? throw new ArgumentNullException(nameof(flushService));
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<SyncOrchestrator>();
         _handshakeService = handshakeService;
@@ -155,6 +158,9 @@ public class SyncOrchestrator : ISyncOrchestrator
             var config = await _peerNodeConfigurationProvider.GetConfiguration();
             try
             {
+                // Flush pending local changes to the oplog before exchanging vector clocks with peers.
+                await _flushService.FlushAsync(token);
+
                 var discoveredPeers = _discovery.GetActivePeers();
 
                 // Build deduplicated peer list using a single pass with a seen-set.

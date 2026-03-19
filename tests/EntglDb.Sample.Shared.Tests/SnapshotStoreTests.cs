@@ -14,9 +14,10 @@ public class SnapshotStoreTests : IDisposable
 {
     private readonly string _testDbPath;
     private readonly SampleDbContext _context;
+    private readonly EntglDbMetaContext _metaContext;
     private readonly SampleDocumentStore _documentStore;
-    private readonly BLiteOplogStore<SampleDbContext> _oplogStore;
-    private readonly BLitePeerConfigurationStore<SampleDbContext> _peerConfigStore;
+    private readonly BLiteOplogStore _oplogStore;
+    private readonly BLitePeerConfigurationStore _peerConfigStore;
     private readonly SnapshotStore _snapshotStore;
     private readonly TestPeerNodeConfigurationProvider _configProvider;
 
@@ -24,23 +25,24 @@ public class SnapshotStoreTests : IDisposable
     {
         _testDbPath = Path.Combine(Path.GetTempPath(), $"test-snapshot-{Guid.NewGuid()}.blite");
         _context = new SampleDbContext(_testDbPath);
+        _metaContext = new EntglDbMetaContext(_testDbPath + ".meta");
         _configProvider = new TestPeerNodeConfigurationProvider("test-node");
         var vectorClock = new VectorClockService();
         
-        _documentStore = new SampleDocumentStore(_context, _configProvider, vectorClock, NullLogger<SampleDocumentStore>.Instance);
-        var snapshotMetadataStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
-            _context,
-            NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
-        _oplogStore = new BLiteOplogStore<SampleDbContext>(
-            _context, 
+        _documentStore = new SampleDocumentStore(_context, _metaContext, _configProvider, vectorClock, new BLitePendingChangesService(), NullLogger<SampleDocumentStore>.Instance);
+        var snapshotMetadataStore = new BLiteSnapshotMetadataStore(
+            _metaContext,
+            NullLogger<BLiteSnapshotMetadataStore>.Instance);
+        _oplogStore = new BLiteOplogStore(
+            _metaContext, 
             _documentStore, 
             new LastWriteWinsConflictResolver(),
             vectorClock,
             snapshotMetadataStore,
-            NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
-        _peerConfigStore = new BLitePeerConfigurationStore<SampleDbContext>(
-            _context,
-            NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
+            NullLogger<BLiteOplogStore>.Instance);
+        _peerConfigStore = new BLitePeerConfigurationStore(
+            _metaContext,
+            NullLogger<BLitePeerConfigurationStore>.Instance);
         
         _snapshotStore = new SnapshotStore(
             _documentStore,
@@ -128,18 +130,19 @@ public class SnapshotStoreTests : IDisposable
         try
         {
             using var newContext = new SampleDbContext(newDbPath);
+            using var newMetaContext = new EntglDbMetaContext(newDbPath + ".meta");
             var newConfigProvider = new TestPeerNodeConfigurationProvider("test-new-node");
             var newVectorClock = new VectorClockService();
-            var newDocStore = new SampleDocumentStore(newContext, newConfigProvider, newVectorClock, NullLogger<SampleDocumentStore>.Instance);
-            var newSnapshotMetaStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
-                newContext, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
-            var newOplogStore = new BLiteOplogStore<SampleDbContext>(
-                newContext, newDocStore, new LastWriteWinsConflictResolver(),
+            var newDocStore = new SampleDocumentStore(newContext, newMetaContext, newConfigProvider, newVectorClock, new BLitePendingChangesService(), NullLogger<SampleDocumentStore>.Instance);
+            var newSnapshotMetaStore = new BLiteSnapshotMetadataStore(
+                newMetaContext, NullLogger<BLiteSnapshotMetadataStore>.Instance);
+            var newOplogStore = new BLiteOplogStore(
+                newMetaContext, newDocStore, new LastWriteWinsConflictResolver(),
                 newVectorClock,
                 newSnapshotMetaStore,
-                NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
-            var newPeerStore = new BLitePeerConfigurationStore<SampleDbContext>(
-                newContext, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
+                NullLogger<BLiteOplogStore>.Instance);
+            var newPeerStore = new BLitePeerConfigurationStore(
+                newMetaContext, NullLogger<BLitePeerConfigurationStore>.Instance);
             
             var newSnapshotStore = new SnapshotStore(
                 newDocStore, newPeerStore, newOplogStore, new LastWriteWinsConflictResolver(),
@@ -175,21 +178,22 @@ public class SnapshotStoreTests : IDisposable
         try
         {
             using var sourceContext = new SampleDbContext(sourceDbPath);
+            using var sourceMetaContext = new EntglDbMetaContext(sourceDbPath + ".meta");
             await sourceContext.Users.InsertAsync(new User { Id = "new-user", Name = "New User", Age = 25 });
             await sourceContext.SaveChangesAsync();
 
             var sourceConfigProvider = new TestPeerNodeConfigurationProvider("test-source-node");
             var sourceVectorClock = new VectorClockService();
-            var sourceDocStore = new SampleDocumentStore(sourceContext, sourceConfigProvider, sourceVectorClock, NullLogger<SampleDocumentStore>.Instance);
-            var sourceSnapshotMetaStore = new BLiteSnapshotMetadataStore<SampleDbContext>(
-                sourceContext, NullLogger<BLiteSnapshotMetadataStore<SampleDbContext>>.Instance);
-            var sourceOplogStore = new BLiteOplogStore<SampleDbContext>(
-                sourceContext, sourceDocStore, new LastWriteWinsConflictResolver(),
+            var sourceDocStore = new SampleDocumentStore(sourceContext, sourceMetaContext, sourceConfigProvider, sourceVectorClock, new BLitePendingChangesService(), NullLogger<SampleDocumentStore>.Instance);
+            var sourceSnapshotMetaStore = new BLiteSnapshotMetadataStore(
+                sourceMetaContext, NullLogger<BLiteSnapshotMetadataStore>.Instance);
+            var sourceOplogStore = new BLiteOplogStore(
+                sourceMetaContext, sourceDocStore, new LastWriteWinsConflictResolver(),
                 sourceVectorClock,
                 sourceSnapshotMetaStore,
-                NullLogger<BLiteOplogStore<SampleDbContext>>.Instance);
-            var sourcePeerStore = new BLitePeerConfigurationStore<SampleDbContext>(
-                sourceContext, NullLogger<BLitePeerConfigurationStore<SampleDbContext>>.Instance);
+                NullLogger<BLiteOplogStore>.Instance);
+            var sourcePeerStore = new BLitePeerConfigurationStore(
+                sourceMetaContext, NullLogger<BLitePeerConfigurationStore>.Instance);
             
             var sourceSnapshotStore = new SnapshotStore(
                 sourceDocStore, sourcePeerStore, sourceOplogStore, new LastWriteWinsConflictResolver(),
@@ -270,11 +274,16 @@ public class SnapshotStoreTests : IDisposable
     public void Dispose()
     {
         _documentStore?.Dispose();
+        _metaContext?.Dispose();
         _context?.Dispose();
         
         if (File.Exists(_testDbPath))
         {
             try { File.Delete(_testDbPath); } catch { }
+        }
+        if (File.Exists(_testDbPath + ".meta"))
+        {
+            try { File.Delete(_testDbPath + ".meta"); } catch { }
         }
     }
 

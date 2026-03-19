@@ -44,4 +44,10 @@ public class DocumentMetadataEntity
     /// Gets or sets whether this document is marked as deleted (tombstone).
     /// </summary>
     public bool IsDeleted { get; set; }
+
+    /// <summary>
+    /// SHA-256 of normalized canonical JSON content. Empty string for deletes.
+    /// Used for content-based deduplication during CDC and sync.
+    /// </summary>
+    public string ContentHash { get; set; } = "";
 }

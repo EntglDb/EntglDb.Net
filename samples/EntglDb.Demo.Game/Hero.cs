@@ -17,5 +17,9 @@ public class Hero
     public int Xp { get; set; } = 0;
     public int MonstersKilled { get; set; } = 0;
     public bool IsAlive { get; set; } = true;
+    public HeroClass HeroClass { get; set; } = HeroClass.Warrior;
+    public int Mp { get; set; } = 50;
+    public int MaxMp { get; set; } = 50;
+    public int MagicAttack { get; set; } = 10;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

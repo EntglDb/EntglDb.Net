@@ -44,7 +44,7 @@ var databasePath = Path.Combine(dataPath, $"{nodeId}.blite");
 
 // Register EntglDb with BLite
 builder.Services.AddEntglDbCore()
-    .AddEntglDbBLite<GameDbContext, GameDocumentStore>(sp => new GameDbContext(databasePath))
+    .AddEntglDbBLite<GameDbContext, GameDocumentStore>(sp => new GameDbContext(databasePath), databasePath + ".meta")
     .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 
 // Game service

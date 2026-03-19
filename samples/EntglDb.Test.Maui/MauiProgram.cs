@@ -102,7 +102,8 @@ public static class MauiProgram
                         .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(
                             sp => new SampleDbContext(Path.Combine(
                                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                "app.blite")))
+                                "app.blite")),
+                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "app.blite.meta"))
                         .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
 #if DEBUG
 		builder.Logging.AddDebug();

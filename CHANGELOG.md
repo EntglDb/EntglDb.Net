@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.1.0"></a>
+## [2.1.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.1.0) (2026-03-19)
+
+### Features
+
+* ContentHash on DocumentMetadata with canonical JSON normalization ([dfa856f](https://www.github.com/EntglDb/EntglDb.Net/commit/dfa856f766907e6ca40de63146eaed0533cc1a39))
+
 <a name="2.0.1"></a>
 ## [2.0.1](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.0.1) (2026-03-18)
 

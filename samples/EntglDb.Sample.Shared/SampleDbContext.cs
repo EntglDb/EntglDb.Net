@@ -1,7 +1,7 @@
-﻿using BLite.Core.Collections;
+﻿using BLite.Core;
+using BLite.Core.Collections;
 using BLite.Core.Metadata;
 using BLite.Core.Storage;
-using EntglDb.Persistence.BLite;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,10 +10,10 @@ using System.Threading.Tasks;
 
 namespace EntglDb.Sample.Shared;
 
-public partial class SampleDbContext : EntglDocumentDbContext
+public partial class SampleDbContext : DocumentDbContext
 {
-    public DocumentCollection<string, User> Users { get; private set; }
-    public DocumentCollection<string, TodoList> TodoLists { get; private set; }
+    public DocumentCollection<string, User> Users { get; private set; } = null!;
+    public DocumentCollection<string, TodoList> TodoLists { get; private set; } = null!;
 
     /// <summary>
     /// Initializes a new instance of the SampleDbContext class using the specified database file path.

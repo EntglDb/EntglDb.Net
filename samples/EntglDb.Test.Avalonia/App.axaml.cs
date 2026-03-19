@@ -58,7 +58,7 @@ public class App : HostedApplication<MainView>
 
         // Register EntglDb Services using Fluent Extensions
         services.AddEntglDbCore()
-                .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath))
+                .AddEntglDbBLite<SampleDbContext, SampleDocumentStore>(sp => new SampleDbContext(databasePath), databasePath + ".meta")
                 .AddEntglDbNetwork<StaticPeerNodeConfigurationProvider>();
     }
 }
