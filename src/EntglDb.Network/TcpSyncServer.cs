@@ -462,15 +462,26 @@ internal class TcpSyncServer : ISyncServer
     private async Task<(IMessage? Response, MessageType ResponseType)> HandlePushChangesReqAsync(MessageHandlerContext ctx)
     {
         var pushReq = PushChangesRequest.Parser.ParseFrom(ctx.Payload);
-        var entries = pushReq.Entries.Select(e => new OplogEntry(
-            e.Collection,
-            e.Key,
-            (OperationType)Enum.Parse(typeof(OperationType), e.Operation),
-            string.IsNullOrEmpty(e.JsonData) ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
-            new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
-            e.PreviousHash, // Restore PreviousHash
-            e.Hash          // Restore Hash
-        ));
+        var entries = new List<OplogEntry>();
+
+        foreach (var e in pushReq.Entries)
+        {
+            if (!Enum.TryParse<OperationType>(e.Operation, ignoreCase: true, out var operation))
+            {
+                _logger.LogWarning("Failed to parse OperationType from value '{Operation}' in PushChangesReq.", e.Operation);
+                return (new AckResponse { Success = false }, MessageType.AckRes);
+            }
+
+            entries.Add(new OplogEntry(
+                e.Collection,
+                e.Key,
+                operation,
+                string.IsNullOrEmpty(e.JsonData) ? (System.Text.Json.JsonElement?)null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(e.JsonData),
+                new HlcTimestamp(e.HlcWall, e.HlcLogic, e.HlcNode),
+                e.PreviousHash, // Restore PreviousHash
+                e.Hash          // Restore Hash
+            ));
+        }
 
         await _oplogStore.ApplyBatchAsync(entries, ctx.CancellationToken);
 
