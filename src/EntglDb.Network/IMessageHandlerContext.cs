@@ -1,5 +1,8 @@
 using System.Net;
 using System.Threading;
+using System.Threading.Tasks;
+using EntglDb.Network.Proto;
+using Google.Protobuf;
 
 namespace EntglDb.Network;
 
@@ -23,4 +26,14 @@ public interface IMessageHandlerContext
     /// Cancellation token for the operation.
     /// </summary>
     CancellationToken CancellationToken { get; }
+
+    /// <summary>
+    /// Sends a message directly to the connected client on the current stream.
+    /// Use this for streaming responses (e.g. multi-chunk transfers) where the handler
+    /// writes its own response rather than returning a single <see cref="IMessage"/>.
+    /// </summary>
+    /// <param name="type">The <see cref="MessageType"/> of the outgoing message.</param>
+    /// <param name="message">The protobuf message to send.</param>
+    /// <param name="useCompression">Whether to compress the message payload. Defaults to <c>false</c>.</param>
+    Task SendMessageAsync(MessageType type, IMessage message, bool useCompression = false);
 }
