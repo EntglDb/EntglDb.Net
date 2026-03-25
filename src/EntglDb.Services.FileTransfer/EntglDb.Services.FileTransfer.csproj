@@ -7,9 +7,9 @@
     <Nullable>enable</Nullable>
     <Version>2.3.0</Version>
     <Authors>MrDevRobot</Authors>
-    <Description>Node status diagnostic service for the EntglDb P2P mesh network. Allows any node to query the runtime status of remote peers over the shared TCP connection.</Description>
+    <Description>Peer-to-peer file transfer service for the EntglDb mesh network. Allows any node to query and download files from remote peers over the shared TCP connection, with SHA-256 integrity verification.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>p2p;mesh;entgldb;distributed;diagnostics;nodestatus</PackageTags>
+    <PackageTags>p2p;mesh;entgldb;distributed;filetransfer;file</PackageTags>
     <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -37,7 +37,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="nodestatus.proto" GrpcServices="None" />
+    <Protobuf Include="filetransfer.proto" GrpcServices="None" />
   </ItemGroup>
 
 </Project>

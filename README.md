@@ -638,7 +638,8 @@ builder.Services.AddSingleton<MyClientService>();
 | 3–15  | Built-in sync messages (`SyncMessageType`) |
 | 16–31 | Reserved for future EntglDb use |
 | **32–999** | **Your custom services** |
-| 1000+ | Official EntglDb service packages (e.g. `EntglDb.Services.NodeStatus` uses 1000–1001) |
+| 1000–1001 | `EntglDb.Services.NodeStatus` — peer diagnostics |
+| 1100–1104 | `EntglDb.Services.FileTransfer` — P2P file transfer |
 
 ---
 

@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package EntglDb.Services.FileTransfer.Proto;
+
+option csharp_namespace = "EntglDb.Services.FileTransfer.Proto";
+
+// Wire values 1100–1104 are reserved for EntglDb.Services.FileTransfer.
+// User-defined services should use values in the 32–999 range.
+enum FileTransferMessageType {
+  FileTransferUnknown  = 0;     // Required by proto3; never sent on the wire.
+  FileQueryReq         = 1100;  // Query file metadata (does the file exist? how big?)
+  FileQueryRes         = 1101;  // Response with metadata, or not-found flag
+  FileDownloadReq      = 1102;  // Request to start streaming a file
+  FileChunkMsg         = 1103;  // One chunk of binary data (server → client, repeating)
+  FileTransferDoneMsg  = 1104;  // End of stream marker, includes final SHA-256 checksum
+}
+
+// ── query ───────────────────────────────────────────────────────────────────
+
+// Sent by the client to check whether a file with the given ID is available.
+message FileQueryRequest {
+  // Opaque file identifier assigned by the server-side IFileProvider.
+  string file_id = 1;
+}
+
+// Returned by the remote peer.
+message FileQueryResponse {
+  bool   found            = 1;  // false → all other fields are meaningless
+  string file_id          = 2;
+  string file_name        = 3;  // human-readable file name (no path components)
+  int64  size_bytes       = 4;
+  string sha256_checksum  = 5;  // lowercase hex; empty when the provider does not pre-compute it
+}
+
+// ── download ─────────────────────────────────────────────────────────────────
+
+// Sent by the client to start a streaming download.
+message FileDownloadRequest {
+  string file_id = 1;
+}
+
+// One binary chunk.  The server sends these in order before FileTransferCompleteMessage.
+message FileChunkMessage {
+  int32 chunk_index = 1;
+  bytes data        = 2;
+}
+
+// Signals the end of the file stream.  The client verifies the checksum.
+message FileTransferCompleteMessage {
+  int32  total_chunks     = 1;
+  string sha256_checksum  = 2;  // lowercase hex; used by the client for integrity verification
+}
