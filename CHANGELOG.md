@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.2.0"></a>
+## [2.2.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.2.0) (2026-03-25)
+
+### Features
+
+* Use async BLite APIs and bump dependencies ([aa37e80](https://www.github.com/EntglDb/EntglDb.Net/commit/aa37e80f66dfe367d20dc1ce2f4ac1c828bff227))
+
 <a name="2.1.4"></a>
 ## [2.1.4](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.1.4) (2026-03-23)
 
