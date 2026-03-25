@@ -537,8 +537,8 @@ Reserve a message type constant (≥ 32):
 ```csharp
 public static class MyMessageType
 {
-    public const int PingRequest  = 32;
-    public const int PingResponse = 33;
+    public const int PingRequest  = 100;  // any value in the 32–999 custom range
+    public const int PingResponse = 101;
 }
 ```
 
@@ -637,7 +637,8 @@ builder.Services.AddSingleton<MyClientService>();
 | 0–2   | Protocol control (handshake, keepalive) |
 | 3–15  | Built-in sync messages (`SyncMessageType`) |
 | 16–31 | Reserved for future EntglDb use |
-| **32+** | **Your custom services** |
+| **32–999** | **Your custom services** |
+| 1000+ | Official EntglDb service packages (e.g. `EntglDb.Services.NodeStatus` uses 1000–1001) |
 
 ---
 

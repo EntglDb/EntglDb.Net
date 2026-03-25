@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package EntglDb.Services.NodeStatus.Proto;
+
+option csharp_namespace = "EntglDb.Services.NodeStatus.Proto";
+
+// Wire values 1000–1001 are reserved for EntglDb.Services.NodeStatus.
+// User-defined services should pick blocks that do not overlap with other
+// registered packages.  The range 32–999 is available for custom use;
+// ranges above 1000 are used by official EntglDb service packages.
+enum NodeStatusMessageType {
+  NodeStatusUnknown = 0;     // Required by proto3; never sent on the wire.
+  NodeStatusReq     = 1000;
+  NodeStatusRes     = 1001;
+}
+
+// Sent by a node that wants to know the remote peer's runtime status.
+message NodeStatusRequest {
+}
+
+// Returned by the remote peer with its current runtime status.
+message NodeStatusResponse {
+  // The unique node identifier of the responding peer.
+  string node_id = 1;
+
+  // How long the node process has been running, in whole seconds.
+  int64 uptime_seconds = 2;
+
+  // Number of peers currently visible to this node via discovery.
+  int32 known_peer_count = 3;
+
+  // Addresses (host:port) of all currently active peers.
+  repeated string known_peer_addresses = 4;
+
+  // Semantic version string of the running EntglDb.Services.NodeStatus package.
+  string service_version = 5;
+}

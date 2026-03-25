@@ -39,7 +39,7 @@ Message types ≥ 32 are reserved for user services.
 // Server side — handle incoming requests
 public class PingHandler : INetworkMessageHandler
 {
-    public int MessageType => 32;
+    public int MessageType => 100;  // pick any value in the 32–999 custom range
 
     public Task<(IMessage? Response, int ResponseType)> HandleAsync(IMessageHandlerContext context)
     {
@@ -54,7 +54,7 @@ services.AddSingleton<INetworkMessageHandler, PingHandler>();
 
 // Client side — send a request
 var (_, payload) = await messenger.SendAndReceiveAsync(
-    "192.168.1.10:7000", 32, new PingRequest { Message = "hello" }, ct);
+    "192.168.1.10:7000", 100, new PingRequest { Message = "hello" }, ct);
 var response = PingResponse.Parser.ParseFrom(payload);
 ```
 
