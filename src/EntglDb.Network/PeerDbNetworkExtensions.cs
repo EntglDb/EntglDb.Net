@@ -48,6 +48,20 @@ public static class EntglDbNetworkExtensions
 
         services.TryAddSingleton<ISyncServer, TcpSyncServer>();
 
+        services.TryAddSingleton<IPeerConnectionPool>(sp =>
+        {
+            var configProvider = sp.GetRequiredService<IPeerNodeConfigurationProvider>();
+            var handshakeService = sp.GetService<IPeerHandshakeService>();
+            var telemetry = sp.GetService<EntglDb.Network.Telemetry.INetworkTelemetryService>();
+            var logger = sp.GetRequiredService<ILogger<TcpPeerClient>>();
+            return new PeerConnectionPool(
+                addr => new TcpPeerClient(addr, logger, handshakeService, telemetry),
+                configProvider,
+                logger);
+        });
+
+        services.TryAddSingleton<IPeerMessenger, PeerMessenger>();
+
         return services;
     }
 }

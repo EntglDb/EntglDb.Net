@@ -13,7 +13,7 @@
 
 EntglDb is not a database — it's a **sync layer** and **P2P platform** that plugs into your existing data store and enables automatic peer-to-peer replication across nodes in a mesh network. The mesh infrastructure also serves as a foundation for building additional distributed services.
 
-[Architecture](#architecture) | [Quick Start](#quick-start) | [Integration Guide](#integrating-with-your-database) | [Documentation](#documentation)
+[Architecture](#architecture) | [Quick Start](#quick-start) | [Integration Guide](#integrating-with-your-database) | [Custom P2P Services](#custom-p2p-services) | [Documentation](#documentation)
 
 </div>
 
@@ -27,6 +27,7 @@ EntglDb is not a database — it's a **sync layer** and **P2P platform** that pl
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Integrating with Your Database](#integrating-with-your-database)
+- [Custom P2P Services](#custom-p2p-services)
 - [Cloud Deployment](#cloud-deployment)
 - [Production Features](#production-features)
 - [Use Cases](#use-cases)
@@ -65,15 +66,15 @@ Your application continues to read and write to its database as usual. EntglDb w
 +---------------------------------------------------+
 |         Your Database (BLite / EF Core)           |
 |  +---------------------------------------------+  |
-|  |  Users    |  Orders    |  Products    | ...   |
+|  |  Users    |  Orders    |  Products    | ... |  |
 |  +---------------------------------------------+  |
 |        | CDC (Change Data Capture)                |
 |        |                                          |
 |  +---------------------------------------------+  |
-|  |  EntglDb Sync Engine                       |  |
-|  |  - Oplog (append-only hash-chained journal)|  |
-|  |  - Vector Clock (causal ordering)          |  |
-|  |  - Conflict Resolution (LWW / Custom Merge)|  |
+|  |  EntglDb Sync Engine                        |  |
+|  |  - Oplog (append-only hash-chained journal) |  |
+|  |  - Vector Clock (causal ordering)           |  |
+|  |  - Conflict Resolution (LWW / Custom Merge) |  |
 |  +---------------------------------------------+  |
 +---------------------------------------------------+
               | P2P Network (TCP + UDP Discovery)
@@ -500,6 +501,143 @@ DocumentStore: CreateOplogEntryAsync()
                               v
                     Remote Database: Updated!
 ```
+
+---
+
+## Custom P2P Services
+
+The EntglDb mesh network is not limited to database sync — you can build additional distributed services on top of the same TCP connections and discovery infrastructure.
+
+### How It Works
+
+Every node exposes a **server side** that dispatches incoming messages by type, and an injectable **client side** (`IPeerMessenger`) for sending outbound requests. Message types 32+ are reserved for custom use.
+
+```
+Node A (client)                        Node B (server)
+──────────────                         ──────────────
+IPeerMessenger.SendAndReceiveAsync()   INetworkMessageHandler.HandleAsync()
+      │  wire: [type=32][payload]            │
+      └──────────── TCP (shared conn) ───────┘
+```
+
+> The TCP connection and handshake are shared with the sync protocol — no extra socket is opened.
+
+### Step 1 — Define your Protobuf messages
+
+```proto
+// my_service.proto
+syntax = "proto3";
+
+message PingRequest  { string message = 1; }
+message PingResponse { string echo    = 1; }
+```
+
+Reserve a message type constant (≥ 32):
+
+```csharp
+public static class MyMessageType
+{
+    public const int PingRequest  = 32;
+    public const int PingResponse = 33;
+}
+```
+
+### Step 2 — Implement the server-side handler
+
+Implement `INetworkMessageHandler` and register it in DI after `AddEntglDbNetwork`:
+
+```csharp
+public class PingHandler : INetworkMessageHandler
+{
+    public int MessageType => MyMessageType.PingRequest;
+
+    public async Task<(IMessage? Response, int ResponseType)> HandleAsync(
+        IMessageHandlerContext context)
+    {
+        var request = PingRequest.Parser.ParseFrom(context.Payload);
+
+        var response = new PingResponse { Echo = $"pong: {request.Message}" };
+        return (response, MyMessageType.PingResponse);
+    }
+}
+```
+
+```csharp
+services.AddEntglDbNetwork<MyConfigProvider>();
+services.AddSingleton<INetworkMessageHandler, PingHandler>(); // must be after AddEntglDbNetwork
+```
+
+For **streaming responses** (multiple chunks), use `context.SendMessageAsync()` directly and return `(null, 0)`:
+
+```csharp
+public async Task<(IMessage?, int)> HandleAsync(IMessageHandlerContext context)
+{
+    for (int i = 0; i < 3; i++)
+        await context.SendMessageAsync(MyMessageType.PingResponse,
+            new PingResponse { Echo = $"chunk {i}" });
+
+    return (null, 0); // response already sent
+}
+```
+
+### Step 3 — Call the service from the client side
+
+Inject `IPeerMessenger` and call `SendAndReceiveAsync`:
+
+```csharp
+public class MyClientService
+{
+    private readonly IPeerMessenger _messenger;
+
+    public MyClientService(IPeerMessenger messenger) => _messenger = messenger;
+
+    public async Task<string> PingAsync(string peerAddress, CancellationToken ct)
+    {
+        var (responseType, payload) = await _messenger.SendAndReceiveAsync(
+            peerAddress,                      // "192.168.1.10:7000"
+            MyMessageType.PingRequest,
+            new PingRequest { Message = "hello" },
+            ct);
+
+        var response = PingResponse.Parser.ParseFrom(payload);
+        return response.Echo;
+    }
+}
+```
+
+For fire-and-forget (no response expected):
+
+```csharp
+await _messenger.SendAsync(peerAddress, MyMessageType.PingRequest,
+    new PingRequest { Message = "hello" }, ct);
+```
+
+### Step 4 — Wire up DI
+
+```csharp
+builder.Services
+    .AddEntglDbNetwork<MyConfigProvider>()    // registers IPeerConnectionPool + IPeerMessenger
+    .AddEntglDbSync();                         // if also using data sync
+
+// Register custom handler(s) after the above calls
+builder.Services.AddSingleton<INetworkMessageHandler, PingHandler>();
+
+// Register your client service
+builder.Services.AddSingleton<MyClientService>();
+```
+
+### Connection Sharing
+
+`IPeerMessenger` draws connections from the same `IPeerConnectionPool<TcpPeerClient>` used by the sync engine. Calling `SendAndReceiveAsync` to a peer that is already connected for sync **reuses the same TCP socket** — no extra connections are opened.
+
+### Message Type Ranges
+
+| Range | Owner |
+|-------|-------|
+| 0–2   | Protocol control (handshake, keepalive) |
+| 3–15  | Built-in sync messages (`SyncMessageType`) |
+| 16–31 | Reserved for future EntglDb use |
+| **32+** | **Your custom services** |
 
 ---
 

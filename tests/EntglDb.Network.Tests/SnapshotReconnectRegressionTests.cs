@@ -7,6 +7,7 @@ using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
 using EntglDb.Network;
+using EntglDb.Sync;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -18,6 +19,14 @@ namespace EntglDb.Network.Tests
         private class NoOpPendingChangesFlushService : IPendingChangesFlushService
         {
             public Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        }
+
+        private class NoOpPeerConnectionPool : IPeerConnectionPool
+        {
+            public Task<TcpPeerClient> GetOrConnectAsync(string peerAddress, IEnumerable<string>? interestingCollections = null, CancellationToken token = default)
+                => Task.FromResult<TcpPeerClient>(null!);
+            public void Invalidate(string peerAddress) { }
+            public void Dispose() { }
         }
 
         // Subclass to expose private method
@@ -33,12 +42,12 @@ namespace EntglDb.Network.Tests
                 IPendingChangesFlushService? flushService = null)
                 : base(discovery, oplogStore, documentStore, snapshotMetadataStore, snapshotService,
                        peerNodeConfigurationProvider, flushService ?? new NoOpPendingChangesFlushService(),
-                       NullLoggerFactory.Instance)
+                       NullLoggerFactory.Instance, new NoOpPeerConnectionPool())
             {
             }
 
             public async Task<string> TestProcessInboundBatchAsync(
-                TcpPeerClient client, 
+                SyncTcpPeerClient client, 
                 string peerNodeId, 
                 IList<OplogEntry> changes, 
                 CancellationToken token)
@@ -213,11 +222,11 @@ namespace EntglDb.Network.Tests
         }
 
         // Mock Client to intercept calls and simulate network behavior
-        private class MockTcpPeerClient : TcpPeerClient
+        private class MockTcpPeerClient : SyncTcpPeerClient
         {
             public bool GetChainRangeCalled { get; private set; }
 
-            public MockTcpPeerClient() : base("127.0.0.1:0", NullLogger.Instance)
+            public MockTcpPeerClient() : base(new TcpPeerClient("127.0.0.1:0", NullLogger.Instance))
             {
             }
 

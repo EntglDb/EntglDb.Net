@@ -1,8 +1,10 @@
 using EntglDb.Core;
 using EntglDb.Core.Network;
 using EntglDb.Core.Storage;
+using EntglDb.Network;
 using EntglDb.Network.Security;
 using EntglDb.Network.Telemetry;
+using EntglDb.Sync;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -33,12 +35,8 @@ public class SyncOrchestrator : ISyncOrchestrator
     private readonly Random _random = new Random();
     private readonly object _startStopLock = new object();
 
-    // Persistent clients pool
-    private readonly ConcurrentDictionary<string, TcpPeerClient> _clients = new();
     private readonly ConcurrentDictionary<string, PeerStatus> _peerStates = new();
-
-    private readonly IPeerHandshakeService? _handshakeService;
-    private readonly INetworkTelemetryService? _telemetry;
+    private readonly IPeerConnectionPool _peerPool;
     private readonly IPendingChangesFlushService _flushService;
     private class PeerStatus
     {
@@ -57,8 +55,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         IPeerNodeConfigurationProvider peerNodeConfigurationProvider,
         IPendingChangesFlushService flushService,
         ILoggerFactory loggerFactory,
-        IPeerHandshakeService? handshakeService = null,
-        INetworkTelemetryService? telemetry = null)
+        IPeerConnectionPool peerPool)
     {
         _discovery = discovery;
         _oplogStore = oplogStore;
@@ -69,8 +66,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         _flushService = flushService ?? throw new ArgumentNullException(nameof(flushService));
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<SyncOrchestrator>();
-        _handshakeService = handshakeService;
-        _telemetry = telemetry;
+        _peerPool = peerPool;
     }
 
     public async Task Start()
@@ -129,20 +125,6 @@ public class SyncOrchestrator : ISyncOrchestrator
         {
             ctsToDispose.Dispose();
         }
-
-        // Cleanup clients
-        foreach (var client in _clients.Values)
-        {
-            try
-            {
-                client.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error disposing client during shutdown");
-            }
-        }
-        _clients.Clear();
 
         await Task.CompletedTask;
     }
@@ -258,34 +240,16 @@ public class SyncOrchestrator : ISyncOrchestrator
     /// </summary>
     private async Task TrySyncWithPeer(PeerNode peer, CancellationToken token)
     {
-        TcpPeerClient? client = null;
+        SyncTcpPeerClient? client = null;
         bool shouldRemoveClient = false;
         bool syncSuccessful = false;
 
         try
         {
-            var config = await _peerNodeConfigurationProvider.GetConfiguration();
-
-            // Get or create persistent client
-            client = _clients.GetOrAdd(peer.NodeId, id => new TcpPeerClient(
-                peer.Address,
-                _loggerFactory.CreateLogger<TcpPeerClient>(),
-                _handshakeService,
-                _telemetry));
-
-            // Reconnect if disconnected
-            if (!client.IsConnected)
-            {
-                await client.ConnectAsync(token);
-            }
-
-            // Handshake (idempotent)
-            if (!await client.HandshakeAsync(config.NodeId, config.AuthToken, _documentStore.InterestedCollection, token))
-            {
-                _logger.LogWarning("Handshake rejected by {NodeId}", peer.NodeId);
-                shouldRemoveClient = true;
-                throw new Exception("Handshake rejected");
-            }
+            // Get or create a connected+handshaked base client from the shared pool,
+            // then wrap it with sync-specific operations.
+            var baseClient = await _peerPool.GetOrConnectAsync(peer.Address, _documentStore.InterestedCollection, token);
+            client = new SyncTcpPeerClient(baseClient);
 
             // 1. Exchange Vector Clocks
             var remoteVectorClock = await client.GetVectorClockAsync(token);
@@ -432,12 +396,9 @@ public class SyncOrchestrator : ISyncOrchestrator
         }
         finally
         {
-            if (shouldRemoveClient && client != null)
+            if (shouldRemoveClient)
             {
-                if (_clients.TryRemove(peer.NodeId, out var removedClient))
-                {
-                    try { removedClient.Dispose(); } catch { /* Ignore disposal errors */ }
-                }
+                _peerPool.Invalidate(peer.Address);
             }
 
             // Log successful sync outcome (failures are already logged in catch blocks)
@@ -485,7 +446,7 @@ public class SyncOrchestrator : ISyncOrchestrator
     /// Validates an inbound batch of changes, checks for gaps, performs recovery if needed, and applies to oplogStore.
     /// Extracted to enforce Single Responsibility Principle.
     /// </summary>
-    private async Task<SyncBatchResult> ProcessInboundBatchAsync(TcpPeerClient client, string peerNodeId, IList<OplogEntry> changes, CancellationToken token)
+    private async Task<SyncBatchResult> ProcessInboundBatchAsync(SyncTcpPeerClient client, string peerNodeId, IList<OplogEntry> changes, CancellationToken token)
     {
         _logger.LogInformation("Received {Count} changes from {NodeId}", changes.Count, peerNodeId);
 
@@ -617,7 +578,7 @@ public class SyncOrchestrator : ISyncOrchestrator
         return SyncBatchResult.Success;
     }
 
-    private async Task PerformSnapshotSyncAsync(TcpPeerClient client, bool mergeOnly, CancellationToken token)
+    private async Task PerformSnapshotSyncAsync(SyncTcpPeerClient client, bool mergeOnly, CancellationToken token)
     {
         _logger.LogInformation(mergeOnly ? "Starting Snapshot Merge..." : "Starting Full Database Replacement...");
         

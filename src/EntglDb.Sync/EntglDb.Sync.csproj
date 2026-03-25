@@ -13,7 +13,14 @@
     <PackageProjectUrl>https://github.com/EntglDb/EntglDb.Net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/EntglDb/EntglDb.Net</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\EntglDb.Network\EntglDb.Network.csproj" />
