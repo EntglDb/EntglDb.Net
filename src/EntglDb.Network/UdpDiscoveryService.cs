@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -229,8 +230,6 @@ internal class UdpDiscoveryService : IDiscoveryService
         using var udp = new UdpClient();
         udp.EnableBroadcast = true;
 
-        var endpoint = new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);
-
         while (!token.IsCancellationRequested)
         {
             try
@@ -249,7 +248,19 @@ internal class UdpDiscoveryService : IDiscoveryService
                 var json = JsonSerializer.Serialize(beacon);
                 var bytes = Encoding.UTF8.GetBytes(json);
 
-                await udp.SendAsync(bytes, bytes.Length, endpoint);
+                // Broadcast on each active IPv4 subnet to avoid route selection issues on multi-interface hosts.
+                var endpoints = GetBroadcastEndpoints(DiscoveryPort);
+                foreach (var endpoint in endpoints)
+                {
+                    try
+                    {
+                        await udp.SendAsync(bytes, bytes.Length, endpoint);
+                    }
+                    catch (SocketException sex) when (sex.SocketErrorCode is SocketError.HostUnreachable or SocketError.NetworkUnreachable)
+                    {
+                        _logger.LogWarning(sex, "UDP Broadcast route unavailable for {Endpoint}", endpoint);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -258,6 +269,73 @@ internal class UdpDiscoveryService : IDiscoveryService
 
             await Task.Delay(5000, token);
         }
+    }
+
+    private static IEnumerable<IPEndPoint> GetBroadcastEndpoints(int port)
+    {
+        var endpoints = new HashSet<IPAddress>();
+
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up)
+            {
+                continue;
+            }
+
+            if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel)
+            {
+                continue;
+            }
+
+            IPInterfaceProperties? properties;
+            try
+            {
+                properties = nic.GetIPProperties();
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var unicast in properties.UnicastAddresses)
+            {
+                var ip = unicast.Address;
+                var mask = unicast.IPv4Mask;
+
+                if (ip.AddressFamily != AddressFamily.InterNetwork || mask == null)
+                {
+                    continue;
+                }
+
+                if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any))
+                {
+                    continue;
+                }
+
+                endpoints.Add(ComputeBroadcastAddress(ip, mask));
+            }
+        }
+
+        if (endpoints.Count == 0)
+        {
+            endpoints.Add(IPAddress.Broadcast);
+        }
+
+        return endpoints.Select(address => new IPEndPoint(address, port));
+    }
+
+    private static IPAddress ComputeBroadcastAddress(IPAddress address, IPAddress mask)
+    {
+        var ipBytes = address.GetAddressBytes();
+        var maskBytes = mask.GetAddressBytes();
+        var broadcastBytes = new byte[ipBytes.Length];
+
+        for (var i = 0; i < ipBytes.Length; i++)
+        {
+            broadcastBytes[i] = (byte)(ipBytes[i] | (~maskBytes[i] & 0xFF));
+        }
+
+        return new IPAddress(broadcastBytes);
     }
 
     private string ComputeClusterHash(string authToken)
