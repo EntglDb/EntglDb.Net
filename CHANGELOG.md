@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.3.8"></a>
+## [2.3.8](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.8) (2026-06-05)
+
 <a name="2.3.7"></a>
 ## [2.3.7](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.7) (2026-04-24)
 
