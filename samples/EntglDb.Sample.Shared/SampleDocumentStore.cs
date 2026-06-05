@@ -37,7 +37,7 @@ public class SampleDocumentStore : BLiteDocumentStore<SampleDbContext>
     protected override async Task ApplyContentToEntityAsync(
         string collection, string key, JsonElement content, CancellationToken cancellationToken)
     {
-        UpsertEntity(collection, key, content);
+        await UpsertEntity(collection, key, content);
         await _context.SaveChangesAsync(cancellationToken);
     }
 
