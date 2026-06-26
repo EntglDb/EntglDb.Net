@@ -1,6 +1,7 @@
 using BLite.Core;
 using BLite.Core.Collections;
 using BLite.Core.Metadata;
+using BLite.Core.Storage;
 
 namespace EntglDb.Demo.Game;
 
@@ -9,7 +10,7 @@ public partial class GameDbContext : DocumentDbContext
     public DocumentCollection<string, Hero> Heroes { get; private set; } = null!;
     public DocumentCollection<string, BattleLog> BattleLogs { get; private set; } = null!;
 
-    public GameDbContext(string databasePath) : base(databasePath)
+    public GameDbContext(string databasePath) : base(databasePath, PageFileConfig.Default with { AllowMultiProcessAccess = true })
     {
     }
 
