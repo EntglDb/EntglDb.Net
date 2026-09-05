@@ -37,12 +37,12 @@ public abstract class OplogStore : IOplogStore
         _conflictResolver = conflictResolver ?? throw new ArgumentNullException(nameof(conflictResolver));
         _vectorClock = vectorClockService ?? throw new ArgumentNullException(nameof(vectorClockService));
         _snapshotMetadataStore = snapshotMetadataStore;
-        InitializeVectorClock();
     }
 
     /// <summary>
     /// Initializes the VectorClockService with existing oplog/snapshot data.
-    /// Called once at construction time.
+    /// Must be called at the end of each derived constructor, never from this base constructor:
+    /// implementations read derived state (their DbContext) that is still null at that point.
     /// </summary>
     protected abstract void InitializeVectorClock();
 

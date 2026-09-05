@@ -122,6 +122,59 @@ public class BLiteStoreExportImportTests : IDisposable
         Assert.Empty(exported);
     }
 
+    [Fact]
+    public async Task OplogStore_PruneOplogAsync_ChecksPointBoundaryIntoSnapshotMetadata()
+    {
+        // Uses its own on-disk file (not the shared _metaContext) so it can be closed and
+        // reopened, faithfully simulating a process restart rather than a same-session reread.
+        var dbPath = Path.Combine(Path.GetTempPath(), $"test-prune-{Guid.NewGuid()}.meta");
+        try
+        {
+            using (var ctx = new EntglDbMetaContext(dbPath))
+            {
+                var vectorClock = new VectorClockService();
+                var snapshotStore = new BLiteSnapshotMetadataStore(ctx, NullLogger<BLiteSnapshotMetadataStore>.Instance);
+                var oplogStore = new BLiteOplogStore(
+                    ctx, _documentStore, new LastWriteWinsConflictResolver(),
+                    vectorClock, snapshotStore, NullLogger<BLiteOplogStore>.Instance);
+
+                // Arrange - all of node1's history is about to age out of retention.
+                await oplogStore.AppendOplogEntryAsync(CreateOplogEntry("col1", "key1", "node1", 1000));
+                await oplogStore.AppendOplogEntryAsync(CreateOplogEntry("col2", "key2", "node1", 2000));
+                await ctx.SaveChangesAsync();
+
+                // Act
+                await oplogStore.PruneOplogAsync(new HlcTimestamp(2000, 0, "node1"));
+
+                // Assert - oplog rows are gone, but a checkpoint for node1 survives them.
+                Assert.Empty(await oplogStore.ExportAsync());
+                var meta = await snapshotStore.GetSnapshotMetadataAsync("node1");
+                Assert.NotNull(meta);
+                Assert.Equal(2000, meta!.TimestampPhysicalTime);
+            }
+
+            // Act - reopen the same on-disk database, simulating a process restart.
+            using (var ctx = new EntglDbMetaContext(dbPath))
+            {
+                var freshVectorClock = new VectorClockService();
+                var snapshotStore = new BLiteSnapshotMetadataStore(ctx, NullLogger<BLiteSnapshotMetadataStore>.Instance);
+                _ = new BLiteOplogStore(
+                    ctx, _documentStore, new LastWriteWinsConflictResolver(),
+                    freshVectorClock, snapshotStore, NullLogger<BLiteOplogStore>.Instance);
+
+                // Assert - VectorClock rehydrates node1's checkpoint instead of forgetting it
+                // ever wrote anything, even though its oplog rows were pruned before restart.
+                var clock = await freshVectorClock.GetVectorClockAsync();
+                Assert.Contains("node1", clock.NodeIds);
+                Assert.Equal(2000, clock.GetTimestamp("node1").PhysicalTime);
+            }
+        }
+        finally
+        {
+            File.Delete(dbPath);
+        }
+    }
+
     #endregion
 
     #region PeerConfigurationStore Tests

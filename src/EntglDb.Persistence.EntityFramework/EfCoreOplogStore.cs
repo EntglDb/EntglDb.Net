@@ -34,9 +34,6 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _snapshotMetadataStore = snapshotMetadataStore ?? throw new ArgumentNullException(nameof(snapshotMetadataStore));
         _logger = logger ?? NullLogger<EfCoreOplogStore<TDbContext>>.Instance;
-        
-        // Re-initialize now that _context is assigned
-        _vectorClock.IsInitialized = false;
         InitializeVectorClock();
     }
 
@@ -44,9 +41,6 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
     protected override void InitializeVectorClock()
     {
         if (_vectorClock.IsInitialized) return;
-
-        // Early exit: protect against constructor initialization order
-        if (_context == null) return;
 
         // Step 1: Load from SnapshotMetadata FIRST (base state after prune)
         if (_snapshotMetadataStore != null)

@@ -24,6 +24,7 @@ public class BLiteOplogStore : OplogStore
     {
         _context = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? NullLogger<BLiteOplogStore>.Instance;
+        InitializeVectorClock();
     }
 
     public override async Task ApplyBatchAsync(IEnumerable<OplogEntry> oplogEntries, CancellationToken cancellationToken = default)
@@ -143,21 +144,52 @@ public class BLiteOplogStore : OplogStore
         var toDelete = await _context.OplogEntries.AsQueryable()
             .Where(o => (o.TimestampPhysicalTime < cutoff.PhysicalTime) ||
                        (o.TimestampPhysicalTime == cutoff.PhysicalTime && o.TimestampLogicalCounter <= cutoff.LogicalCounter))
-            .Select(o => o.Hash)
             .ToListAsync(cancellationToken);
-        await _context.OplogEntries.DeleteBulkAsync(toDelete, cancellationToken);
+
+        if (toDelete.Count == 0) return;
+
+        // Checkpoint the latest-per-node entry being pruned into SnapshotMetadataStore first, so
+        // InitializeVectorClock's Step 1 keeps a floor for a node after its last oplog row is gone.
+        // Without it the VectorClock rehydrates empty once the oplog ages past retention, and peers
+        // see the node as if it had never written anything. Matches EfCoreOplogStore.PruneOplogAsync.
+        if (_snapshotMetadataStore != null)
+        {
+            var boundaryEntries = toDelete
+                .GroupBy(o => o.TimestampNodeId)
+                .Select(g => g.OrderByDescending(o => o.TimestampPhysicalTime)
+                              .ThenByDescending(o => o.TimestampLogicalCounter)
+                              .First());
+
+            foreach (var entry in boundaryEntries)
+            {
+                var existingMeta = await _snapshotMetadataStore.GetSnapshotMetadataAsync(entry.TimestampNodeId, cancellationToken);
+                if (existingMeta == null)
+                {
+                    await _snapshotMetadataStore.InsertSnapshotMetadataAsync(new SnapshotMetadata
+                    {
+                        NodeId = entry.TimestampNodeId,
+                        TimestampPhysicalTime = entry.TimestampPhysicalTime,
+                        TimestampLogicalCounter = entry.TimestampLogicalCounter,
+                        Hash = entry.Hash ?? ""
+                    }, cancellationToken);
+                }
+                else
+                {
+                    existingMeta.TimestampPhysicalTime = entry.TimestampPhysicalTime;
+                    existingMeta.TimestampLogicalCounter = entry.TimestampLogicalCounter;
+                    existingMeta.Hash = entry.Hash ?? "";
+                    await _snapshotMetadataStore.UpdateSnapshotMetadataAsync(existingMeta, cancellationToken);
+                }
+            }
+        }
+
+        // Id (technical key), not Hash (business key) - see DropAsync above for the same distinction.
+        await _context.OplogEntries.DeleteBulkAsync(toDelete.Select(o => o.Id), cancellationToken);
     }
 
     protected override void InitializeVectorClock()
     {
         if (_vectorClock.IsInitialized) return;
-
-        // Early check: if context or OplogEntries is null, skip initialization
-        if (_context?.OplogEntries == null)
-        {
-            _vectorClock.IsInitialized = true;
-            return;
-        }
 
         // Step 1: Load from SnapshotMetadata FIRST (base state after prune)
         if (_snapshotMetadataStore != null)
@@ -173,9 +205,10 @@ public class BLiteOplogStore : OplogStore
                         snapshot.Hash ?? "");
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore errors during initialization - oplog data will be used as fallback
+                // Oplog data (Step 2) is used as fallback - a failure here should not block startup.
+                _logger.LogWarning(ex, "Failed to load snapshot metadata during VectorClock initialization.");
             }
         }
 
