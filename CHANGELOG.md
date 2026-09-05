@@ -16,6 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.3.10"></a>
+## [2.3.10](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.10) (2026-09-05)
+
+### Bug Fixes
+
+* **Persistence:** VectorClock was never rehydrated at startup. `OplogStore`'s constructor called the abstract `InitializeVectorClock()` before derived constructors had assigned their DbContext, so the BLite provider saw a null context, skipped both snapshot-metadata and oplog loading, and latched `IsInitialized` to true. A node therefore always advertised an empty vector clock to its peers, no matter how much data it held, and never pulled or pushed anything. `InitializeVectorClock()` is now invoked at the end of each derived constructor.
+* **Persistence.BLite:** `PruneOplogAsync` deleted by `Hash` (a secondary indexed property) instead of `Id` (the collection key), so oplog pruning silently removed nothing and retention was never applied.
+* **Persistence.BLite:** `PruneOplogAsync` now checkpoints the latest pruned entry per node into `ISnapshotMetadataStore` before deleting, matching the Entity Framework provider. Without it, a node whose oplog aged past retention lost every trace of its own writes and looked to peers as if it had never written anything.
+* **Network:** `TcpPeerClient.ConnectAsync` did not reset `HasHandshaked` when replacing a dead connection, so `PeerConnectionPool` skipped the handshake on the new socket and sent a raw protobuf message where the peer expected an EC public-key length prefix, failing with "Invalid peer key length".
+* **Network:** `TcpPeerClient.ConnectAsync` connected through name resolution even for literal IP addresses, which on a dual-stack host could reach an IPv4-only listener over IPv6. Discovered peers now connect by `IPAddress` directly; hostnames still use the resolving path.
+* **Network:** concurrent callers sharing a pooled peer connection could interleave reads and writes mid-exchange. `IPeerConnectionPool.AcquireAsync` adds a per-peer session lease, held for the whole exchange by `SyncOrchestrator`, `PeerMessenger` and `FileTransferClient`.
+
+### Notes for implementers
+
+* `OplogStore` no longer calls `InitializeVectorClock()` from its constructor. Custom `OplogStore` subclasses must call it themselves at the end of their own constructor.
+* `IPeerConnectionPool` gains `AcquireAsync`; custom implementations must provide it.
+
 <a name="2.3.9"></a>
 ## [2.3.9](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.9) (2026-08-22)
 
