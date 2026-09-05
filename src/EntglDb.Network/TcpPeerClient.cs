@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -79,6 +80,12 @@ public class TcpPeerClient : IDisposable
         {
             if (_disposed) throw new ObjectDisposedException(nameof(TcpPeerClient));
             if (IsConnected) return;
+
+            // The ECDH session keys and HandshakeReq/Res exchange belong to the socket that just died,
+            // so the flag must not survive into the replacement connection: PeerConnectionPool would
+            // skip the handshake and send a protobuf message where the peer awaits an EC key-length
+            // prefix, which it then misreads as a huge length ("Invalid peer key length").
+            HasHandshaked = false;
         }
 
         var parts = _peerAddress.Split(':');
@@ -93,7 +100,14 @@ public class TcpPeerClient : IDisposable
 
         try
         {
-            await _client.ConnectAsync(parts[0], port);
+            // The string overload routes even a literal IP through name resolution, which on a
+            // dual-stack host can connect over IPv6 while the peer's TcpListener is bound IPv4-only.
+            // Discovered peers always carry a literal IP; KnownPeers may use a hostname, hence the
+            // fallback.
+            if (IPAddress.TryParse(parts[0], out var ip))
+                await _client.ConnectAsync(ip, port);
+            else
+                await _client.ConnectAsync(parts[0], port);
 
             lock (_connectionLock)
             {
