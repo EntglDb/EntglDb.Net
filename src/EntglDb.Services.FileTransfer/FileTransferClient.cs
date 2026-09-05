@@ -61,6 +61,11 @@ internal sealed class FileTransferClient : IFileTransferService
     public async Task DownloadAsync(
         string peerAddress, string fileId, Stream destination, CancellationToken ct = default)
     {
+        // Held for connect+handshake through the last chunk - see IPeerConnectionPool.AcquireAsync
+        // remarks: this is a multi-message streaming exchange on the shared connection, so it must not
+        // interleave with another caller's use of the same peer (e.g. a sync cycle running concurrently).
+        await using var lease = await _pool.AcquireAsync(peerAddress, ct);
+
         // Obtain (or reuse) the shared TCP connection for this peer.
         var client = await _pool.GetOrConnectAsync(peerAddress, token: ct);
 

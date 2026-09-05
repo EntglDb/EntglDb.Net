@@ -21,6 +21,11 @@ internal sealed class PeerMessenger : IPeerMessenger
     public async Task<(int ResponseType, byte[] Payload)> SendAndReceiveAsync(
         string peerAddress, int messageType, IMessage message, CancellationToken token = default)
     {
+        // Held for connect+handshake (if needed) through the response read - see
+        // IPeerConnectionPool.AcquireAsync remarks: without this, a concurrent caller sharing this
+        // peer's pooled connection (e.g. the sync orchestrator's own exchange) could read the response
+        // meant for this call, or vice versa.
+        await using var lease = await _pool.AcquireAsync(peerAddress, token);
         var client = await _pool.GetOrConnectAsync(peerAddress, token: token);
         await client.SendCustomAsync(messageType, message, token);
         return await client.ReceiveAsync(token);
@@ -30,6 +35,7 @@ internal sealed class PeerMessenger : IPeerMessenger
     public async Task SendAsync(
         string peerAddress, int messageType, IMessage message, CancellationToken token = default)
     {
+        await using var lease = await _pool.AcquireAsync(peerAddress, token);
         var client = await _pool.GetOrConnectAsync(peerAddress, token: token);
         await client.SendCustomAsync(messageType, message, token);
     }

@@ -244,6 +244,12 @@ public class SyncOrchestrator : ISyncOrchestrator
         bool shouldRemoveClient = false;
         bool syncSuccessful = false;
 
+        // Held for the whole exchange with this peer (connect+handshake through the last pull/push
+        // below) - see IPeerConnectionPool.AcquireAsync remarks: without this, another caller sharing
+        // this peer's pooled connection (e.g. an application service sending its own custom message
+        // type) could interleave reads/writes with this multi-step vector-clock/pull/push sequence.
+        await using var lease = await _peerPool.AcquireAsync(peer.Address, token);
+
         try
         {
             // Get or create a connected+handshaked base client from the shared pool,

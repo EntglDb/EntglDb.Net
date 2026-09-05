@@ -23,6 +23,13 @@ namespace EntglDb.Network.Tests
 
         private class NoOpPeerConnectionPool : IPeerConnectionPool
         {
+            private sealed class NoOpLease : IAsyncDisposable
+            {
+                public ValueTask DisposeAsync() => default;
+            }
+
+            public Task<IAsyncDisposable> AcquireAsync(string peerAddress, CancellationToken token = default)
+                => Task.FromResult<IAsyncDisposable>(new NoOpLease());
             public Task<TcpPeerClient> GetOrConnectAsync(string peerAddress, IEnumerable<string>? interestingCollections = null, CancellationToken token = default)
                 => Task.FromResult<TcpPeerClient>(null!);
             public void Invalidate(string peerAddress) { }
