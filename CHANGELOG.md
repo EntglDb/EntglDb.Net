@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.3.12"></a>
+## [2.3.12](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.12) (2026-09-06)
+
+### Bug Fixes
+
+* **FileTransfer:** `AddEntglDbFileTransfer()` registered `FileQueryHandler`/`FileDownloadHandler` with a hard, non-optional `IFileProvider` constructor dependency and no default - a node that only ever downloads files (never serves any) had to hand-write its own no-op provider just to avoid `IEntglDbNode.Start()` failing to resolve `IEnumerable<INetworkMessageHandler>`. Worse, since `Start()` is commonly invoked as a fire-and-forget task during app startup, that exception went completely unobserved: the node never finished starting, with no listening port, no log line, and no crash to point at the cause. Added `NullFileProvider`, registered via `TryAddSingleton` inside `AddEntglDbFileTransfer()` itself, so a download-only consumer needs nothing further; a node that does want to serve files still registers its own provider afterward and it wins as the last registration.
+
 <a name="2.3.11"></a>
 ## [2.3.11](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.11) (2026-09-06)
 
