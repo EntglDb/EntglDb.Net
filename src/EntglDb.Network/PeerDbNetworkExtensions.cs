@@ -89,6 +89,11 @@ public static class EntglDbNetworkExtensions
         this IServiceCollection services,
         bool useHostedService = true)
     {
+        // A node with nothing to replicate still has to answer "which collections do you want?" during
+        // discovery and handshake. The document store registers the real provider when there is something to
+        // replicate, and does it before this runs.
+        services.TryAddSingleton<ILocalInterestsProvider, NoCollectionInterestsProvider>();
+
         services.TryAddSingleton<INetworkNode, NetworkNode>();
 
         if (useHostedService)
