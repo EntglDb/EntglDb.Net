@@ -121,6 +121,11 @@ public class BLiteOplogStore : OplogStore
         foreach (var item in items)
         {
             await _context.OplogEntries.InsertAsync(item.ToEntity(), cancellationToken);
+            // Without this, the VectorClock cache stays exactly as it was before the import - the next
+            // gap check reads the same stale "local head" hash it always did, sees the identical gap
+            // again, and requests another snapshot forever (nothing about the import ever changes what
+            // GetLastEntryHashAsync's cache-first lookup returns).
+            _vectorClock.Update(item);
         }
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -135,6 +140,9 @@ public class BLiteOplogStore : OplogStore
             {
                 await _context.OplogEntries.InsertAsync(item.ToEntity(), cancellationToken);
             }
+            // Same reasoning as ImportAsync above - update regardless of whether this specific entry was
+            // new, so the cache reflects the merged state's true head even when every entry is a repeat.
+            _vectorClock.Update(item);
         }
         await _context.SaveChangesAsync(cancellationToken);
     }

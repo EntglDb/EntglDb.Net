@@ -454,6 +454,10 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
                     PreviousHash = entry.PreviousHash
                 };
                 _context.Set<OplogEntity>().Add(entity);
+                // Without this, the VectorClock cache stays exactly as it was before the import - the
+                // next gap check reads the same stale "local head" hash it always did, sees the identical
+                // gap again, and requests another snapshot forever.
+                _vectorClock.Update(entry);
             }
             await _context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -491,6 +495,10 @@ public class EfCoreOplogStore<TDbContext> : OplogStore where TDbContext : DbCont
                     };
                     _context.Set<OplogEntity>().Add(entity);
                 }
+                // Same reasoning as ImportAsync above - update regardless of whether this specific entry
+                // was new, so the cache reflects the merged state's true head even when every entry is a
+                // repeat.
+                _vectorClock.Update(entry);
             }
             await _context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
