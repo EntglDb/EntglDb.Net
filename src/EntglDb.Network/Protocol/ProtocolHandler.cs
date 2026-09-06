@@ -39,6 +39,15 @@ namespace EntglDb.Network.Protocol
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
 
+            // The wire header carries the message type in a single byte (see the WriteByte below), so a
+            // larger value would be silently truncated - the receiver would then look up a type nobody
+            // registered a handler for, close the connection as unsupported, and take every other caller
+            // sharing that pooled connection down with it. Failing loudly here is the difference between
+            // a one-line fix and hours of chasing a phantom sync failure.
+            if (type < 0 || type > 255)
+                throw new ArgumentOutOfRangeException(nameof(type), type,
+                    "Message type must fit in a single byte (0-255): the wire header has no room for more.");
+
             // 1. Serialize
             byte[] payloadBytes = message.ToByteArray();
             int originalSize = payloadBytes.Length;

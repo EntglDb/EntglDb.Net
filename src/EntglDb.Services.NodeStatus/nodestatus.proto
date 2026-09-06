@@ -4,14 +4,17 @@ package EntglDb.Services.NodeStatus.Proto;
 
 option csharp_namespace = "EntglDb.Services.NodeStatus.Proto";
 
-// Wire values 1000–1001 are reserved for EntglDb.Services.NodeStatus.
-// User-defined services should pick blocks that do not overlap with other
-// registered packages.  The range 32–999 is available for custom use;
-// ranges above 1000 are used by official EntglDb service packages.
+// The wire header carries the message type in a single byte, so every value must stay within 0-255.
+// Layout: 0-15 core protocol and sync, 16-199 free for user-defined services, 200-255 official EntglDb
+// service packages. Wire values 200-201 are reserved for EntglDb.Services.NodeStatus.
+//
+// These used to be 1000-1001, which the sender silently truncated to 232-233 - values no handler was
+// ever registered under, so the receiver closed the connection as "unsupported message type" and this
+// service could never work at all.
 enum NodeStatusMessageType {
-  NodeStatusUnknown = 0;     // Required by proto3; never sent on the wire.
-  NodeStatusReq     = 1000;
-  NodeStatusRes     = 1001;
+  NodeStatusUnknown = 0;    // Required by proto3; never sent on the wire.
+  NodeStatusReq     = 200;
+  NodeStatusRes     = 201;
 }
 
 // Sent by a node that wants to know the remote peer's runtime status.

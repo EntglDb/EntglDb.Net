@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.3.13"></a>
+## [2.3.13](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.13) (2026-09-06)
+
+### Bug Fixes
+
+* **Protocol:** the wire header carries the message type in a single byte (`stream.WriteByte((byte)type)`), but nothing enforced that range, so any handler registered above 255 was silently unreachable: the sender truncated the value, the receiver looked up a type nobody had registered, logged "unsupported message type" and closed the connection - taking down every other caller sharing that pooled connection with it (a running sync cycle, typically). `SendMessageAsync` now throws on an out-of-range type, and `TcpSyncServer` rejects an out-of-range handler at startup instead of at first use.
+* **FileTransfer:** message types were 1100-1104, truncated on the wire to 76-80 - meaning this service could never work at all. Renumbered to 210-214.
+* **NodeStatus:** same defect, message types 1000-1001 truncated to 232-233. Renumbered to 200-201. The wire-value convention documented in `nodestatus.proto` was itself unimplementable and has been corrected: 0-15 core protocol and sync, 16-199 free for user-defined services, 200-255 official EntglDb service packages.
+
 <a name="2.3.12"></a>
 ## [2.3.12](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.12) (2026-09-06)
 

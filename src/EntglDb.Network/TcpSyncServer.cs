@@ -380,6 +380,17 @@ internal class TcpSyncServer : ISyncServer
 
         foreach (var handler in handlers)
         {
+            // The wire header carries the type in a single byte, so a handler registered above 255 could
+            // never be reached: the sender truncates, this registry is keyed by the untruncated value, and
+            // the lookup below fails as "unsupported message type" - closing the connection and taking any
+            // other caller sharing it down too. Caught here, at startup, rather than on first use.
+            if (handler.MessageType < 0 || handler.MessageType > 255)
+            {
+                throw new InvalidOperationException(
+                    $"INetworkMessageHandler '{handler.GetType().Name}' declares MessageType {handler.MessageType}, " +
+                    "which does not fit in the single byte the wire header reserves for it (0-255).");
+            }
+
             if (registry.ContainsKey(handler.MessageType))
             {
                 _logger.LogWarning(
