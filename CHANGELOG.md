@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.3.11"></a>
+## [2.3.11](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.11) (2026-09-06)
+
+### Bug Fixes
+
+* **Persistence:** `ImportAsync`/`MergeAsync` (both the BLite and Entity Framework providers) wrote new oplog rows straight to the database without ever calling `IVectorClockService.Update`, so the in-memory cache stayed exactly as it was before a snapshot merge. `GetLastEntryHashAsync` checks that cache first, so the next gap check kept reading the same stale "local head" hash it always had, saw the identical gap again, and requested another snapshot - forever, even though every merge had genuinely succeeded on disk. Observed as an infinite snapshot-download loop between two peers that never converges.
+
 <a name="2.3.10"></a>
 ## [2.3.10](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.10) (2026-09-05)
 
