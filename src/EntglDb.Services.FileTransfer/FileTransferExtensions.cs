@@ -19,6 +19,7 @@ public static class FileTransferExtensions
     ///   <item><see cref="FileQueryHandler"/> as <see cref="INetworkMessageHandler"/> (server-side, wire type 1100)</item>
     ///   <item><see cref="FileDownloadHandler"/> as <see cref="INetworkMessageHandler"/> (server-side streaming, wire type 1102)</item>
     ///   <item><see cref="IFileTransferService"/> / <see cref="FileTransferClient"/> (client-side download API)</item>
+    ///   <item><see cref="IFileProvider"/> / <see cref="NullFileProvider"/> (server-side default - see below)</item>
     /// </list>
     /// </para>
     /// <para>
@@ -26,13 +27,16 @@ public static class FileTransferExtensions
     /// <see cref="IPeerMessenger"/> and <see cref="IPeerConnectionPool"/> are already registered.
     /// </para>
     /// <para>
-    /// To make files available for remote download, also register an <see cref="IFileProvider"/>:
+    /// A node that only ever downloads files (never serves any) needs nothing further - it uses the
+    /// registered <see cref="NullFileProvider"/> default, reporting every file as not found. To make files
+    /// available for remote download instead, register a real provider <em>after</em> this call:
     /// <code>
     /// services.AddEntglDbFileTransfer();
     /// services.AddSingleton&lt;IFileProvider, MyFileProvider&gt;();
     /// </code>
-    /// Without an <see cref="IFileProvider"/> the server-side handlers are registered but will
-    /// return not-found for every request.
+    /// <see cref="FileQueryHandler"/>/<see cref="FileDownloadHandler"/> take a single (non-enumerable)
+    /// <see cref="IFileProvider"/>, so the last registration wins - the call above's own provider overrides
+    /// the default even though both end up registered.
     /// </para>
     /// </remarks>
     public static IServiceCollection AddEntglDbFileTransfer(this IServiceCollection services)
@@ -45,6 +49,13 @@ public static class FileTransferExtensions
 
         // Client side
         services.TryAddSingleton<IFileTransferService, FileTransferClient>();
+
+        // Server-side default so a download-only consumer doesn't have to implement IFileProvider itself
+        // just to satisfy FileQueryHandler/FileDownloadHandler's constructor dependency - see remarks
+        // above. Must be TryAddSingleton (not AddSingleton) so a real provider the caller registers
+        // afterward via plain AddSingleton becomes the winning "last registration" for the single-instance
+        // resolution FileQueryHandler/FileDownloadHandler actually use.
+        services.TryAddSingleton<IFileProvider, NullFileProvider>();
 
         return services;
     }
