@@ -2,14 +2,11 @@
 
 namespace EntglDb.Network
 {
-    public interface IEntglDbNode
+    /// <summary>
+    /// A peer node that also replicates documents: <see cref="INetworkNode"/> plus the sync orchestrator.
+    /// </summary>
+    public interface IEntglDbNode : INetworkNode
     {
-        NodeAddress Address { get; }
-        IDiscoveryService Discovery { get; }
         ISyncOrchestrator Orchestrator { get; }
-        ISyncServer Server { get; }
-
-        Task Start();
-        Task Stop();
     }
 }

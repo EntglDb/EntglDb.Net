@@ -64,4 +64,38 @@ public static class EntglDbNetworkExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registers the node facade for a consumer that uses EntglDb purely as a peer-to-peer transport and
+    /// replicates no document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Call <c>AddEntglDbNetwork&lt;TConfig&gt;()</c> before this. Do not call it alongside
+    /// <c>AddEntglDbSync()</c>: that registers <see cref="INetworkNode"/> itself, bound to the same instance as
+    /// <c>IEntglDbNode</c>, so a node with sync enabled is not started twice.
+    /// </para>
+    /// <para>
+    /// Without <c>AddEntglDbSync()</c> nothing handles the sync message types (0-15). That is the point -
+    /// this node answers only the <see cref="INetworkMessageHandler"/> implementations its consumer
+    /// registers - but it does mean a peer that tries to sync against it is refused.
+    /// </para>
+    /// </remarks>
+    /// <param name="useHostedService">
+    /// If <c>true</c> (default), registers <see cref="NetworkNodeService"/> so the node starts and stops with
+    /// the application.
+    /// </param>
+    public static IServiceCollection AddEntglDbNetworkNode(
+        this IServiceCollection services,
+        bool useHostedService = true)
+    {
+        services.TryAddSingleton<INetworkNode, NetworkNode>();
+
+        if (useHostedService)
+        {
+            services.AddHostedService<NetworkNodeService>();
+        }
+
+        return services;
+    }
 }

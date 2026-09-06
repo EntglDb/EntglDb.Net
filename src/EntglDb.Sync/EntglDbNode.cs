@@ -1,14 +1,17 @@
-using System;
 using Microsoft.Extensions.Logging;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace EntglDb.Network;
 
 /// <summary>
-/// Represents a single EntglDb Peer Node. 
+/// Represents a single EntglDb Peer Node.
 /// Acts as a facade to orchestrate the lifecycle of Networking, Discovery, and Synchronization components.
 /// </summary>
+/// <remarks>
+/// The transport half - server, discovery, address - is <see cref="NetworkNode"/>'s; this adds document sync
+/// on top. A consumer that only needs the peer-to-peer transport registers <see cref="INetworkNode"/> instead
+/// (<c>AddEntglDbNetworkNode()</c>) and never pulls in this package.
+/// </remarks>
 public class EntglDbNode : IEntglDbNode
 {
     private readonly ILogger<EntglDbNode> _logger;
@@ -27,7 +30,6 @@ public class EntglDbNode : IEntglDbNode
     /// Gets the Synchronization Orchestrator instance.
     /// </summary>
     public ISyncOrchestrator Orchestrator { get; }
-
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EntglDbNode"/> class.
@@ -59,7 +61,7 @@ public class EntglDbNode : IEntglDbNode
             Server.Start(),
             Discovery.Start(),
             Orchestrator.Start()
-        );
+        ).ConfigureAwait(false);
 
         _logger.LogInformation("EntglDb Node Started on {Address}", Address);
     }
@@ -75,7 +77,7 @@ public class EntglDbNode : IEntglDbNode
             Orchestrator.Stop(),
             Discovery.Stop(),
             Server.Stop()
-        );
+        ).ConfigureAwait(false);
 
         _logger.LogInformation("EntglDb Node Stopped.");
     }
@@ -83,65 +85,5 @@ public class EntglDbNode : IEntglDbNode
     /// <summary>
     /// Gets the address information of this node.
     /// </summary>
-    public NodeAddress Address
-    {
-        get
-        {
-            var ep = Server.ListeningEndpoint;
-            if (ep != null)
-            {
-                // If the server is listening on "Any" (0.0.0.0), we cannot advertise that as a connectable address.
-                // We must resolve the actual machine IP address that peers can reach.
-                if (Equals(ep.Address, System.Net.IPAddress.Any) || Equals(ep.Address, System.Net.IPAddress.IPv6Any))
-                {
-                    return new NodeAddress(GetLocalIpAddress(), ep.Port);
-                }
-                return new NodeAddress(ep.Address.ToString(), ep.Port);
-            }
-            return new NodeAddress("Unknown", 0);
-        }
-    }
-
-    private string GetLocalIpAddress()
-    {
-        try
-        {
-            var interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                .Where(i => i.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
-                      && i.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback);
-
-            foreach (var i in interfaces)
-            {
-                var props = i.GetIPProperties();
-                var ipInfo = props.UnicastAddresses
-                    .FirstOrDefault(u => u.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork); // Prefer IPv4
-
-                if (ipInfo != null)
-                {
-                    return ipInfo.Address.ToString();
-                }
-            }
-
-            return "127.0.0.1";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to resolve local IP: {Message}. Fallback to localhost.", ex.Message);
-            return "127.0.0.1";
-        }
-    }
-}
-
-public class NodeAddress
-{
-    public string Host { get; }
-    public int Port { get; }
-
-    public NodeAddress(string host, int port)
-    {
-        Host = host;
-        Port = port;
-    }
-
-    public override string ToString() => $"{Host}:{Port}";
+    public NodeAddress Address => NetworkNode.ResolveAddress(Server, _logger);
 }

@@ -44,6 +44,9 @@ public static class SyncExtensions
 
         services.TryAddSingleton<ISyncOrchestrator, SyncOrchestrator>();
         services.TryAddSingleton<IEntglDbNode, EntglDbNode>();
+        // Same instance behind both: a consumer resolving INetworkNode here must get the node that is actually
+        // running, not a second one that would bind the same port.
+        services.TryAddSingleton<INetworkNode>(sp => sp.GetRequiredService<IEntglDbNode>());
 
         if (useHostedService)
         {
