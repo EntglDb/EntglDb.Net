@@ -79,24 +79,55 @@ namespace EntglDb.Network
             return new NodeAddress(endpoint.Address.ToString(), endpoint.Port);
         }
 
+        /// <summary>169.254.0.0/16, the address an interface self-assigns when no DHCP answered.</summary>
+        private static bool IsLinkLocal(IPAddress address)
+        {
+            var octets = address.GetAddressBytes();
+            return octets[0] == 169 && octets[1] == 254;
+        }
+
+        /// <summary>
+        /// The address this node advertises to its peers.
+        /// </summary>
+        /// <remarks>
+        /// Interfaces with a gateway come first, and link-local (169.254/16) addresses are never used.
+        /// An APIPA address is what an interface gets when nobody assigned it one - a second NIC with no
+        /// cable, a phone or tablet plugged in over USB, a virtual adapter - and it is unreachable from
+        /// the LAN the other nodes are on. Advertising one makes this node look present and answer
+        /// nothing, which is worse than not being discovered at all: taking the first address of the
+        /// first interface let whichever order the OS returned decide.
+        /// </remarks>
         private static string ResolveLocalIpAddress(ILogger logger)
         {
             try
             {
-                var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+                var candidates = NetworkInterface.GetAllNetworkInterfaces()
                     .Where(i => i.OperationalStatus == OperationalStatus.Up
-                             && i.NetworkInterfaceType != NetworkInterfaceType.Loopback);
-
-                foreach (var candidate in interfaces)
-                {
-                    var address = candidate.GetIPProperties().UnicastAddresses
-                        .FirstOrDefault(u => u.Address.AddressFamily == AddressFamily.InterNetwork);
-
-                    if (address != null)
+                             && i.NetworkInterfaceType != NetworkInterfaceType.Loopback
+                             && i.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+                    .Select(i => new
                     {
-                        return address.Address.ToString();
-                    }
+                        HasGateway = i.GetIPProperties().GatewayAddresses
+                            .Any(g => g.Address?.AddressFamily == AddressFamily.InterNetwork
+                                   && !g.Address.Equals(IPAddress.Any)),
+                        Addresses = i.GetIPProperties().UnicastAddresses
+                            .Select(u => u.Address)
+                            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !IsLinkLocal(a))
+                            .ToList()
+                    })
+                    .Where(i => i.Addresses.Count > 0)
+                    .OrderByDescending(i => i.HasGateway)
+                    .ToList();
+
+                var chosen = candidates.FirstOrDefault()?.Addresses.FirstOrDefault();
+                if (chosen != null)
+                {
+                    return chosen.ToString();
                 }
+
+                logger.LogWarning(
+                    "No routable IPv4 address found on any interface; falling back to localhost. " +
+                    "Peers on other machines will not be able to reach this node.");
 
                 return "127.0.0.1";
             }
