@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<a name="2.4.0"></a>
+## [2.4.0](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.4.0) (2026-11-19)
+
+### Features
+
+* target .NET 11 alongside .NET 10 and .NET Standard 2.1 in every library package
+* Entity Framework provider builds against EF Core 10.0.15 on net10.0 and EF Core 11.0.0 on net11.0
+* Microsoft.Extensions dependencies updated to 10.0.15
+
 <a name="2.3.13"></a>
 ## [2.3.13](https://www.github.com/EntglDb/EntglDb.Net/releases/tag/v2.3.13) (2026-09-06)
 
